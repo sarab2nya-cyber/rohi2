@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V13.3 [Rohi] - Strict Range Box", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V13.4 [Rohi] - Strict Range Box", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -29,6 +29,7 @@ rngShow              = input.bool(true, "Show Range Box", group=grp_rng)
 rngShowSeed          = input.bool(false, "Show Range Formation Marker (R)", group=grp_rng)
 rngMarkC1            = input.bool(true, "Mark Candle 1 (Range Anchor)", group=grp_rng)
 rngMaxOutsidePct     = input.float(0.30, "C2 Max Protrusion % (of C2 height)", minval=0.05, maxval=0.50, step=0.05, group=grp_rng)
+rngMaxFakeoutBars    = input.int(3, "Max Fakeout Bars (closes outside before return)", minval=0, maxval=50, group=grp_rng, tooltip="An excursion that closes back inside the box within this many closes beyond the boundary is a Fakeout and is absorbed into the box. Longer excursions are not absorbed.")
 rngDojiPct           = input.float(0.15, "Doji Max Body %", minval=0.01, maxval=0.30, step=0.01, group=grp_rng)
 rngNormalMinPct      = input.float(0.50, "Normal Min Body %", minval=0.30, maxval=0.70, step=0.05, group=grp_rng)
 rngNormalMaxPct      = input.float(0.70, "Normal Max Body %", minval=0.50, maxval=0.90, step=0.05, group=grp_rng)
@@ -224,16 +225,25 @@ var int   candidateLowBar  = na
 //   IDLE   --(C1 counter-trend + C2 indecision + no Real Pullback)--> ACTIVE
 //   ACTIVE --(trend-side Real Breakout, Rules 1-3)------------------> CLOSED (Scenario 2)
 //   ACTIVE --(counter-side Real Pullback OR Real Breakout, 1-3)----> CLOSED (Scenario 1)
-//   ACTIVE --(anything else: inside candles, wicks, body whipsaws)--> ACTIVE, expanded
+//   ACTIVE --(anything else: inside candles, wicks, body whipsaws)--> ACTIVE (expanded by Fakeouts)
 //
-// PERSISTENCE THROUGH WHIPSAWS (V13.3):
-//   * The box is never closed by "time" or by a partial confirmation.
-//   * Every candle that does not complete Rule 1, 2 or 3 at a boundary is
-//     internal liquidity: the box absorbs its high/low immediately.
-//   * Rules 1-3 are two-candle patterns, so they are tested against the
-//     boundary AS IT STOOD BEFORE the pattern's first candle (testTop /
-//     testBot). The first candle of a real breakout is therefore not
-//     "swallowed" by the expansion, and no look-ahead is needed.
+// BOUNDARY MECHANICS (V13.4) - why the box can no longer swallow a trend:
+//   * The box is never closed by "time" or by a partial confirmation;
+//     only Rules 1-3 close it.
+//   * WICK SWEEP: a candle that pokes beyond a boundary but CLOSES inside
+//     is internal liquidity -> the boundary absorbs its wick at once.
+//   * BODY BREAK: a candle that CLOSES beyond a boundary is a break
+//     attempt. The boundary is NOT moved while closes stay beyond it, so
+//     Rules 1-3 are always tested against the real ceiling/floor. (V13.3
+//     moved the boundary to every new extreme, so a trend kept raising the
+//     bar it had to break and the box grew with the whole trend.)
+//   * FAKEOUT: the attempt fails when price closes back inside. If that
+//     happens within `Max Fakeout Bars` closes, the excursion is a Fakeout
+//     and the box expands to contain it.
+//   * A longer excursion that later comes back was a move away from the
+//     range, not internal liquidity: it is NOT absorbed (V13.3 absorbed a
+//     100-bar trend leg on its first close back inside, inflating the box
+//     many times over).
 //
 // While ACTIVE every candle is internal liquidity: no pullback is
 // confirmed, no CTS/BOS is issued, no signal dot is plotted. Only the
@@ -241,10 +251,12 @@ var int   candidateLowBar  = na
 // =====================================================================
 var bool  rangeActive   = false
 var int   rangeDir      = 0      // +1 box in an up leg (C1 bearish), -1 box in a down leg (C1 bullish)
-var float boxTop        = na     // current ceiling: every high traded inside the box
-var float boxBot        = na     // current floor:   every low traded inside the box
-var float testTop       = na     // ceiling before the previous candle expanded it (Rule 1-3 test level)
-var float testBot       = na     // floor   before the previous candle expanded it (Rule 1-3 test level)
+var float boxTop        = na     // ceiling: C1/C2 extremes + absorbed wick sweeps and Fakeouts
+var float boxBot        = na     // floor:   C1/C2 extremes + absorbed wick sweeps and Fakeouts
+var int   outUpBars     = 0      // consecutive closes above the ceiling (current break attempt)
+var int   outDnBars     = 0      // consecutive closes below the floor   (current break attempt)
+var float exHi          = na     // highest high of the current upside excursion
+var float exLo          = na     // lowest low of the current downside excursion
 var int   rangeLeftBar  = na     // bar of Candle 1 (the anchor candle, always retained)
 var box   rangeBox      = na
 var int   lastCloseBar  = na     // bar on which the last box closed
@@ -268,13 +280,15 @@ f_inClosedRange(float price, int barIdx) =>
                 break
     inside
 
-// Closure tests against the box boundaries as they stood before the
-// pattern's first candle. Evaluated on every bar (not inside a
+// Closure tests against the current box boundaries (which never move while
+// closes are beyond them). Evaluated on every bar (not inside a
 // conditional) so the history-referencing functions stay consistent.
-bool boUpCeil  = f_real_breakout(testTop, 1)       // Real Breakout above the ceiling
-bool boDnFloor = f_real_breakout(testBot, -1)      // Real Breakout below the floor
-bool pbDnFloor = f_real_pullback_at(testBot, -1)   // bearish Real Pullback out of the floor
-bool pbUpCeil  = f_real_pullback_at(testTop, 1)    // bullish Real Pullback out of the ceiling
+float ceilLvl  = rangeActive ? boxTop : na
+float floorLvl = rangeActive ? boxBot : na
+bool boUpCeil  = f_real_breakout(ceilLvl, 1)        // Real Breakout above the ceiling
+bool boDnFloor = f_real_breakout(floorLvl, -1)      // Real Breakout below the floor
+bool pbDnFloor = f_real_pullback_at(floorLvl, -1)   // bearish Real Pullback out of the floor
+bool pbUpCeil  = f_real_pullback_at(ceilLvl, 1)     // bullish Real Pullback out of the ceiling
 
 // ---------------- Candle 1 (Trigger): counter-trend candle ----------------
 float c1Range   = bar_index >= 1 ? math.max(high[1] - low[1], syminfo.mintick) : syminfo.mintick
@@ -366,13 +380,28 @@ if rangeActive
         rngClosedNow := true
         seedBias     := -rangeDir
     else
-        // ---- WHIPSAW / INTERNAL LIQUIDITY: the box persists and expands ----
-        // Remember the boundaries before this candle, so that if this candle
-        // is C1 of a Rule 1-3 pattern the next bar tests the original level.
-        testTop := boxTop
-        testBot := boxBot
-        boxTop  := math.max(boxTop, high)
-        boxBot  := math.min(boxBot, low)
+        // ---- NO CLOSURE: the box persists (see BOUNDARY MECHANICS) ----
+        // Ceiling side
+        if close > boxTop
+            // Body break attempt: keep the ceiling, record the excursion.
+            outUpBars += 1
+            exHi      := math.max(nz(exHi, high), high)
+        else
+            // Closed back inside: sweep (0 closes outside) or Fakeout
+            // (<= Max Fakeout Bars) -> absorb; longer excursion -> ignore.
+            if outUpBars <= rngMaxFakeoutBars
+                boxTop := math.max(boxTop, nz(exHi, high), high)
+            outUpBars := 0
+            exHi      := na
+        // Floor side (mirror)
+        if close < boxBot
+            outDnBars += 1
+            exLo      := math.min(nz(exLo, low), low)
+        else
+            if outDnBars <= rngMaxFakeoutBars
+                boxBot := math.min(boxBot, nz(exLo, low), low)
+            outDnBars := 0
+            exLo      := na
 
         // Box grows rightward and vertically.
         if not na(rangeBox)
@@ -411,8 +440,10 @@ if rangeActive
 
         rangeActive  := false
         rangeDir     := 0
-        testTop      := na
-        testBot      := na
+        outUpBars    := 0
+        outDnBars    := 0
+        exHi         := na
+        exLo         := na
         lastCloseBar := bar_index
         rangeBox     := na
 
@@ -425,8 +456,10 @@ if not rangeWasActive and not rngClosedNow and (seedUp or seedDn)
     rangeDir     := seedUp ? 1 : -1
     boxTop       := math.max(high[1], high)   // highest High of C1..C2
     boxBot       := math.min(low[1], low)     // lowest Low  of C1..C2
-    testTop      := boxTop
-    testBot      := boxBot
+    outUpBars    := 0
+    outDnBars    := 0
+    exHi         := na
+    exLo         := na
     rangeLeftBar := bar_index - 1
     if rngShow
         rangeBox := box.new(left=f_x(rangeLeftBar), top=boxTop, right=bar_index, bottom=boxBot, bgcolor=rngActiveColor, border_color=color.new(color.gray, 25), border_width=1, border_style=line.style_dotted)
