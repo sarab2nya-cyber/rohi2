@@ -40,6 +40,7 @@ rngBearColor         = input.color(color.new(color.red, 86), "Closed by Bearish 
 rngPbColor           = input.color(color.new(color.orange, 86), "Closed by Real Pullback", group=grp_rng)
 rngActiveColor       = input.color(color.new(color.gray, 88), "Active Range", group=grp_rng)
 rngBlockFVG          = input.bool(true, "Block FVG Inside Active Range", group=grp_rng)
+rngShowBg            = input.bool(false, "Shade Chart Background While Range Active", group=grp_rng)
 
 // Imbalance Settings
 showImbBox       = input.bool(true, "Show Imbalance Lines (FVG)", group="Imbalance Settings")
@@ -82,8 +83,12 @@ is_pinbar     = (upper_wick > c_body * 2) or (lower_wick > c_body * 2)
 is_normal     = not is_doji and not is_pinbar and is_valid_body
 
 atr           = ta.atr(14)
-safe_vol      = nz(volume, 1)
-is_high_vol   = useHighVol ? (safe_vol > ta.sma(safe_vol, 20)) : true
+safe_vol      = nz(volume, 0)
+// Symbols without volume data (many FX / CFD / index feeds) would make
+// every candle "low volume" and silently disable every Real Pullback.
+// The volume filter is only applied when the feed actually has volume.
+bool hasVolume = ta.cum(safe_vol) > 0
+is_high_vol   = useHighVol and hasVolume ? (safe_vol > ta.sma(safe_vol, 20)) : true
 
 // Range-specific candle forms (used for Candle 1 / Candle 2 classification)
 // NOTE: a Doji does not require a non-zero body (a perfect open==close doji is still a doji).
@@ -218,7 +223,7 @@ var int   candidateLowBar  = na
 // State machine:
 //   IDLE   --(C1 counter-trend + C2 indecision + no Real Pullback)--> ACTIVE
 //   ACTIVE --(trend-side Real Breakout, Rules 1-3)------------------> CLOSED (Scenario 2)
-//   ACTIVE --(counter-side Real Pullback, Rules 1-3, out of box)----> CLOSED (Scenario 1)
+//   ACTIVE --(counter-side Real Pullback OR Real Breakout, 1-3)----> CLOSED (Scenario 1)
 //   ACTIVE --(anything else: inside candles, wicks, body whipsaws)--> ACTIVE, expanded
 //
 // PERSISTENCE THROUGH WHIPSAWS (V13.3):
@@ -335,12 +340,17 @@ int  rngClosedDir   = 0       // direction of the box that closed on this bar
 bool rangeSeed      = false
 
 if rangeActive
-    // Only the trend-side boundary can be REALLY broken (Scenario 2):
+    // Scenario 2 = Real Breakout of the trend-side boundary:
     //   up-leg box   -> above the ceiling
     //   down-leg box -> below the floor
     bool realBO = rangeDir == 1 ? boUpCeil : boDnFloor
-    // Only a counter-side Real Pullback that leaves the box closes it (Scenario 1).
-    bool realPB = rangeDir == 1 ? pbDnFloor : pbUpCeil
+    // Counter-side exit (Scenario 1): a Real Pullback that leaves the box,
+    // OR a Real Breakout (Rules 1-3) through the counter-side boundary.
+    // A Real Breakout against the leg is by definition at least a Real
+    // Pullback of that leg; without it a box formed in a down leg could
+    // never be closed by a strong rally (and vice versa) and would
+    // expand forever over the whole chart.
+    bool realPB = rangeDir == 1 ? (pbDnFloor or boDnFloor) : (pbUpCeil or boUpCeil)
 
     if realBO
         // ---- SCENARIO 2: Real Breakout closes the Range Box ----
@@ -429,7 +439,7 @@ bool structLock = rangeActive or rngClosedNow
 
 if rngShowSeed and rangeSeed
     label.new(bar_index, low, "R", style=label.style_none, textcolor=color.gray, size=size.tiny, yloc=yloc.belowbar)
-bgcolor(rangeActive ? color.new(color.gray, 96) : na, title="Range Active Background")
+bgcolor(rngShowBg and rangeActive ? color.new(color.gray, 96) : na, title="Range Active Background")
 
 // =====================================================================
 // MARKET STRUCTURE TRACKING (Running Extremes)
