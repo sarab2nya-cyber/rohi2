@@ -55,6 +55,15 @@ useHighVol       = input.bool(true, "Require High Volume for Pullbacks", group="
 dojiMax          = input.float(0.15, "Max Doji %", step=0.05, group="Breakout Filters")
 
 // =====================================================================
+// DRAWING X-COORDINATE GUARD
+// TradingView rejects drawings whose bar_index x-coordinate is too far
+// behind the current bar (5000 bars). Anchors such as the first swing
+// (bar 0) can age past that, so every historical x is clamped.
+// =====================================================================
+f_x(int x) =>
+    na(x) ? x : math.max(x, bar_index - 4999)
+
+// =====================================================================
 // BASIC CANDLE METRICS
 // =====================================================================
 c_body  = math.abs(close - open)
@@ -410,10 +419,10 @@ if not rangeWasActive and not rngClosedNow and (seedUp or seedDn)
     testBot      := boxBot
     rangeLeftBar := bar_index - 1
     if rngShow
-        rangeBox := box.new(left=rangeLeftBar, top=boxTop, right=bar_index, bottom=boxBot, bgcolor=rngActiveColor, border_color=color.new(color.gray, 25), border_width=1, border_style=line.style_dotted)
+        rangeBox := box.new(left=f_x(rangeLeftBar), top=boxTop, right=bar_index, bottom=boxBot, bgcolor=rngActiveColor, border_color=color.new(color.gray, 25), border_width=1, border_style=line.style_dotted)
     if rngMarkC1
         // Mark Candle 1 (range anchor) on the chart.
-        label.new(rangeLeftBar, seedUp ? high[1] : low[1], "1", style=label.style_none, textcolor=color.gray, size=size.tiny, yloc=seedUp ? yloc.abovebar : yloc.belowbar)
+        label.new(f_x(rangeLeftBar), seedUp ? high[1] : low[1], "1", style=label.style_none, textcolor=color.gray, size=size.tiny, yloc=seedUp ? yloc.abovebar : yloc.belowbar)
 
 // Structure lock: active box (includes the formation bar) or the closing bar.
 bool structLock = rangeActive or rngClosedNow
@@ -573,27 +582,27 @@ if na(lastPivotPrice) and not na(lastSwingLowPrice)
 if msShow and msSignal != 0
     if msSignal == 1
         if not na(lastPivotBar)
-            line.new(lastPivotBar, lastPivotPrice, brokenLevelBar, brokenLevelPrice, color=color.black, width=1)
-        line.new(brokenLevelBar, brokenLevelPrice, lastSwingLowBar, lastSwingLowPrice, color=color.black, width=1)
+            line.new(f_x(lastPivotBar), lastPivotPrice, f_x(brokenLevelBar), brokenLevelPrice, color=color.black, width=1)
+        line.new(f_x(brokenLevelBar), brokenLevelPrice, f_x(lastSwingLowBar), lastSwingLowPrice, color=color.black, width=1)
         lastPivotBar := lastSwingLowBar
         lastPivotPrice := lastSwingLowPrice
 
     else if msSignal == -1
         if not na(lastPivotBar)
-            line.new(lastPivotBar, lastPivotPrice, brokenLevelBar, brokenLevelPrice, color=color.black, width=1)
-        line.new(brokenLevelBar, brokenLevelPrice, lastSwingHighBar, lastSwingHighPrice, color=color.black, width=1)
+            line.new(f_x(lastPivotBar), lastPivotPrice, f_x(brokenLevelBar), brokenLevelPrice, color=color.black, width=1)
+        line.new(f_x(brokenLevelBar), brokenLevelPrice, f_x(lastSwingHighBar), lastSwingHighPrice, color=color.black, width=1)
         lastPivotBar := lastSwingHighBar
         lastPivotPrice := lastSwingHighPrice
 
     else if msSignal == -2
         if not na(lastPivotBar)
-            line.new(lastPivotBar, lastPivotPrice, lastSwingHighBar, lastSwingHighPrice, color=color.black, width=1)
+            line.new(f_x(lastPivotBar), lastPivotPrice, f_x(lastSwingHighBar), lastSwingHighPrice, color=color.black, width=1)
         lastPivotBar := lastSwingHighBar
         lastPivotPrice := lastSwingHighPrice
 
     else if msSignal == 2
         if not na(lastPivotBar)
-            line.new(lastPivotBar, lastPivotPrice, lastSwingLowBar, lastSwingLowPrice, color=color.black, width=1)
+            line.new(f_x(lastPivotBar), lastPivotPrice, f_x(lastSwingLowBar), lastSwingLowPrice, color=color.black, width=1)
         lastPivotBar := lastSwingLowBar
         lastPivotPrice := lastSwingLowPrice
 
@@ -602,13 +611,13 @@ if msShow and msSignal != 0
     col        = isBull_MS ? msBullColor : msBearColor
     txt        = isReversal ? "BOS" : "CTS"
 
-    line.new(brokenLevelBar, brokenLevelPrice, bar_index, brokenLevelPrice, color=col, style=line.style_dotted, width=2)
-    label.new(math.round((brokenLevelBar + bar_index) / 2), brokenLevelPrice, txt, style=isBull_MS ? label.style_label_down : label.style_label_up, color=color.new(col, 85), textcolor=col, size=size.tiny)
+    line.new(f_x(brokenLevelBar), brokenLevelPrice, bar_index, brokenLevelPrice, color=col, style=line.style_dotted, width=2)
+    label.new(math.round((f_x(brokenLevelBar) + bar_index) / 2), brokenLevelPrice, txt, style=isBull_MS ? label.style_label_down : label.style_label_up, color=color.new(col, 85), textcolor=col, size=size.tiny)
 
     if isBull_MS
-        label.new(lastSwingLowBar, lastSwingLowPrice, "•", style=label.style_none, textcolor=color.orange, size=size.normal, tooltip="Real Pullback Confirmed")
+        label.new(f_x(lastSwingLowBar), lastSwingLowPrice, "•", style=label.style_none, textcolor=color.orange, size=size.normal, tooltip="Real Pullback Confirmed")
 
-        int hb = math.max(0, bar_index - brokenLevelBar)
+        int hb = math.min(4999, math.max(0, bar_index - brokenLevelBar))
         float vol_cts = nz(volume[hb], 1)
         float top_cts = high[hb]
         float bot_cts = math.min(open[hb], close[hb])
@@ -616,11 +625,11 @@ if msShow and msSignal != 0
             bot_cts := top_cts - (syminfo.mintick * 10)
 
         string txt_cts = "Recent High\nVol: " + str.tostring(vol_cts, format.volume)
-        box.new(left=brokenLevelBar, top=top_cts, right=bar_index + 15, bottom=bot_cts, bgcolor=color.new(color.teal, 85), border_color=color.teal, border_width=1, border_style=line.style_dotted, text=txt_cts, text_size=size.tiny, text_color=color.teal, text_halign=text.align_right, text_valign=text.align_center)
+        box.new(left=f_x(brokenLevelBar), top=top_cts, right=bar_index + 15, bottom=bot_cts, bgcolor=color.new(color.teal, 85), border_color=color.teal, border_width=1, border_style=line.style_dotted, text=txt_cts, text_size=size.tiny, text_color=color.teal, text_halign=text.align_right, text_valign=text.align_center)
 
         // Key Level is never identified inside a closed Range Box.
         if not f_inClosedRange(lastSwingLowPrice, lastSwingLowBar)
-            int lb = math.max(0, bar_index - lastSwingLowBar)
+            int lb = math.min(4999, math.max(0, bar_index - lastSwingLowBar))
             float vol_bos = nz(volume[lb], 1)
             float bot_bos = low[lb]
             float top_bos = math.max(open[lb], close[lb])
@@ -628,12 +637,12 @@ if msShow and msSignal != 0
                 top_bos := bot_bos + (syminfo.mintick * 10)
 
             string txt_bos = "Key Level\nVol: " + str.tostring(vol_bos, format.volume)
-            box.new(left=lastSwingLowBar, top=top_bos, right=bar_index + 15, bottom=bot_bos, bgcolor=color.new(#00E676, 85), border_color=#00E676, border_width=1, border_style=line.style_solid, text=txt_bos, text_size=size.tiny, text_color=#00E676, text_halign=text.align_right, text_valign=text.align_center)
+            box.new(left=f_x(lastSwingLowBar), top=top_bos, right=bar_index + 15, bottom=bot_bos, bgcolor=color.new(#00E676, 85), border_color=#00E676, border_width=1, border_style=line.style_solid, text=txt_bos, text_size=size.tiny, text_color=#00E676, text_halign=text.align_right, text_valign=text.align_center)
 
     else
-        label.new(lastSwingHighBar, lastSwingHighPrice, "•", style=label.style_none, textcolor=color.orange, size=size.normal, tooltip="Real Pullback Confirmed")
+        label.new(f_x(lastSwingHighBar), lastSwingHighPrice, "•", style=label.style_none, textcolor=color.orange, size=size.normal, tooltip="Real Pullback Confirmed")
 
-        int lb_bear_cts = math.max(0, bar_index - brokenLevelBar)
+        int lb_bear_cts = math.min(4999, math.max(0, bar_index - brokenLevelBar))
         float vol_cts_bear = nz(volume[lb_bear_cts], 1)
         float bot_cts_bear = low[lb_bear_cts]
         float top_cts_bear = math.max(open[lb_bear_cts], close[lb_bear_cts])
@@ -641,11 +650,11 @@ if msShow and msSignal != 0
             top_cts_bear := bot_cts_bear + (syminfo.mintick * 10)
 
         string txt_cts_bear = "Recent Low\nVol: " + str.tostring(vol_cts_bear, format.volume)
-        box.new(left=brokenLevelBar, top=top_cts_bear, right=bar_index + 15, bottom=bot_cts_bear, bgcolor=color.new(color.orange, 85), border_color=color.orange, border_width=1, border_style=line.style_dotted, text=txt_cts_bear, text_size=size.tiny, text_color=color.orange, text_halign=text.align_right, text_valign=text.align_center)
+        box.new(left=f_x(brokenLevelBar), top=top_cts_bear, right=bar_index + 15, bottom=bot_cts_bear, bgcolor=color.new(color.orange, 85), border_color=color.orange, border_width=1, border_style=line.style_dotted, text=txt_cts_bear, text_size=size.tiny, text_color=color.orange, text_halign=text.align_right, text_valign=text.align_center)
 
         // Key Level is never identified inside a closed Range Box.
         if not f_inClosedRange(lastSwingHighPrice, lastSwingHighBar)
-            int hb_bear_bos = math.max(0, bar_index - lastSwingHighBar)
+            int hb_bear_bos = math.min(4999, math.max(0, bar_index - lastSwingHighBar))
             float vol_bos_bear = nz(volume[hb_bear_bos], 1)
             float top_bos_bear = high[hb_bear_bos]
             float bot_bos_bear = math.min(open[hb_bear_bos], close[hb_bear_bos])
@@ -653,7 +662,7 @@ if msShow and msSignal != 0
                 bot_bos_bear := top_bos_bear - (syminfo.mintick * 10)
 
             string txt_bos_bear = "Key Level\nVol: " + str.tostring(vol_bos_bear, format.volume)
-            box.new(left=lastSwingHighBar, top=top_bos_bear, right=bar_index + 15, bottom=bot_bos_bear, bgcolor=color.new(#FF1744, 85), border_color=#FF1744, border_width=1, border_style=line.style_solid, text=txt_bos_bear, text_size=size.tiny, text_color=#FF1744, text_halign=text.align_right, text_valign=text.align_center)
+            box.new(left=f_x(lastSwingHighBar), top=top_bos_bear, right=bar_index + 15, bottom=bot_bos_bear, bgcolor=color.new(#FF1744, 85), border_color=#FF1744, border_width=1, border_style=line.style_solid, text=txt_bos_bear, text_size=size.tiny, text_color=#FF1744, text_halign=text.align_right, text_valign=text.align_center)
 
 // =====================================================================
 // SIGNAL CANDLES
@@ -761,12 +770,12 @@ var line l_bear_800 = na
 
 if msTrendState == 1 and not na(bull_fib_618) and not na(bull_fib_800)
     if na(l_bull_618)
-        l_bull_618 := line.new(current_fib_low_bar, bull_fib_618, bar_index, bull_fib_618, color=msFibColor, style=line.style_dotted)
-        l_bull_800 := line.new(current_fib_low_bar, bull_fib_800, bar_index, bull_fib_800, color=msFibColor, style=line.style_dotted)
+        l_bull_618 := line.new(f_x(current_fib_low_bar), bull_fib_618, bar_index, bull_fib_618, color=msFibColor, style=line.style_dotted)
+        l_bull_800 := line.new(f_x(current_fib_low_bar), bull_fib_800, bar_index, bull_fib_800, color=msFibColor, style=line.style_dotted)
     else
-        line.set_xy1(l_bull_618, current_fib_low_bar, bull_fib_618)
+        line.set_xy1(l_bull_618, f_x(current_fib_low_bar), bull_fib_618)
         line.set_xy2(l_bull_618, bar_index, bull_fib_618)
-        line.set_xy1(l_bull_800, current_fib_low_bar, bull_fib_800)
+        line.set_xy1(l_bull_800, f_x(current_fib_low_bar), bull_fib_800)
         line.set_xy2(l_bull_800, bar_index, bull_fib_800)
     if not na(l_bear_618)
         line.delete(l_bear_618)
@@ -776,12 +785,12 @@ if msTrendState == 1 and not na(bull_fib_618) and not na(bull_fib_800)
 
 if msTrendState == -1 and not na(bear_fib_618) and not na(bear_fib_800)
     if na(l_bear_618)
-        l_bear_618 := line.new(current_fib_high_bar, bear_fib_618, bar_index, bear_fib_618, color=msFibColor, style=line.style_dotted)
-        l_bear_800 := line.new(current_fib_high_bar, bear_fib_800, bar_index, bear_fib_800, color=msFibColor, style=line.style_dotted)
+        l_bear_618 := line.new(f_x(current_fib_high_bar), bear_fib_618, bar_index, bear_fib_618, color=msFibColor, style=line.style_dotted)
+        l_bear_800 := line.new(f_x(current_fib_high_bar), bear_fib_800, bar_index, bear_fib_800, color=msFibColor, style=line.style_dotted)
     else
-        line.set_xy1(l_bear_618, current_fib_high_bar, bear_fib_618)
+        line.set_xy1(l_bear_618, f_x(current_fib_high_bar), bear_fib_618)
         line.set_xy2(l_bear_618, bar_index, bear_fib_618)
-        line.set_xy1(l_bear_800, current_fib_high_bar, bear_fib_800)
+        line.set_xy1(l_bear_800, f_x(current_fib_high_bar), bear_fib_800)
         line.set_xy2(l_bear_800, bar_index, bear_fib_800)
     if not na(l_bull_618)
         line.delete(l_bull_618)
