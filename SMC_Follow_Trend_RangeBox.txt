@@ -1,11 +1,12 @@
 //@version=5
-indicator("SMC Follow Trend V14.2 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V14.3 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
 // =====================================================================
 msSwingLen       = input.int(10, "Macro Swing Length (Liquidity)", minval=3, group="Market Structure")
 msShow           = input.bool(true, "Show Market Structure (BOS/CTS)", group="Market Structure")
+msShowFakeBO     = input.bool(true, "Show Fake Breakout of CTS (F)", group="Market Structure")
 msStrictClose    = input.bool(true, "Strict Confirm on Close (Anti-Repaint)", group="Market Structure")
 msBullColor      = input.color(color.blue, "Bullish Color", group="Market Structure")
 msBearColor      = input.color(color.red, "Bearish Color", group="Market Structure")
@@ -565,6 +566,10 @@ bool break_candidate_low  = strict_CTS_bear and not rangeStructBlock and not lev
 bool break_swing_high     = strict_BOS_bull and not rangeStructBlock and not levelInRange(lastSwingHighPrice) and not f_inClosedRange(lastSwingHighPrice, lastSwingHighBar) and is_confirmed
 bool break_swing_low      = strict_BOS_bear and not rangeStructBlock and not levelInRange(lastSwingLowPrice)  and not f_inClosedRange(lastSwingLowPrice, lastSwingLowBar)   and is_confirmed
 
+// CTS level (BOI) the trend must break, captured before this bar's structure update
+int   fbTrendPre = msTrendState
+float fbLevelPre = msTrendState == 1 ? candidateHigh : msTrendState == -1 ? candidateLow : na
+
 msSignal = 0
 float brokenLevelPrice = na
 int   brokenLevelBar   = na
@@ -614,6 +619,26 @@ else if msTrendState == -1
         runningLowBar := bar_index
 
 bull_break_confirmed = (msSignal == 1) or (msSignal == 2)
+
+// =====================================================================
+// FAKE BREAKOUT
+// Price trades beyond the CTS level (higher high in an uptrend / lower low in
+// a downtrend) but none of the three Real Breakout conditions is met. The
+// Fake Breakout stays in force until a Real Breakout (CTS/BOS) occurs or the
+// CTS level changes. Only the first candle of each Fake Breakout is marked.
+// No marking inside an active Range Box (the box already is that fakeout).
+// =====================================================================
+var bool  fbActive = false
+var float fbLevel  = na
+if fbActive and (msSignal != 0 or na(fbLevelPre) or fbLevelPre != fbLevel)
+    fbActive := false
+bool fbAttempt = not na(fbLevelPre) and msSignal == 0 and not rangeActive and (fbTrendPre == 1 ? high > fbLevelPre : low < fbLevelPre)
+bool fakeBreakoutStart = fbAttempt and not fbActive and is_confirmed
+if fakeBreakoutStart
+    fbActive := true
+    fbLevel  := fbLevelPre
+bool fakeBreakoutUp = fakeBreakoutStart and fbTrendPre == 1
+bool fakeBreakoutDn = fakeBreakoutStart and fbTrendPre == -1
 bear_break_confirmed = (msSignal == -1) or (msSignal == -2)
 
 // A confirmed CTS/BOS is the latest real move: the next Range Box must start
@@ -718,6 +743,8 @@ if msShow and msSignal != 0
 
 plotchar(bull_break_confirmed, title="Real Bull Breakout", char="•", location=location.belowbar, color=color.blue, size=size.tiny)
 plotchar(bear_break_confirmed, title="Real Bear Breakout", char="•", location=location.abovebar, color=color.red, size=size.tiny)
+plotchar(msShowFakeBO and fakeBreakoutUp, title="Fake Breakout (above CTS)", char="F", location=location.abovebar, color=color.gray, size=size.tiny)
+plotchar(msShowFakeBO and fakeBreakoutDn, title="Fake Breakout (below CTS)", char="F", location=location.belowbar, color=color.gray, size=size.tiny)
 plotchar(rngRealUp,   title="Range Broken Up",   char="▲", location=location.belowbar, color=msBullColor, size=size.tiny)
 plotchar(rngRealDown, title="Range Broken Down", char="▼", location=location.abovebar, color=msBearColor, size=size.tiny)
 
@@ -848,6 +875,7 @@ bool valid_pullback_up   = strict_pb_up   and not inRange and (msTrendState == -
 alertcondition(rangeSeed,            title="New Range Created",        message="SMC [Rohi]: New Price Action Range Created")
 alertcondition(bull_break_confirmed, title="Bullish Real Breakout",    message="SMC [Rohi]: Real Bullish Breakout Confirmed!")
 alertcondition(bear_break_confirmed, title="Bearish Real Breakout",    message="SMC [Rohi]: Real Bearish Breakout Confirmed!")
+alertcondition(fakeBreakoutStart,    title="Fake Breakout of CTS",     message="SMC [Rohi]: Price traded beyond CTS without a Real Breakout (Fake Breakout)")
 alertcondition(valid_pullback_down,  title="Real Pullback Down",       message="SMC [Rohi]: Real Bearish Pullback (outside range)!")
 alertcondition(valid_pullback_up,    title="Real Pullback Up",         message="SMC [Rohi]: Real Bullish Pullback (outside range)!")
 alertcondition(rngRealUp,            title="Real Range Breakout Up",   message="SMC [Rohi]: Range broken UP by confirmed strict breakout!")
