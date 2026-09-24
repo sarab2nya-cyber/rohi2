@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V14.0 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V14.1 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -16,14 +16,12 @@ grp_bo           = "Real Breakout Settings"
 bo_maru_body     = input.float(0.70, "Marubozu Min Body % (Rule 1,2,3)", step=0.05, group=grp_bo)
 bo_c1_above_pct  = input.float(0.30, "Min C1 Body % Beyond BOI (Rule 2,3)", step=0.05, group=grp_bo)
 bo_c2_max_size   = input.float(0.30, "Max C2 Size % vs C1 (Rule 3)", step=0.05, group=grp_bo)
-bo_pa_bars       = input.int(4, "Max PA Confirmation Bars (Rule 4)", minval=1, group=grp_bo)
 
 // Real Pullback Settings
 grp_pb           = "Real Pullback Settings"
 pb_c2_min_size   = input.float(0.70, "PB Rule 1: C2 Min Size % vs C1", step=0.05, group=grp_pb)
 pb_c2_max_r2     = input.float(0.40, "PB Rule 2: C2 Max Size % vs C1 (Similar)", step=0.05, group=grp_pb)
 pb_c2_max_r3     = input.float(0.30, "PB Rule 3: C2 Max Size % vs C1 (Opposite)", step=0.05, group=grp_pb)
-pb_pa_bars       = input.int(4, "PB Rule 4: Max PA Confirmation Bars", minval=1, group=grp_pb)
 
 // PRICE ACTION RANGE Settings
 grp_rng              = "PRICE ACTION RANGE"
@@ -37,7 +35,6 @@ rngPinWickRatio      = input.float(2.0, "Pin Bar Wick / Body", minval=1.25, step
 rngBullColor         = input.color(color.new(color.green, 86), "Bullish Range", group=grp_rng)
 rngBearColor         = input.color(color.new(color.red, 86), "Bearish Range", group=grp_rng)
 rngActiveColor       = input.color(color.new(color.gray, 88), "Active Range", group=grp_rng)
-rngBlockStructure    = input.bool(true, "Block BOS / CTS / Key Level / Recent High-Low", group=grp_rng)
 rngBlockFVG          = input.bool(true, "Block FVG Inside Range", group=grp_rng)
 rngMaxFakeoutBars    = input.int(3, "Max Fakeout Bars (closes outside before return)", minval=0, maxval=50, group=grp_rng, tooltip="An excursion that closes back inside the box within this many closes beyond the boundary is a Fakeout and is absorbed into the box. Longer excursions are not absorbed.")
 rngPbColor           = input.color(color.new(color.orange, 86), "Range Closed by Real Pullback", group=grp_rng)
@@ -121,67 +118,13 @@ if is_marubozu
         array.shift(maru_sizes)
 
 // =====================================================================
-// REAL BREAKOUT STATE MACHINE (Strict 4 Standard Rules)
+// REAL BREAKOUT (3 Main Conditions) - used by market structure AND the Range Box
+// A breakout of `level` is REAL only when it matches one of the three main
+// conditions below. Anything else that crosses the level is a Fakeout.
+// Condition #4 (PA confirmation look-ahead) is removed everywhere; every rule
+// is a closed two-candle pattern evaluated on the bar it completes.
 // =====================================================================
 f_real_breakout(level, dir) =>
-    bool ok = false
-    if not na(level)
-        if dir == 1 
-            bool r1 = is_marubozu[1] and is_marubozu and is_bull[1] and is_bull and (close[1] > level) and (close > level) and (close > close[1])
-            float c1_top_body = math.max(close[1], open[1])
-            float c1_bot_body = math.min(close[1], open[1])
-            float c1_body_tot = math.max(c1_top_body - c1_bot_body, syminfo.mintick)
-            float c1_part_above = math.max(0.0, c1_top_body - math.max(c1_bot_body, level))
-            bool c1_above_30 = (c1_part_above / c1_body_tot) >= bo_c1_above_pct
-        
-            float mid_c1 = (high[1] + low[1]) / 2.0
-            bool r2 = is_big_maru[1] and is_bull[1] and is_bull and (c_range <= bo_c2_max_size * c_range[1]) and (low > mid_c1) and c1_above_30
-            bool r3 = is_big_maru[1] and is_bull[1] and is_bear and (c_range <= bo_c2_max_size * c_range[1]) and (low > mid_c1) and c1_above_30
-        
-            bool r4 = false
-            if is_normal and is_bull and not (r1 or r2 or r3)
-                float max_break_high = na
-                for i = 1 to bo_pa_bars
-                    if close[i] > level and (open[i] <= level or low[i] <= level)
-                        max_break_high := na(max_break_high) ? high[i] : math.max(max_break_high, high[i])
-                if not na(max_break_high) and close > max_break_high
-                    r4 := true
-            ok := r1 or r2 or r3 or r4
-
-        else if dir == -1 
-            bool r1 = is_marubozu[1] and is_marubozu and is_bear[1] and is_bear and (close[1] < level) and (close < level) and (close < close[1])
-            float c1_top_body = math.max(close[1], open[1])
-            float c1_bot_body = math.min(close[1], open[1])
-            float c1_body_tot = math.max(c1_top_body - c1_bot_body, syminfo.mintick)
-            float c1_part_below = math.max(0.0, math.min(c1_top_body, level) - c1_bot_body)
-            bool c1_below_30 = (c1_part_below / c1_body_tot) >= bo_c1_above_pct
-        
-            float mid_c1 = (high[1] + low[1]) / 2.0
-            bool r2 = is_big_maru[1] and is_bear[1] and is_bear and (c_range <= bo_c2_max_size * c_range[1]) and (high < mid_c1) and c1_below_30
-            bool r3 = is_big_maru[1] and is_bear[1] and is_bull and (c_range <= bo_c2_max_size * c_range[1]) and (high < mid_c1) and c1_below_30
-        
-            bool r4 = false
-            if is_normal and is_bear and not (r1 or r2 or r3)
-                float min_break_low = na
-                for i = 1 to bo_pa_bars
-                    if close[i] < level and (open[i] >= level or high[i] >= level)
-                        min_break_low := na(min_break_low) ? low[i] : math.min(min_break_low, low[i])
-                if not na(min_break_low) and close < min_break_low
-                    r4 := true
-            ok := r1 or r2 or r3 or r4
-    ok
-
-// =====================================================================
-// RANGE BOX BREAKOUT TEST (3 Core Rules) - used ONLY by the Range Box
-// A breakout of `level` is REAL only when it matches one of the three
-// core rules below. Anything else that crosses the level is a Fakeout.
-//
-// Range Box only: Condition #4 (Price Action Confirmation, the look-ahead
-// over the next N "normal" candles closing above the breakout high) has
-// been REMOVED. There is no replacement look-ahead: every rule is a
-// closed two-candle pattern evaluated on the bar it completes.
-// =====================================================================
-f_range_breakout(level, dir) =>
     bool ok = false
     if not na(level)
         if dir == 1
@@ -215,7 +158,7 @@ f_range_breakout(level, dir) =>
     ok
 
 // =====================================================================
-// 100% REAL PULLBACK CONFIRMATION (STRICT 4 RULES)
+// 100% REAL PULLBACK CONFIRMATION (3 MAIN CONDITIONS)
 // =====================================================================
 float mid_1 = (nz(high[1], high) + nz(low[1], low)) / 2.0
 
@@ -224,34 +167,15 @@ bool pb_r1_dn = is_bear[1] and is_marubozu[1] and is_high_vol[1] and is_bear and
 bool pb_r2_dn = is_bear[1] and is_big_maru[1] and is_high_vol[1] and is_bear and (c_range <= pb_c2_max_r2 * nz(c_range[1], c_range)) and (high < mid_1)
 bool pb_r3_dn = is_bear[1] and is_big_maru[1] and is_high_vol[1] and is_bull and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range)) and (high < mid_1)
 
-bool pb_r4_dn = false
-if (is_normal or is_marubozu) and is_bear and not (pb_r1_dn or pb_r2_dn or pb_r3_dn)
-    for i = 1 to pb_pa_bars
-        if is_bear[i] and (is_normal[i] or is_marubozu[i])
-            if close < low[i] // Closed below the original lowest low of the pattern
-                pb_r4_dn := true
-                break
-
-bool pb_pattern_down = pb_r1_dn or pb_r2_dn or pb_r3_dn or pb_r4_dn
+bool pb_pattern_down = pb_r1_dn or pb_r2_dn or pb_r3_dn
 
 // BULLISH PULLBACK (Counter-trend up in a Downtrend)
 bool pb_r1_up = is_bull[1] and is_marubozu[1] and is_high_vol[1] and is_bull and is_marubozu and is_high_vol and (c_range >= pb_c2_min_size * nz(c_range[1], c_range)) and (close > nz(close[1], close))
 bool pb_r2_up = is_bull[1] and is_big_maru[1] and is_high_vol[1] and is_bull and (c_range <= pb_c2_max_r2 * nz(c_range[1], c_range)) and (low > mid_1)
 bool pb_r3_up = is_bull[1] and is_big_maru[1] and is_high_vol[1] and is_bear and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range)) and (low > mid_1)
 
-bool pb_r4_up = false
-if (is_normal or is_marubozu) and is_bull and not (pb_r1_up or pb_r2_up or pb_r3_up)
-    for i = 1 to pb_pa_bars
-        if is_bull[i] and (is_normal[i] or is_marubozu[i])
-            if close > high[i] // Closed above the original highest high of the pattern
-                pb_r4_up := true
-                break
+bool pb_pattern_up = pb_r1_up or pb_r2_up or pb_r3_up
 
-bool pb_pattern_up = pb_r1_up or pb_r2_up or pb_r3_up or pb_r4_up
-
-// Range Box uses the 3 core pullback rules only (Condition #4 removed for the box).
-bool pb_core_down = pb_r1_dn or pb_r2_dn or pb_r3_dn
-bool pb_core_up   = pb_r1_up or pb_r2_up or pb_r3_up
 
 var int msTrendState = 0
 
@@ -299,7 +223,6 @@ var int   rangeLeftBar  = na     // bar of Candle 1 (the anchor candle, always r
 var box   rangeBox      = na
 var int   lastCloseBar  = na     // bar on which the last box closed
 var int   seedBias      = 0      // direction of the last real move (+1 up / -1 down), 0 = use msTrendState
-var bool  awaitPullback = false  // set after a Range Box closes by breakout: no CTS/BOS until a Real Pullback
 
 // Closed Range registry (historical boundaries). A structural level whose
 // price is strictly inside a closed box and whose bar lies inside its span
@@ -323,8 +246,8 @@ f_inClosedRange(float price, int barIdx) =>
 // conditional) so the history-referencing functions stay consistent.
 float ceilLvl  = rangeActive ? boxTop : na
 float floorLvl = rangeActive ? boxBot : na
-bool boUpCeil  = f_range_breakout(ceilLvl, 1)        // Real Breakout above the ceiling
-bool boDnFloor = f_range_breakout(floorLvl, -1)      // Real Breakout below the floor
+bool boUpCeil  = f_real_breakout(ceilLvl, 1)        // Real Breakout above the ceiling
+bool boDnFloor = f_real_breakout(floorLvl, -1)      // Real Breakout below the floor
 
 // ---------------- Candle 1 (Trigger): counter-trend candle ----------------
 float c1Range   = bar_index >= 1 ? math.max(high[1] - low[1], syminfo.mintick) : syminfo.mintick
@@ -365,8 +288,8 @@ bool c2Valid = bar_index >= 1 and (c2CondA or c2CondB or c2CondC or c2CondD)
 // ---------------- Pullback check before formation ----------------
 // If C1 (bar -1) or C2 (bar 0) completes a Real Pullback, it is a
 // pullback, NOT a Range Box.
-bool noPullbackUp = not pb_core_down and not pb_core_down[1]  // up leg: no bearish Real Pullback
-bool noPullbackDn = not pb_core_up   and not pb_core_up[1]    // down leg: no bullish Real Pullback
+bool noPullbackUp = not pb_pattern_down and not pb_pattern_down[1]  // up leg: no bearish Real Pullback
+bool noPullbackDn = not pb_pattern_up   and not pb_pattern_up[1]    // down leg: no bullish Real Pullback
 
 // ---------------- Range initiation after a breakout ----------------
 // "Counter-trend" is measured against the LAST REAL MOVE: after a box is
@@ -402,7 +325,7 @@ if rangeActive
     // A Real Breakout (Rules 1-3) through the counter-side boundary also
     // closes it: a breakout against the leg is at least a pullback of it,
     // and without it a down-leg box could never be closed by a rally.
-    bool realPB = rangeDir == 1 ? (pb_core_down or boDnFloor) : (pb_core_up or boUpCeil)
+    bool realPB = rangeDir == 1 ? (pb_pattern_down or boDnFloor) : (pb_pattern_up or boUpCeil)
 
     if realBO
         // ---- SCENARIO 2: Real Breakout closes the Range Box ----
@@ -410,8 +333,6 @@ if rangeActive
         rngBreakDn    := rangeDir == -1
         rngClosedNow  := true
         seedBias      := rangeDir
-        // No CTS / BOS for this breakout, and none until a Real Pullback occurs.
-        awaitPullback := true
     else if realPB
         // ---- SCENARIO 1: Real Pullback closes the Range Box ----
         rngPbClose   := true
@@ -507,19 +428,24 @@ if not rangeWasActive and not rngClosedNow and (seedUp or seedDn)
         // Mark Candle 1 (range anchor) on the chart.
         label.new(f_x(rangeLeftBar), seedUp ? high[1] : low[1], "1", style=label.style_none, textcolor=color.gray, size=size.tiny, yloc=seedUp ? yloc.abovebar : yloc.belowbar)
 
-// Structure lock (V13.5): CTS/BOS are prohibited ONLY while the box is
-// active (C2 formation bar included). The closing candle is outside the
-// box's life. After a breakout closure, CTS/BOS additionally wait for a
-// subsequent Real Pullback (awaitPullback); after a pullback closure the
-// pullback has occurred, so structure is free immediately. Levels strictly
-// inside a closed box can never become CTS/BOS/Key Level (f_inClosedRange).
 bool structLock = rangeActive
 // ---- Compatibility with the original structure engine ----
 // The original code reads these names; they now come from the Range Box above.
 bool rngRealUp   = rngBreakUp or (rngPbClose and rngClosedDir == -1)   // box closed upward
 bool rngRealDown = rngBreakDn or (rngPbClose and rngClosedDir == 1)    // box closed downward
 
-bool rangeLock = rngBlockStructure and rangeActive
+// Box exit classification (market-structure scenarios 4 and 5):
+//   * PULLBACK EXIT  - the box closed against its leg by one of the three main
+//     conditions. This IS the valid pullback: in an up leg the box high is the
+//     swing high and the low that follows becomes the BOS (Key Level); in a
+//     down leg the box low is the swing low and the high that follows becomes
+//     the BOS.
+//   * CONTINUATION EXIT - the box closed in the direction of its leg without a
+//     pullback. Nothing inside that box becomes BOS or CTS.
+bool rngPbExitDn   = rngPbClose and rngClosedDir == 1    // up-leg box -> bearish valid pullback
+bool rngPbExitUp   = rngPbClose and rngClosedDir == -1   // down-leg box -> bullish valid pullback
+
+bool rangeLock = rangeActive   // BOS/CTS are never identified inside a Range Box (not optional)
 bool inRange = rangeActive
 bool rangeBlock = rangeLock
 
@@ -554,8 +480,11 @@ if low < runningLow
 bool no_single_candle_dn = (bar_index - nz(runningHighBar, bar_index)) >= 2
 bool no_single_candle_up = (bar_index - nz(runningLowBar, bar_index)) >= 2
 
-bool strict_pb_down = (pb_pattern_down or rngRealDown) and no_single_candle_dn
-bool strict_pb_up   = (pb_pattern_up   or rngRealUp)   and no_single_candle_up
+// A valid pullback is one of the three main pullback conditions, or a Range Box
+// that closed by a pullback exit. A continuation break out of a box is NOT a
+// pullback (the original code counted any downward box break as one).
+bool strict_pb_down = (pb_pattern_down and no_single_candle_dn) or rngPbExitDn
+bool strict_pb_up   = (pb_pattern_up   and no_single_candle_up) or rngPbExitUp
 
 // =====================================================================
 // MARKET STRUCTURE (Strict BOS / CTS Lock)
@@ -582,8 +511,6 @@ if strict_pb_down and not inRange
         candidateHighBar := runningHighBar
         runningLow := low
         runningLowBar := bar_index
-    if msTrendState == 1
-        awaitPullback := false   // Real Pullback occurred after a Range breakout
 
 if strict_pb_up and not inRange
     if msTrendState <= 0 and (na(candidateLow) or runningLow < candidateLow)
@@ -591,8 +518,23 @@ if strict_pb_up and not inRange
         candidateLowBar := runningLowBar
         runningHigh := high
         runningHighBar := bar_index
-    if msTrendState == -1
-        awaitPullback := false   // Real Pullback occurred after a Range breakout
+
+// Scenario 4/5, continuation exit: the box broke out in the trend direction
+// WITHOUT a valid pullback. A pending CTS level that the box traded through
+// lies inside that box, so it is never identified: the structure advances
+// silently (no CTS label, no Recent High/Low or Key Level drawn).
+if rngBreakUp and msTrendState == 1 and not na(candidateHigh) and candidateHigh <= boxTop and candidateHigh >= boxBot
+    lastSwingLowPrice := runningLow
+    lastSwingLowBar := runningLowBar
+    candidateHigh := na
+    runningHigh := high
+    runningHighBar := bar_index
+if rngBreakDn and msTrendState == -1 and not na(candidateLow) and candidateLow <= boxTop and candidateLow >= boxBot
+    lastSwingHighPrice := runningHigh
+    lastSwingHighBar := runningHighBar
+    candidateLow := na
+    runningLow := low
+    runningLowBar := bar_index
 
 // Called unconditionally (f_real_breakout returns false for an na level).
 bool strict_CTS_bull = f_real_breakout(candidateHigh, 1)
@@ -602,10 +544,9 @@ bool strict_BOS_bear = f_real_breakout(lastSwingLowPrice, -1)
 
 bool is_confirmed = msStrictClose ? barstate.isconfirmed : true
 
-// Range Box rules on top of the original lock: after a box closes by a Real
-// Breakout, no CTS/BOS until a Real Pullback; levels strictly inside a closed
-// box are never used.
-bool rangeStructBlock = rangeBlock or (rngBlockStructure and awaitPullback)
+// Range Box rule: no BOS/CTS while a box is active, and a level strictly
+// inside a closed box is never used.
+bool rangeStructBlock = rangeBlock
 
 bool break_candidate_high = strict_CTS_bull and not rangeStructBlock and not levelInRange(candidateHigh)      and not f_inClosedRange(candidateHigh, candidateHighBar)      and is_confirmed
 bool break_candidate_low  = strict_CTS_bear and not rangeStructBlock and not levelInRange(candidateLow)       and not f_inClosedRange(candidateLow, candidateLowBar)        and is_confirmed
