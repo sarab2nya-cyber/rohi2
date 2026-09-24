@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V13.4 [Rohi] - Strict Range Box", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V13.5 [Rohi] - Strict Range Box", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -183,20 +183,6 @@ bool pb_r2_up = is_bull[1] and is_big_maru[1] and is_high_vol[1] and is_bull and
 bool pb_r3_up = is_bull[1] and is_big_maru[1] and is_high_vol[1] and is_bear and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range)) and (low > mid_1)
 bool pb_pattern_up = pb_r1_up or pb_r2_up or pb_r3_up
 
-// Real Pullback at a Range boundary (Scenario 1 closure).
-// A pullback pattern only closes the box when it actually leaves it:
-//   Rule 1: both candles close beyond the boundary
-//   Rule 2/3: the big Marubozu (C1 of the pattern) closes beyond the boundary
-// A pullback pattern that completes INSIDE the box is internal liquidity
-// (a whipsaw) and never closes the box.
-f_real_pullback_at(level, dir) =>
-    bool ok = false
-    if not na(level)
-        if dir == -1
-            ok := (pb_r1_dn and close[1] < level and close < level) or ((pb_r2_dn or pb_r3_dn) and close[1] < level)
-        else if dir == 1
-            ok := (pb_r1_up and close[1] > level and close > level) or ((pb_r2_up or pb_r3_up) and close[1] > level)
-    ok
 
 // =====================================================================
 // MARKET STRUCTURE STATE (declared early: the Range engine reads the trend)
@@ -224,7 +210,8 @@ var int   candidateLowBar  = na
 // State machine:
 //   IDLE   --(C1 counter-trend + C2 indecision + no Real Pullback)--> ACTIVE
 //   ACTIVE --(trend-side Real Breakout, Rules 1-3)------------------> CLOSED (Scenario 2)
-//   ACTIVE --(counter-side Real Pullback OR Real Breakout, 1-3)----> CLOSED (Scenario 1)
+//   ACTIVE --(counter-trend Real Pullback, Rules 1-3, anywhere)----> CLOSED (Scenario 1)
+//   ACTIVE --(counter-side Real Breakout, Rules 1-3)----------------> CLOSED (Scenario 1)
 //   ACTIVE --(anything else: inside candles, wicks, body whipsaws)--> ACTIVE (expanded by Fakeouts)
 //
 // BOUNDARY MECHANICS (V13.4) - why the box can no longer swallow a trend:
@@ -287,8 +274,6 @@ float ceilLvl  = rangeActive ? boxTop : na
 float floorLvl = rangeActive ? boxBot : na
 bool boUpCeil  = f_real_breakout(ceilLvl, 1)        // Real Breakout above the ceiling
 bool boDnFloor = f_real_breakout(floorLvl, -1)      // Real Breakout below the floor
-bool pbDnFloor = f_real_pullback_at(floorLvl, -1)   // bearish Real Pullback out of the floor
-bool pbUpCeil  = f_real_pullback_at(ceilLvl, 1)     // bullish Real Pullback out of the ceiling
 
 // ---------------- Candle 1 (Trigger): counter-trend candle ----------------
 float c1Range   = bar_index >= 1 ? math.max(high[1] - low[1], syminfo.mintick) : syminfo.mintick
@@ -348,7 +333,7 @@ bool seedDn = legDir == -1 and c1AfterExit and c1Bull and c1FormValid and c2Vali
 bool rangeWasActive = rangeActive
 bool rngBreakUp     = false   // Scenario 2 closure, up-leg box broken above its ceiling
 bool rngBreakDn     = false   // Scenario 2 closure, down-leg box broken below its floor
-bool rngPbClose     = false   // Scenario 1 closure, Real Pullback out of the box
+bool rngPbClose     = false   // Scenario 1 closure, Real Pullback against the leg
 bool rngClosedNow   = false
 int  rngClosedDir   = 0       // direction of the box that closed on this bar
 bool rangeSeed      = false
@@ -358,13 +343,15 @@ if rangeActive
     //   up-leg box   -> above the ceiling
     //   down-leg box -> below the floor
     bool realBO = rangeDir == 1 ? boUpCeil : boDnFloor
-    // Counter-side exit (Scenario 1): a Real Pullback that leaves the box,
-    // OR a Real Breakout (Rules 1-3) through the counter-side boundary.
-    // A Real Breakout against the leg is by definition at least a Real
-    // Pullback of that leg; without it a box formed in a down leg could
-    // never be closed by a strong rally (and vice versa) and would
-    // expand forever over the whole chart.
-    bool realPB = rangeDir == 1 ? (pbDnFloor or boDnFloor) : (pbUpCeil or boUpCeil)
+    // Scenario 1 (V13.5): a valid Real Pullback (Rules 1-3) against the leg
+    // closes the box ON THE CANDLE THAT COMPLETES IT, wherever that candle
+    // is (inside or outside the box):
+    //   up-leg box   -> bearish Real Pullback
+    //   down-leg box -> bullish Real Pullback
+    // A Real Breakout (Rules 1-3) through the counter-side boundary also
+    // closes it: a breakout against the leg is at least a pullback of it,
+    // and without it a down-leg box could never be closed by a rally.
+    bool realPB = rangeDir == 1 ? (pb_pattern_down or boDnFloor) : (pb_pattern_up or boUpCeil)
 
     if realBO
         // ---- SCENARIO 2: Real Breakout closes the Range Box ----
@@ -448,14 +435,16 @@ if rangeActive
         rangeBox     := na
 
 // ---- FORMATION: C1 + C2 valid and no Real Pullback -> box becomes ACTIVE ----
-// Candle 1 is ALWAYS retained as the anchor: the box starts on C1's bar
-// and its initial boundaries include C1's full high/low.
+// The box STARTS ON CANDLE 1 (the first counter-trend candle) and its
+// initial boundaries are Candle 1's own High and Low (V13.5). Candle 2 only
+// confirms the indecision; it does not widen the box. Any later wick
+// sweep / Fakeout beyond C1's range is absorbed by the normal expansion.
 if not rangeWasActive and not rngClosedNow and (seedUp or seedDn)
     rangeSeed    := true
     rangeActive  := true
     rangeDir     := seedUp ? 1 : -1
-    boxTop       := math.max(high[1], high)   // highest High of C1..C2
-    boxBot       := math.min(low[1], low)     // lowest Low  of C1..C2
+    boxTop       := high[1]   // Range High = High of Candle 1
+    boxBot       := low[1]    // Range Low  = Low  of Candle 1
     outUpBars    := 0
     outDnBars    := 0
     exHi         := na
@@ -467,8 +456,13 @@ if not rangeWasActive and not rngClosedNow and (seedUp or seedDn)
         // Mark Candle 1 (range anchor) on the chart.
         label.new(f_x(rangeLeftBar), seedUp ? high[1] : low[1], "1", style=label.style_none, textcolor=color.gray, size=size.tiny, yloc=seedUp ? yloc.abovebar : yloc.belowbar)
 
-// Structure lock: active box (includes the formation bar) or the closing bar.
-bool structLock = rangeActive or rngClosedNow
+// Structure lock (V13.5): CTS/BOS are prohibited ONLY while the box is
+// active (C2 formation bar included). The closing candle is outside the
+// box's life. After a breakout closure, CTS/BOS additionally wait for a
+// subsequent Real Pullback (awaitPullback); after a pullback closure the
+// pullback has occurred, so structure is free immediately. Levels strictly
+// inside a closed box can never become CTS/BOS/Key Level (f_inClosedRange).
+bool structLock = rangeActive
 
 if rngShowSeed and rangeSeed
     label.new(bar_index, low, "R", style=label.style_none, textcolor=color.gray, size=size.tiny, yloc=yloc.belowbar)
