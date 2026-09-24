@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V14.3 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V14.4 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -21,9 +21,9 @@ bo_c2_max_r2     = input.float(0.30, "C2 Size % vs C1 - must be below (Rule 2)",
 
 // Real Pullback Settings
 grp_pb           = "Real Pullback Settings"
-pb_c2_min_size   = input.float(0.70, "PB Rule 1: C2 Min Size % vs C1", step=0.05, group=grp_pb)
-pb_c2_max_r2     = input.float(0.40, "PB Rule 2: C2 Max Size % vs C1 (Similar)", step=0.05, group=grp_pb)
-pb_c2_max_r3     = input.float(0.30, "PB Rule 3: C2 Max Size % vs C1 (Opposite)", step=0.05, group=grp_pb)
+pb_c2_min_size   = input.float(0.70, "PB Rule 1: C2 Length at least % of C1", step=0.05, group=grp_pb)
+pb_c2_max_r2     = input.float(0.40, "PB Rule 2: C2 Length at most % of C1 (Similar)", step=0.05, group=grp_pb, tooltip="Rule 2 only says the second candle is small; this limit defines small. Set to 1.0 to rely on the 50% rule alone.")
+pb_c2_max_r3     = input.float(0.30, "PB Rule 3: C2 Length at most % of C1 (Opposite)", step=0.05, group=grp_pb)
 
 // PRICE ACTION RANGE Settings
 grp_rng              = "PRICE ACTION RANGE"
@@ -73,13 +73,18 @@ c_body  = math.abs(close - open)
 c_range = math.max(high - low, syminfo.mintick)
 bodyPct = c_body / c_range
 
+// Half a tick: tolerance for ratio tests on tick-rounded prices. Without it a
+// candle that is EXACTLY 30% / 70% of another can fail by floating-point noise
+// (e.g. 105.1 - 101.9 = 3.19999...).
+float eps = syminfo.mintick * 0.5
+
 upper_wick = high - math.max(close, open)
 lower_wick = math.min(close, open) - low
 
 is_bull       = close > open
 is_bear       = close < open
 is_valid_body = bodyPct >= bodyMin
-is_marubozu   = bodyPct >= bo_maru_body
+is_marubozu   = c_body >= bo_maru_body * c_range - eps
 is_doji       = bodyPct <= dojiMax
 is_pinbar     = (upper_wick > c_body * 2) or (lower_wick > c_body * 2)
 is_normal     = not is_doji and not is_pinbar and is_valid_body
@@ -95,7 +100,7 @@ is_high_vol   = useHighVol and hasVolume ? (safe_vol > ta.sma(safe_vol, 20)) : t
 // Range Specific Metrics
 bool rngValidBody = c_body > syminfo.mintick
 bool rngDoji      = bodyPct <= rngDojiPct   // a perfect open==close doji is still a doji
-bool rngMaru      = rngValidBody and bodyPct >= bo_maru_body
+bool rngMaru      = rngValidBody and c_body >= bo_maru_body * c_range - eps
 bool rngNormal    = rngValidBody and bodyPct >= rngNormalMinPct and bodyPct <= rngNormalMaxPct
 bool rngUpperPin  = rngValidBody and upper_wick >= c_body * rngPinWickRatio and upper_wick > lower_wick
 bool rngLowerPin  = rngValidBody and lower_wick >= c_body * rngPinWickRatio and lower_wick > upper_wick
@@ -147,13 +152,13 @@ f_real_breakout(level, dir) =>
             float c1_bot_body = math.min(close[1], open[1])
             float c1_body_tot = math.max(c1_top_body - c1_bot_body, syminfo.mintick)
             float c1_part_above = math.max(0.0, c1_top_body - math.max(c1_bot_body, level))
-            bool c1_above_30 = (c1_part_above / c1_body_tot) > bo_c1_above_pct
+            bool c1_above_30 = c1_part_above > bo_c1_above_pct * c1_body_tot + eps
 
             float mid_c1 = (high[1] + low[1]) / 2.0
             // Rule 2: big bullish Marubozu + small bullish candle holding its upper half
-            bool r2 = is_big_maru[1] and is_bull[1] and is_bull and (c_range < bo_c2_max_r2 * c_range[1]) and (low > mid_c1) and c1_above_30
+            bool r2 = is_big_maru[1] and is_bull[1] and is_bull and (c_range < bo_c2_max_r2 * c_range[1] - eps) and (low > mid_c1) and c1_above_30
             // Rule 3: big bullish Marubozu + small bearish candle (< 30% of C1) holding its upper half
-            bool r3 = is_big_maru[1] and is_bull[1] and is_bear and (c_range < bo_c2_max_size * c_range[1]) and (low > mid_c1) and c1_above_30
+            bool r3 = is_big_maru[1] and is_bull[1] and is_bear and (c_range < bo_c2_max_size * c_range[1] - eps) and (low > mid_c1) and c1_above_30
             ok := r1 or r2 or r3
 
         else if dir == -1
@@ -162,11 +167,11 @@ f_real_breakout(level, dir) =>
             float c1_bot_body = math.min(close[1], open[1])
             float c1_body_tot = math.max(c1_top_body - c1_bot_body, syminfo.mintick)
             float c1_part_below = math.max(0.0, math.min(c1_top_body, level) - c1_bot_body)
-            bool c1_below_30 = (c1_part_below / c1_body_tot) > bo_c1_above_pct
+            bool c1_below_30 = c1_part_below > bo_c1_above_pct * c1_body_tot + eps
 
             float mid_c1 = (high[1] + low[1]) / 2.0
-            bool r2 = is_big_maru[1] and is_bear[1] and is_bear and (c_range < bo_c2_max_r2 * c_range[1]) and (high < mid_c1) and c1_below_30
-            bool r3 = is_big_maru[1] and is_bear[1] and is_bull and (c_range < bo_c2_max_size * c_range[1]) and (high < mid_c1) and c1_below_30
+            bool r2 = is_big_maru[1] and is_bear[1] and is_bear and (c_range < bo_c2_max_r2 * c_range[1] - eps) and (high < mid_c1) and c1_below_30
+            bool r3 = is_big_maru[1] and is_bear[1] and is_bull and (c_range < bo_c2_max_size * c_range[1] - eps) and (high < mid_c1) and c1_below_30
             ok := r1 or r2 or r3
     ok
 
@@ -175,17 +180,29 @@ f_real_breakout(level, dir) =>
 // =====================================================================
 float mid_1 = (nz(high[1], high) + nz(low[1], low)) / 2.0
 
+// The three Real Pullback conditions (identical logic in up- and downtrends).
+// All sizes compare the TOTAL candle length (high - low), never the body.
+// Rule 1: two consecutive counter-trend Marubozus, both on high volume; C2
+//         closes beyond C1's close and C2's length is at least 70% of C1's.
+// Rule 2: BIG counter-trend Marubozu on high volume + a small candle in the
+//         SAME direction whose far end stays short of C1's 50% level
+//         (bearish: C2 high < C1 mid; bullish: C2 low > C1 mid).
+// Rule 3: BIG counter-trend Marubozu on high volume + a small OPPOSITE candle
+//         whose length is 30% or less of C1's, with its far end short of
+//         C1's 50% level.
+// BIG = larger than at least 3 of the 5 preceding Marubozu candles.
+
 // BEARISH PULLBACK (Counter-trend down in an Uptrend)
-bool pb_r1_dn = is_bear[1] and is_marubozu[1] and is_high_vol[1] and is_bear and is_marubozu and is_high_vol and (c_range >= pb_c2_min_size * nz(c_range[1], c_range)) and (close < nz(close[1], close))
-bool pb_r2_dn = is_bear[1] and is_big_maru[1] and is_high_vol[1] and is_bear and (c_range <= pb_c2_max_r2 * nz(c_range[1], c_range)) and (high < mid_1)
-bool pb_r3_dn = is_bear[1] and is_big_maru[1] and is_high_vol[1] and is_bull and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range)) and (high < mid_1)
+bool pb_r1_dn = is_bear[1] and is_marubozu[1] and is_high_vol[1] and is_bear and is_marubozu and is_high_vol and (c_range >= pb_c2_min_size * nz(c_range[1], c_range) - eps) and (close < nz(close[1], close))
+bool pb_r2_dn = is_bear[1] and is_big_maru[1] and is_high_vol[1] and is_bear and (c_range <= pb_c2_max_r2 * nz(c_range[1], c_range) + eps) and (high < mid_1)
+bool pb_r3_dn = is_bear[1] and is_big_maru[1] and is_high_vol[1] and is_bull and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range) + eps) and (high < mid_1)
 
 bool pb_pattern_down = pb_r1_dn or pb_r2_dn or pb_r3_dn
 
 // BULLISH PULLBACK (Counter-trend up in a Downtrend)
-bool pb_r1_up = is_bull[1] and is_marubozu[1] and is_high_vol[1] and is_bull and is_marubozu and is_high_vol and (c_range >= pb_c2_min_size * nz(c_range[1], c_range)) and (close > nz(close[1], close))
-bool pb_r2_up = is_bull[1] and is_big_maru[1] and is_high_vol[1] and is_bull and (c_range <= pb_c2_max_r2 * nz(c_range[1], c_range)) and (low > mid_1)
-bool pb_r3_up = is_bull[1] and is_big_maru[1] and is_high_vol[1] and is_bear and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range)) and (low > mid_1)
+bool pb_r1_up = is_bull[1] and is_marubozu[1] and is_high_vol[1] and is_bull and is_marubozu and is_high_vol and (c_range >= pb_c2_min_size * nz(c_range[1], c_range) - eps) and (close > nz(close[1], close))
+bool pb_r2_up = is_bull[1] and is_big_maru[1] and is_high_vol[1] and is_bull and (c_range <= pb_c2_max_r2 * nz(c_range[1], c_range) + eps) and (low > mid_1)
+bool pb_r3_up = is_bull[1] and is_big_maru[1] and is_high_vol[1] and is_bear and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range) + eps) and (low > mid_1)
 
 bool pb_pattern_up = pb_r1_up or pb_r2_up or pb_r3_up
 
