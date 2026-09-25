@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V15.4 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V15.5 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -245,10 +245,12 @@ var line  keyLine  = na     // drawn BOS line, extended until it is broken or re
 //   * Every candle that leaves the box (by wick OR body) without completing a
 //     Real Breakout / Real Pullback belongs to the range: the box expands up,
 //     down and to the right to contain it.
-//   * Two-candle rule: when a candle CLOSES beyond a boundary (possible C1 of a
-//     pattern) that boundary is held for exactly one more candle (C2) so the
-//     pattern is tested against it; if C1 + C2 complete nothing, both candles
-//     are absorbed into the box.
+//   * While candles CLOSE beyond a boundary, that boundary is held so every
+//     consecutive two-candle pattern is tested against it (V15.4 absorbed the
+//     second candle of a failed pair, which skipped a Real Breakout starting on
+//     that candle and let a steep trend move be swallowed). When price closes
+//     back inside with no Real Breakout / Pullback, the whole excursion is
+//     absorbed and the box expands.
 //
 // While ACTIVE every candle is internal liquidity: no pullback is
 // confirmed, no CTS/BOS is issued, no signal dot is plotted. Only the
@@ -258,8 +260,8 @@ var bool  rangeActive   = false
 var int   rangeDir      = 0      // +1 box in an up leg (C1 bearish), -1 box in a down leg (C1 bullish)
 var float boxTop        = na     // ceiling: C1/C2 extremes + absorbed wick sweeps and Fakeouts
 var float boxBot        = na     // floor:   C1/C2 extremes + absorbed wick sweeps and Fakeouts
-var int   outUpBars     = 0      // 1 = previous candle closed above the ceiling (pattern C1 pending)
-var int   outDnBars     = 0      // 1 = previous candle closed below the floor (pattern C1 pending)
+var int   outUpBars     = 0      // consecutive closes above the ceiling (excursion in progress)
+var int   outDnBars     = 0      // consecutive closes below the floor (excursion in progress)
 var float exHi          = na     // highest high of the current upside excursion
 var float exLo          = na     // lowest low of the current downside excursion
 var int   rangeLeftBar  = na     // bar of Candle 1 (the anchor candle, always retained)
@@ -387,27 +389,25 @@ if rangeActive
     else
         // ---- NO CLOSURE: the box persists (see BOUNDARY MECHANICS) ----
         // Ceiling side
-        if outUpBars > 0
-            // C2 after a close above the ceiling and nothing completed: absorb C1 + C2.
+        if close > boxTop
+            // Close above the ceiling: keep the ceiling so EVERY consecutive pair of
+            // candles is tested against it (none is skipped), record the excursion.
+            outUpBars += 1
+            exHi      := math.max(nz(exHi, high), high)
+        else
+            // Closed back inside without a Real Breakout / Pullback: the whole
+            // excursion (and any wick) belongs to the range -> expand.
             boxTop    := math.max(boxTop, nz(exHi, high), high)
             outUpBars := 0
             exHi      := na
-        else if close > boxTop
-            // Possible C1 of a pattern: hold the ceiling for one more candle.
-            outUpBars := 1
-            exHi      := high
-        else
-            boxTop := math.max(boxTop, high)
         // Floor side (mirror)
-        if outDnBars > 0
+        if close < boxBot
+            outDnBars += 1
+            exLo      := math.min(nz(exLo, low), low)
+        else
             boxBot    := math.min(boxBot, nz(exLo, low), low)
             outDnBars := 0
             exLo      := na
-        else if close < boxBot
-            outDnBars := 1
-            exLo      := low
-        else
-            boxBot := math.min(boxBot, low)
 
         // Box grows rightward and vertically.
         if not na(rangeBox)
