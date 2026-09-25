@@ -2,4 +2,4 @@
 
 - `SMC_Follow_Trend_RangeBox.pine` — SMC Follow Trend V14.4 [Rohi] with the strict Range Box engine (Pine Script v5).
 - `Real_Breakout_Prompt_FA.md` — Persian AI prompt for identifying and validating Real vs Fake Breakouts and Real Pullbacks.
-- `Market_Structure_Prompt_FA.md` — DRAFT Persian market-structure (CTS/BOS) rules, pending confirmation; not yet implemented.
+- `Market_Structure_Prompt_FA.md` — Persian market-structure (CTS/BOS) rules, confirmed; not yet implemented.
