@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V15.1a [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V15.4 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -36,7 +36,6 @@ rngBullColor         = input.color(color.new(color.green, 86), "Bullish Range", 
 rngBearColor         = input.color(color.new(color.red, 86), "Bearish Range", group=grp_rng)
 rngActiveColor       = input.color(color.new(color.gray, 88), "Active Range", group=grp_rng)
 rngBlockFVG          = input.bool(true, "Block FVG Inside Range", group=grp_rng)
-rngMaxFakeoutBars    = input.int(3, "Max Fakeout Bars (closes outside before return)", minval=0, maxval=50, group=grp_rng, tooltip="An excursion that closes back inside the box within this many closes beyond the boundary is a Fakeout and is absorbed into the box. Longer excursions are not absorbed.")
 rngPbColor           = input.color(color.new(color.orange, 86), "Range Closed by Real Pullback", group=grp_rng)
 rngMarkC1            = input.bool(true, "Mark Candle 1 (Range Anchor)", group=grp_rng)
 rngShowBg            = input.bool(false, "Shade Chart Background While Range Active", group=grp_rng)
@@ -209,6 +208,27 @@ f_real_pullback_at(level, dir) =>
 
 var int msTrendState = 0
 
+// ---- Market-structure state (read by the Range Box and the structure engine) ----
+// Up side: impulse up (H*) / bearish pullback (L*)
+var float uExt    = na
+var int   uExtBar = na
+var bool  uLock   = false
+var float uPbx    = na
+var int   uPbxBar = na
+// Down side: impulse down (L*) / bullish pullback (H*)
+var float dExt    = na
+var int   dExtBar = na
+var bool  dLock   = false
+var float dPbx    = na
+var int   dPbxBar = na
+
+// Level whose Real Breakout reverses the trend: the last BOS, or A right after
+// a reversal (A is not labelled).
+var float keyLevel = na
+var int   keyBar   = na
+var line  keyLine  = na     // drawn BOS line, extended until it is broken or replaced
+
+
 // =====================================================================
 // PRICE ACTION RANGE BOX ENGINE
 // ---------------------------------------------------------------------
@@ -219,23 +239,16 @@ var int msTrendState = 0
 //   ACTIVE --(counter-side Real Breakout, Rules 1-3)----------------> CLOSED (Scenario 1)
 //   ACTIVE --(anything else: inside candles, wicks, body whipsaws)--> ACTIVE (expanded by Fakeouts)
 //
-// BOUNDARY MECHANICS (V13.4) - why the box can no longer swallow a trend:
-//   * The box is never closed by "time" or by a partial confirmation;
-//     only Rules 1-3 close it.
-//   * WICK SWEEP: a candle that pokes beyond a boundary but CLOSES inside
-//     is internal liquidity -> the boundary absorbs its wick at once.
-//   * BODY BREAK: a candle that CLOSES beyond a boundary is a break
-//     attempt. The boundary is NOT moved while closes stay beyond it, so
-//     Rules 1-3 are always tested against the real ceiling/floor. (V13.3
-//     moved the boundary to every new extreme, so a trend kept raising the
-//     bar it had to break and the box grew with the whole trend.)
-//   * FAKEOUT: the attempt fails when price closes back inside. If that
-//     happens within `Max Fakeout Bars` closes, the excursion is a Fakeout
-//     and the box expands to contain it.
-//   * A longer excursion that later comes back was a move away from the
-//     range, not internal liquidity: it is NOT absorbed (V13.3 absorbed a
-//     100-bar trend leg on its first close back inside, inflating the box
-//     many times over).
+// BOUNDARY MECHANICS (V15.4) - the box only ends on Rules 1-3:
+//   * The box closes ONLY on one of the three Real Breakout or Real Pullback
+//     conditions, however many candles it lasts.
+//   * Every candle that leaves the box (by wick OR body) without completing a
+//     Real Breakout / Real Pullback belongs to the range: the box expands up,
+//     down and to the right to contain it.
+//   * Two-candle rule: when a candle CLOSES beyond a boundary (possible C1 of a
+//     pattern) that boundary is held for exactly one more candle (C2) so the
+//     pattern is tested against it; if C1 + C2 complete nothing, both candles
+//     are absorbed into the box.
 //
 // While ACTIVE every candle is internal liquidity: no pullback is
 // confirmed, no CTS/BOS is issued, no signal dot is plotted. Only the
@@ -245,8 +258,8 @@ var bool  rangeActive   = false
 var int   rangeDir      = 0      // +1 box in an up leg (C1 bearish), -1 box in a down leg (C1 bullish)
 var float boxTop        = na     // ceiling: C1/C2 extremes + absorbed wick sweeps and Fakeouts
 var float boxBot        = na     // floor:   C1/C2 extremes + absorbed wick sweeps and Fakeouts
-var int   outUpBars     = 0      // consecutive closes above the ceiling (current break attempt)
-var int   outDnBars     = 0      // consecutive closes below the floor   (current break attempt)
+var int   outUpBars     = 0      // 1 = previous candle closed above the ceiling (pattern C1 pending)
+var int   outDnBars     = 0      // 1 = previous candle closed below the floor (pattern C1 pending)
 var float exHi          = na     // highest high of the current upside excursion
 var float exLo          = na     // lowest low of the current downside excursion
 var int   rangeLeftBar  = na     // bar of Candle 1 (the anchor candle, always retained)
@@ -331,9 +344,11 @@ bool noPullbackDn = not pb_pattern_up   and not pb_pattern_up[1]    // down leg:
 // is never reused as C1), and the box only opens if C2 also qualifies.
 int  legDir      = seedBias != 0 ? seedBias : msTrendState
 bool c1AfterExit = na(lastCloseBar) or (bar_index - 1) > lastCloseBar
+// No new range between a Real Pullback and the Real Breakout that confirms it.
+bool pbPending = (msTrendState == 1 and uLock) or (msTrendState == -1 and dLock)
 
-bool seedUp = legDir == 1  and c1AfterExit and c1Bear and c1FormValid and c2Valid and noPullbackUp
-bool seedDn = legDir == -1 and c1AfterExit and c1Bull and c1FormValid and c2Valid and noPullbackDn
+bool seedUp = legDir == 1  and not pbPending and c1AfterExit and c1Bear and c1FormValid and c2Valid and noPullbackUp
+bool seedDn = legDir == -1 and not pbPending and c1AfterExit and c1Bull and c1FormValid and c2Valid and noPullbackDn
 
 // ---------------- Per-bar Range events ----------------
 bool rangeWasActive = rangeActive
@@ -372,26 +387,27 @@ if rangeActive
     else
         // ---- NO CLOSURE: the box persists (see BOUNDARY MECHANICS) ----
         // Ceiling side
-        if close > boxTop
-            // Body break attempt: keep the ceiling, record the excursion.
-            outUpBars += 1
-            exHi      := math.max(nz(exHi, high), high)
-        else
-            // Closed back inside: sweep (0 closes outside) or Fakeout
-            // (<= Max Fakeout Bars) -> absorb; longer excursion -> ignore.
-            if outUpBars <= rngMaxFakeoutBars
-                boxTop := math.max(boxTop, nz(exHi, high), high)
+        if outUpBars > 0
+            // C2 after a close above the ceiling and nothing completed: absorb C1 + C2.
+            boxTop    := math.max(boxTop, nz(exHi, high), high)
             outUpBars := 0
             exHi      := na
-        // Floor side (mirror)
-        if close < boxBot
-            outDnBars += 1
-            exLo      := math.min(nz(exLo, low), low)
+        else if close > boxTop
+            // Possible C1 of a pattern: hold the ceiling for one more candle.
+            outUpBars := 1
+            exHi      := high
         else
-            if outDnBars <= rngMaxFakeoutBars
-                boxBot := math.min(boxBot, nz(exLo, low), low)
+            boxTop := math.max(boxTop, high)
+        // Floor side (mirror)
+        if outDnBars > 0
+            boxBot    := math.min(boxBot, nz(exLo, low), low)
             outDnBars := 0
             exLo      := na
+        else if close < boxBot
+            outDnBars := 1
+            exLo      := low
+        else
+            boxBot := math.min(boxBot, low)
 
         // Box grows rightward and vertically.
         if not na(rangeBox)
@@ -410,7 +426,7 @@ if rangeActive
             box.set_bgcolor(rangeBox, closeCol)
             box.set_border_color(rangeBox, color.new(closeCol, 15))
             box.set_border_style(rangeBox, line.style_solid)
-            box.set_text(rangeBox, rngPbClose ? "Range: Real Pullback" : "Range: Real Breakout")
+            box.set_text(rangeBox, "Range Closed")
             box.set_text_size(rangeBox, size.tiny)
             box.set_text_color(rangeBox, color.new(closeCol, 0))
             box.set_text_halign(rangeBox, text.align_left)
@@ -497,25 +513,6 @@ bool is_confirmed = msStrictClose ? barstate.isconfirmed : true
 // before any range formed, has already locked the CTS candidate.
 bool pbDnStruct = pb_pattern_down and (not rangeWasActive or pbDnExit)
 bool pbUpStruct = pb_pattern_up   and (not rangeWasActive or pbUpExit)
-
-// Up side: impulse up (H*) / bearish pullback (L*)
-var float uExt    = na
-var int   uExtBar = na
-var bool  uLock   = false
-var float uPbx    = na
-var int   uPbxBar = na
-// Down side: impulse down (L*) / bullish pullback (H*)
-var float dExt    = na
-var int   dExtBar = na
-var bool  dLock   = false
-var float dPbx    = na
-var int   dPbxBar = na
-
-// Level whose Real Breakout reverses the trend: the last BOS, or A right after
-// a reversal (A is not labelled).
-var float keyLevel = na
-var int   keyBar   = na
-var line  keyLine  = na     // drawn BOS line, extended until it is broken or replaced
 
 // Real Breakout tests, evaluated on every bar (levels are the previous bar's state)
 bool revDnBreak = f_real_breakout(msTrendState == 1 ? keyLevel : na, -1)
@@ -882,14 +879,15 @@ if msTrendState == -1 and not na(bear_fib_618) and not na(bear_fib_800)
 // =====================================================================
 // ALERTS
 // =====================================================================
-bool valid_pullback_down = pbLockUp and msTrendState == 1   // bearish Real Pullback in an uptrend
-bool valid_pullback_up   = pbLockDn and msTrendState == -1  // bullish Real Pullback in a downtrend
+// A Real Pullback is identified only at the Real Breakout that confirms the CTS.
+bool valid_pullback_down = msSignal == 1    // bearish Real Pullback confirmed in an uptrend
+bool valid_pullback_up   = msSignal == -1   // bullish Real Pullback confirmed in a downtrend
 
 alertcondition(rangeSeed,            title="New Range Created",        message="SMC [Rohi]: New Price Action Range Created")
 alertcondition(bull_break_confirmed, title="Bullish Real Breakout",    message="SMC [Rohi]: Real Bullish Breakout Confirmed!")
 alertcondition(bear_break_confirmed, title="Bearish Real Breakout",    message="SMC [Rohi]: Real Bearish Breakout Confirmed!")
 alertcondition(fakeBreakoutStart,    title="Fake Breakout of CTS",     message="SMC [Rohi]: Price traded beyond CTS without a Real Breakout (Fake Breakout)")
-alertcondition(valid_pullback_down,  title="Real Pullback Down",       message="SMC [Rohi]: Real Bearish Pullback (outside range)!")
-alertcondition(valid_pullback_up,    title="Real Pullback Up",         message="SMC [Rohi]: Real Bullish Pullback (outside range)!")
+alertcondition(valid_pullback_down,  title="Real Pullback Down",       message="SMC [Rohi]: Real Bearish Pullback confirmed by a Real Breakout")
+alertcondition(valid_pullback_up,    title="Real Pullback Up",         message="SMC [Rohi]: Real Bullish Pullback confirmed by a Real Breakout")
 alertcondition(rngRealUp,            title="Real Range Breakout Up",   message="SMC [Rohi]: Range broken UP by confirmed strict breakout!")
 alertcondition(rngRealDown,          title="Real Range Breakout Down", message="SMC [Rohi]: Range broken DOWN by confirmed strict breakout!")
