@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V15.0 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V15.1 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -54,7 +54,6 @@ colBearStrong    = input.color(color.new(color.red, 0), "Bearish Strong Color", 
 colBearWeak      = input.color(color.new(color.gray, 0), "Bearish Weak Color", group="Imbalance Settings")
 
 bodyMin          = input.float(0.30, "Min Body % (Valid Normal Candle)", step=0.05, group="Breakout Filters")
-useHighVol       = input.bool(true, "Require High Volume for Pullbacks", group="Breakout Filters")
 dojiMax          = input.float(0.15, "Max Doji %", step=0.05, group="Breakout Filters")
 
 // =====================================================================
@@ -90,12 +89,6 @@ is_pinbar     = (upper_wick > c_body * 2) or (lower_wick > c_body * 2)
 is_normal     = not is_doji and not is_pinbar and is_valid_body
 
 atr           = ta.atr(14)
-safe_vol      = nz(volume, 0)
-// Symbols without volume data (many FX / CFD / index feeds) would make every
-// candle "low volume" and silently disable every Real Pullback: the volume
-// filter is only applied when the feed actually has volume.
-bool hasVolume = ta.cum(safe_vol) > 0
-is_high_vol   = useHighVol and hasVolume ? (safe_vol > ta.sma(safe_vol, 20)) : true
 
 // Range Specific Metrics
 bool rngValidBody = c_body > syminfo.mintick
@@ -182,29 +175,42 @@ float mid_1 = (nz(high[1], high) + nz(low[1], low)) / 2.0
 
 // The three Real Pullback conditions (identical logic in up- and downtrends).
 // All sizes compare the TOTAL candle length (high - low), never the body.
-// Rule 1: two consecutive counter-trend Marubozus, both on high volume; C2
+// Only these three conditions define a Real Pullback (no volume filter).
+// Rule 1: two consecutive counter-trend Marubozus; C2
 //         closes beyond C1's close and C2's length is at least 70% of C1's.
-// Rule 2: BIG counter-trend Marubozu on high volume + a small candle in the
+// Rule 2: BIG counter-trend Marubozu + a small candle in the
 //         SAME direction whose far end stays short of C1's 50% level
 //         (bearish: C2 high < C1 mid; bullish: C2 low > C1 mid).
-// Rule 3: BIG counter-trend Marubozu on high volume + a small OPPOSITE candle
+// Rule 3: BIG counter-trend Marubozu + a small OPPOSITE candle
 //         whose length is 30% or less of C1's, with its far end short of
 //         C1's 50% level.
 // BIG = larger than at least 3 of the 5 preceding Marubozu candles.
 
 // BEARISH PULLBACK (Counter-trend down in an Uptrend)
-bool pb_r1_dn = is_bear[1] and is_marubozu[1] and is_high_vol[1] and is_bear and is_marubozu and is_high_vol and (c_range >= pb_c2_min_size * nz(c_range[1], c_range) - eps) and (close < nz(close[1], close))
-bool pb_r2_dn = is_bear[1] and is_big_maru[1] and is_high_vol[1] and is_bear and (c_range <= pb_c2_max_r2 * nz(c_range[1], c_range) + eps) and (high < mid_1)
-bool pb_r3_dn = is_bear[1] and is_big_maru[1] and is_high_vol[1] and is_bull and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range) + eps) and (high < mid_1)
+bool pb_r1_dn = is_bear[1] and is_marubozu[1] and is_bear and is_marubozu and (c_range >= pb_c2_min_size * nz(c_range[1], c_range) - eps) and (close < nz(close[1], close))
+bool pb_r2_dn = is_bear[1] and is_big_maru[1] and is_bear and (c_range <= pb_c2_max_r2 * nz(c_range[1], c_range) + eps) and (high < mid_1)
+bool pb_r3_dn = is_bear[1] and is_big_maru[1] and is_bull and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range) + eps) and (high < mid_1)
 
 bool pb_pattern_down = pb_r1_dn or pb_r2_dn or pb_r3_dn
 
 // BULLISH PULLBACK (Counter-trend up in a Downtrend)
-bool pb_r1_up = is_bull[1] and is_marubozu[1] and is_high_vol[1] and is_bull and is_marubozu and is_high_vol and (c_range >= pb_c2_min_size * nz(c_range[1], c_range) - eps) and (close > nz(close[1], close))
-bool pb_r2_up = is_bull[1] and is_big_maru[1] and is_high_vol[1] and is_bull and (c_range <= pb_c2_max_r2 * nz(c_range[1], c_range) + eps) and (low > mid_1)
-bool pb_r3_up = is_bull[1] and is_big_maru[1] and is_high_vol[1] and is_bear and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range) + eps) and (low > mid_1)
+bool pb_r1_up = is_bull[1] and is_marubozu[1] and is_bull and is_marubozu and (c_range >= pb_c2_min_size * nz(c_range[1], c_range) - eps) and (close > nz(close[1], close))
+bool pb_r2_up = is_bull[1] and is_big_maru[1] and is_bull and (c_range <= pb_c2_max_r2 * nz(c_range[1], c_range) + eps) and (low > mid_1)
+bool pb_r3_up = is_bull[1] and is_big_maru[1] and is_bear and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range) + eps) and (low > mid_1)
 
 bool pb_pattern_up = pb_r1_up or pb_r2_up or pb_r3_up
+
+// Real Pullback that BREAKS a range boundary against the range's leg:
+//   Rule 1: both candles close beyond the boundary
+//   Rule 2/3: the big Marubozu (C1 of the pattern) closes beyond the boundary
+f_real_pullback_at(level, dir) =>
+    bool ok = false
+    if not na(level)
+        if dir == -1
+            ok := (pb_r1_dn and close[1] < level and close < level) or ((pb_r2_dn or pb_r3_dn) and close[1] < level)
+        else if dir == 1
+            ok := (pb_r1_up and close[1] > level and close > level) or ((pb_r2_up or pb_r3_up) and close[1] > level)
+    ok
 
 
 var int msTrendState = 0
@@ -278,6 +284,8 @@ float ceilLvl  = rangeActive ? boxTop : na
 float floorLvl = rangeActive ? boxBot : na
 bool boUpCeil  = f_real_breakout(ceilLvl, 1)        // Real Breakout above the ceiling
 bool boDnFloor = f_real_breakout(floorLvl, -1)      // Real Breakout below the floor
+bool pbDnExit  = f_real_pullback_at(floorLvl, -1)   // bearish Real Pullback breaking the floor
+bool pbUpExit  = f_real_pullback_at(ceilLvl, 1)     // bullish Real Pullback breaking the ceiling
 
 // ---------------- Candle 1 (Trigger): counter-trend candle ----------------
 float c1Range   = bar_index >= 1 ? math.max(high[1] - low[1], syminfo.mintick) : syminfo.mintick
@@ -347,15 +355,14 @@ if rangeActive
     //   up-leg box   -> above the ceiling
     //   down-leg box -> below the floor
     bool realBO = rangeDir == 1 ? boUpCeil : boDnFloor
-    // Scenario 1 (V13.5): a valid Real Pullback (Rules 1-3) against the leg
-    // closes the box ON THE CANDLE THAT COMPLETES IT, wherever that candle
-    // is (inside or outside the box):
-    //   up-leg box   -> bearish Real Pullback
-    //   down-leg box -> bullish Real Pullback
-    // A Real Breakout (Rules 1-3) through the counter-side boundary also
-    // closes it: a breakout against the leg is at least a pullback of it,
-    // and without it a down-leg box could never be closed by a rally.
-    bool realPB = rangeDir == 1 ? (pb_pattern_down or boDnFloor) : (pb_pattern_up or boUpCeil)
+    // Scenario 1 (V15.1): the box closes by a Real Pullback only when the
+    // pullback BREAKS the box against its leg:
+    //   up-leg box   -> bearish Real Pullback breaking the floor
+    //   down-leg box -> bullish Real Pullback breaking the ceiling
+    // A pullback pattern completed inside the box is range noise: the box
+    // persists. A Real Breakout (Rules 1-3) through the counter-side
+    // boundary also closes it.
+    bool realPB = rangeDir == 1 ? (pbDnExit or boDnFloor) : (pbUpExit or boUpCeil)
 
     if realBO
         // ---- SCENARIO 2: Real Breakout closes the Range Box ----
@@ -490,6 +497,13 @@ bgcolor(rngShowBg and rangeActive ? color.new(color.gray, 96) : na, title="Range
 // =====================================================================
 bool is_confirmed = msStrictClose ? barstate.isconfirmed : true
 
+// Real Pullback for STRUCTURE. A pullback pattern that completes inside a range
+// that was already active counts only if it breaks that range (downward for a
+// bearish pullback, upward for a bullish one). A pullback that happened first,
+// before any range formed, has already locked the CTS candidate.
+bool pbDnStruct = pb_pattern_down and (not rangeWasActive or pbDnExit)
+bool pbUpStruct = pb_pattern_up   and (not rangeWasActive or pbUpExit)
+
 // Up side: impulse up (H*) / bearish pullback (L*)
 var float uExt    = na
 var int   uExtBar = na
@@ -599,7 +613,7 @@ if is_confirmed
                 else if na(uPbx) or low < uPbx
                     uPbx    := low
                     uPbxBar := bar_index
-                if pb_pattern_down
+                if pbDnStruct
                     uLock    := true
                     pbLockUp := true
                     if na(uPbx)
@@ -638,7 +652,7 @@ if is_confirmed
                 else if na(dPbx) or high > dPbx
                     dPbx    := high
                     dPbxBar := bar_index
-                if pb_pattern_up
+                if pbUpStruct
                     dLock    := true
                     pbLockDn := true
                     if na(dPbx)
