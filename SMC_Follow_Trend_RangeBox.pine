@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V15.1 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V15.1a [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -15,14 +15,12 @@ msFibColor       = input.color(color.new(color.purple, 50), "Fib Zone Color", gr
 // Real Breakout Settings
 grp_bo           = "Real Breakout Settings"
 bo_maru_body     = input.float(0.70, "Marubozu Min Body % (Rule 1,2,3)", minval=0.50, maxval=0.95, step=0.05, group=grp_bo, tooltip="Body as % of the total candle length. 70% by default; 60% is the permitted looser setting.")
-bo_c1_above_pct  = input.float(0.30, "C1 Body % Beyond BOI - must exceed (Rule 2,3)", step=0.05, group=grp_bo)
+bo_c1_above_pct  = input.float(0.30, "C1 Candle % Beyond BOI incl. shadows - must exceed (Rule 2,3)", step=0.05, group=grp_bo)
 bo_c2_max_size   = input.float(0.30, "C2 Size % vs C1 - must be below (Rule 3)", step=0.05, group=grp_bo)
-bo_c2_max_r2     = input.float(0.30, "C2 Size % vs C1 - must be below (Rule 2)", step=0.05, group=grp_bo, tooltip="Rule 2 calls C2 a small candle; the spec gives the 30% figure for Rule 3. Set to 1.0 to drop the size limit for Rule 2.")
 
 // Real Pullback Settings
 grp_pb           = "Real Pullback Settings"
 pb_c2_min_size   = input.float(0.70, "PB Rule 1: C2 Length at least % of C1", step=0.05, group=grp_pb)
-pb_c2_max_r2     = input.float(0.40, "PB Rule 2: C2 Length at most % of C1 (Similar)", step=0.05, group=grp_pb, tooltip="Rule 2 only says the second candle is small; this limit defines small. Set to 1.0 to rely on the 50% rule alone.")
 pb_c2_max_r3     = input.float(0.30, "PB Rule 3: C2 Length at most % of C1 (Opposite)", step=0.05, group=grp_pb)
 
 // PRICE ACTION RANGE Settings
@@ -141,29 +139,25 @@ f_real_breakout(level, dir) =>
         if dir == 1
             // Rule 1: two bullish Marubozus, both closing above the BOI, C2 closing above C1's high
             bool r1 = is_marubozu[1] and is_marubozu and is_bull[1] and is_bull and (close[1] > level) and (close > level) and (close > high[1])
-            float c1_top_body = math.max(close[1], open[1])
-            float c1_bot_body = math.min(close[1], open[1])
-            float c1_body_tot = math.max(c1_top_body - c1_bot_body, syminfo.mintick)
-            float c1_part_above = math.max(0.0, c1_top_body - math.max(c1_bot_body, level))
-            bool c1_above_30 = c1_part_above > bo_c1_above_pct * c1_body_tot + eps
+            // More than 30% of C1's WHOLE candle (body + shadows) above the CTS
+            float c1_part_above = math.max(0.0, high[1] - math.max(low[1], level))
+            bool c1_above_30 = c1_part_above > bo_c1_above_pct * c_range[1] + eps
 
             float mid_c1 = (high[1] + low[1]) / 2.0
-            // Rule 2: big bullish Marubozu + small bullish candle holding its upper half
-            bool r2 = is_big_maru[1] and is_bull[1] and is_bull and (c_range < bo_c2_max_r2 * c_range[1] - eps) and (low > mid_c1) and c1_above_30
+            // Rule 2: big bullish Marubozu + bullish candle whose LOW stays above C1's 50%
+            bool r2 = is_big_maru[1] and is_bull[1] and is_bull and (low > mid_c1) and c1_above_30
             // Rule 3: big bullish Marubozu + small bearish candle (< 30% of C1) holding its upper half
             bool r3 = is_big_maru[1] and is_bull[1] and is_bear and (c_range < bo_c2_max_size * c_range[1] - eps) and (low > mid_c1) and c1_above_30
             ok := r1 or r2 or r3
 
         else if dir == -1
             bool r1 = is_marubozu[1] and is_marubozu and is_bear[1] and is_bear and (close[1] < level) and (close < level) and (close < low[1])
-            float c1_top_body = math.max(close[1], open[1])
-            float c1_bot_body = math.min(close[1], open[1])
-            float c1_body_tot = math.max(c1_top_body - c1_bot_body, syminfo.mintick)
-            float c1_part_below = math.max(0.0, math.min(c1_top_body, level) - c1_bot_body)
-            bool c1_below_30 = c1_part_below > bo_c1_above_pct * c1_body_tot + eps
+            // More than 30% of C1's WHOLE candle (body + shadows) below the CTS
+            float c1_part_below = math.max(0.0, math.min(high[1], level) - low[1])
+            bool c1_below_30 = c1_part_below > bo_c1_above_pct * c_range[1] + eps
 
             float mid_c1 = (high[1] + low[1]) / 2.0
-            bool r2 = is_big_maru[1] and is_bear[1] and is_bear and (c_range < bo_c2_max_r2 * c_range[1] - eps) and (high < mid_c1) and c1_below_30
+            bool r2 = is_big_maru[1] and is_bear[1] and is_bear and (high < mid_c1) and c1_below_30
             bool r3 = is_big_maru[1] and is_bear[1] and is_bull and (c_range < bo_c2_max_size * c_range[1] - eps) and (high < mid_c1) and c1_below_30
             ok := r1 or r2 or r3
     ok
@@ -188,14 +182,14 @@ float mid_1 = (nz(high[1], high) + nz(low[1], low)) / 2.0
 
 // BEARISH PULLBACK (Counter-trend down in an Uptrend)
 bool pb_r1_dn = is_bear[1] and is_marubozu[1] and is_bear and is_marubozu and (c_range >= pb_c2_min_size * nz(c_range[1], c_range) - eps) and (close < nz(close[1], close))
-bool pb_r2_dn = is_bear[1] and is_big_maru[1] and is_bear and (c_range <= pb_c2_max_r2 * nz(c_range[1], c_range) + eps) and (high < mid_1)
+bool pb_r2_dn = is_bear[1] and is_big_maru[1] and is_bear and (high < mid_1)
 bool pb_r3_dn = is_bear[1] and is_big_maru[1] and is_bull and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range) + eps) and (high < mid_1)
 
 bool pb_pattern_down = pb_r1_dn or pb_r2_dn or pb_r3_dn
 
 // BULLISH PULLBACK (Counter-trend up in a Downtrend)
 bool pb_r1_up = is_bull[1] and is_marubozu[1] and is_bull and is_marubozu and (c_range >= pb_c2_min_size * nz(c_range[1], c_range) - eps) and (close > nz(close[1], close))
-bool pb_r2_up = is_bull[1] and is_big_maru[1] and is_bull and (c_range <= pb_c2_max_r2 * nz(c_range[1], c_range) + eps) and (low > mid_1)
+bool pb_r2_up = is_bull[1] and is_big_maru[1] and is_bull and (low > mid_1)
 bool pb_r3_up = is_bull[1] and is_big_maru[1] and is_bear and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range) + eps) and (low > mid_1)
 
 bool pb_pattern_up = pb_r1_up or pb_r2_up or pb_r3_up
