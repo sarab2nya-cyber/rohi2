@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V15.2 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V15.3 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -36,7 +36,8 @@ rngBullColor         = input.color(color.new(color.green, 86), "Bullish Range", 
 rngBearColor         = input.color(color.new(color.red, 86), "Bearish Range", group=grp_rng)
 rngActiveColor       = input.color(color.new(color.gray, 88), "Active Range", group=grp_rng)
 rngBlockFVG          = input.bool(true, "Block FVG Inside Range", group=grp_rng)
-rngPbColor           = input.color(color.new(color.orange, 86), "Range Closed by Real Pullback", group=grp_rng)
+rngPbColor           = input.color(color.new(color.orange, 86), "Range Closed by a Pullback Pattern", group=grp_rng)
+rngPbBoxColor        = input.color(color.purple, "Pullback Box (type 2)", group=grp_rng)
 rngMarkC1            = input.bool(true, "Mark Candle 1 (Range Anchor)", group=grp_rng)
 rngShowBg            = input.bool(false, "Shade Chart Background While Range Active", group=grp_rng)
 rngMemory            = input.int(50, "Closed Ranges Remembered (Level Filter)", minval=5, maxval=200, group=grp_rng)
@@ -207,6 +208,37 @@ f_real_pullback_at(level, dir) =>
 
 var int msTrendState = 0
 
+// ---- Market-structure state (used by the Range Box and the structure engine) ----
+// Up side: impulse up (H*) / bearish pullback (L*)
+var float uExt    = na
+var int   uExtBar = na
+var bool  uLock   = false
+var float uPbx    = na
+var int   uPbxBar = na
+// Down side: impulse down (L*) / bullish pullback (H*)
+var float dExt    = na
+var int   dExtBar = na
+var bool  dLock   = false
+var float dPbx    = na
+var int   dPbxBar = na
+// Pullback box (type 2): its CTS-side edge starts on the CTS line and expands with
+// fake breakouts (two-candle rule); the Real Breakout is tested against this edge.
+var float uBnd   = na   // uptrend: top of the pullback box
+var int   uPend  = 0    // 1 = previous candle closed above uBnd (pattern C1 pending)
+var float uExHi  = na
+var float dBnd   = na   // downtrend: bottom of the pullback box
+var int   dPend  = 0
+var float dExLo  = na
+var box   pbBox    = na
+var int   pbBoxDir = 0
+
+// Level whose Real Breakout reverses the trend: the last BOS, or A right after
+// a reversal (A is not labelled).
+var float keyLevel = na
+var int   keyBar   = na
+var line  keyLine  = na     // drawn BOS line, extended until it is broken or replaced
+
+
 // =====================================================================
 // PRICE ACTION RANGE BOX ENGINE
 // ---------------------------------------------------------------------
@@ -323,9 +355,11 @@ bool noPullbackDn = not pb_pattern_up   and not pb_pattern_up[1]    // down leg:
 // is never reused as C1), and the box only opens if C2 also qualifies.
 int  legDir      = seedBias != 0 ? seedBias : msTrendState
 bool c1AfterExit = na(lastCloseBar) or (bar_index - 1) > lastCloseBar
+// No new indecision range while a pullback box (type 2) is active.
+bool inPbBox = (msTrendState == 1 and uLock) or (msTrendState == -1 and dLock)
 
-bool seedUp = legDir == 1  and c1AfterExit and c1Bear and c1FormValid and c2Valid and noPullbackUp
-bool seedDn = legDir == -1 and c1AfterExit and c1Bull and c1FormValid and c2Valid and noPullbackDn
+bool seedUp = legDir == 1  and not inPbBox and c1AfterExit and c1Bear and c1FormValid and c2Valid and noPullbackUp
+bool seedDn = legDir == -1 and not inPbBox and c1AfterExit and c1Bull and c1FormValid and c2Valid and noPullbackDn
 
 // ---------------- Per-bar Range events ----------------
 bool rangeWasActive = rangeActive
@@ -404,7 +438,7 @@ if rangeActive
             box.set_bgcolor(rangeBox, closeCol)
             box.set_border_color(rangeBox, color.new(closeCol, 15))
             box.set_border_style(rangeBox, line.style_solid)
-            box.set_text(rangeBox, rngPbClose ? "Range: Real Pullback" : "Range: Real Breakout")
+            box.set_text(rangeBox, rngPbClose ? "Range Closed" : "Range: Real Breakout")
             box.set_text_size(rangeBox, size.tiny)
             box.set_text_color(rangeBox, color.new(closeCol, 0))
             box.set_text_halign(rangeBox, text.align_left)
@@ -492,30 +526,13 @@ bool is_confirmed = msStrictClose ? barstate.isconfirmed : true
 bool pbDnStruct = pb_pattern_down and (not rangeWasActive or pbDnExit)
 bool pbUpStruct = pb_pattern_up   and (not rangeWasActive or pbUpExit)
 
-// Up side: impulse up (H*) / bearish pullback (L*)
-var float uExt    = na
-var int   uExtBar = na
-var bool  uLock   = false
-var float uPbx    = na
-var int   uPbxBar = na
-// Down side: impulse down (L*) / bullish pullback (H*)
-var float dExt    = na
-var int   dExtBar = na
-var bool  dLock   = false
-var float dPbx    = na
-var int   dPbxBar = na
-
-// Level whose Real Breakout reverses the trend: the last BOS, or A right after
-// a reversal (A is not labelled).
-var float keyLevel = na
-var int   keyBar   = na
-var line  keyLine  = na     // drawn BOS line, extended until it is broken or replaced
-
 // Real Breakout tests, evaluated on every bar (levels are the previous bar's state)
 bool revDnBreak = f_real_breakout(msTrendState == 1 ? keyLevel : na, -1)
 bool revUpBreak = f_real_breakout(msTrendState == -1 ? keyLevel : na, 1)
-bool ctsUpBreak = f_real_breakout(uLock ? uExt : na, 1)
-bool ctsDnBreak = f_real_breakout(dLock ? dExt : na, -1)
+// CTS is broken when the EXPANDED pullback-box edge is broken by a Real Breakout;
+// the CTS itself is drawn on its original line (uExt / dExt).
+bool ctsUpBreak = f_real_breakout(uLock ? uBnd : na, 1)
+bool ctsDnBreak = f_real_breakout(dLock ? dBnd : na, -1)
 
 // Pending CTS level (for the Fake Breakout marker), captured before the update
 int   fbTrendPre = msTrendState
@@ -589,9 +606,20 @@ if is_confirmed
                     uLock    := false
                     uPbx     := na
                     uPbxBar  := na
-                else if na(uPbx) or low < uPbx
-                    uPbx    := low
-                    uPbxBar := bar_index
+                else
+                    if na(uPbx) or low < uPbx
+                        uPbx    := low
+                        uPbxBar := bar_index
+                    // Fake breakout above the CTS line expands the box top (two-candle rule)
+                    if uPend > 0
+                        uBnd  := math.max(uBnd, nz(uExHi, high), high)
+                        uPend := 0
+                        uExHi := na
+                    else if close > uBnd
+                        uPend := 1
+                        uExHi := high
+                    else
+                        uBnd := math.max(uBnd, high)
             else
                 if high > uExt
                     uExt    := high
@@ -604,6 +632,9 @@ if is_confirmed
                 if pbDnStruct
                     uLock    := true
                     pbLockUp := true
+                    uBnd     := uExt
+                    uPend    := 0
+                    uExHi    := na
                     if na(uPbx)
                         uPbx    := low
                         uPbxBar := bar_index
@@ -628,9 +659,20 @@ if is_confirmed
                     dLock    := false
                     dPbx     := na
                     dPbxBar  := na
-                else if na(dPbx) or high > dPbx
-                    dPbx    := high
-                    dPbxBar := bar_index
+                else
+                    if na(dPbx) or high > dPbx
+                        dPbx    := high
+                        dPbxBar := bar_index
+                    // Fake breakout below the CTS line expands the box bottom (two-candle rule)
+                    if dPend > 0
+                        dBnd  := math.min(dBnd, nz(dExLo, low), low)
+                        dPend := 0
+                        dExLo := na
+                    else if close < dBnd
+                        dPend := 1
+                        dExLo := low
+                    else
+                        dBnd := math.min(dBnd, low)
             else
                 if low < dExt
                     dExt    := low
@@ -643,6 +685,9 @@ if is_confirmed
                 if pbUpStruct
                     dLock    := true
                     pbLockDn := true
+                    dBnd     := dExt
+                    dPend    := 0
+                    dExLo    := na
                     if na(dPbx)
                         dPbx    := high
                         dPbxBar := bar_index
@@ -683,6 +728,29 @@ if bull_break_confirmed or bear_break_confirmed
 // =====================================================================
 var float lastPivotPrice = na
 var int   lastPivotBar   = na
+
+// ---- Pullback box (type 2): from the CTS line to the pullback extreme ----
+if not na(pbBox) and msSignal != 0
+    // closes on the Real Breakout (CTS/BOS, pullback confirmed) or on a trend change
+    box.set_right(pbBox, bar_index)
+    box.set_border_style(pbBox, line.style_solid)
+    box.set_text(pbBox, math.abs(msSignal) == 1 ? "Real Pullback" : "Trend Change")
+    box.set_text_size(pbBox, size.tiny)
+    box.set_text_color(pbBox, color.new(rngPbBoxColor, 0))
+    box.set_text_valign(pbBox, pbBoxDir == 1 ? text.align_bottom : text.align_top)
+    pbBox := na
+    pbBoxDir := 0
+if rngShow and na(pbBox) and ((pbLockUp and msTrendState == 1) or (pbLockDn and msTrendState == -1))
+    pbBoxDir := msTrendState
+    pbBox := pbBoxDir == 1 ? box.new(left=f_x(uExtBar), top=uBnd, right=bar_index, bottom=uPbx, bgcolor=color.new(rngPbBoxColor, 88), border_color=color.new(rngPbBoxColor, 30), border_width=1, border_style=line.style_dashed) : box.new(left=f_x(dExtBar), top=dPbx, right=bar_index, bottom=dBnd, bgcolor=color.new(rngPbBoxColor, 88), border_color=color.new(rngPbBoxColor, 30), border_width=1, border_style=line.style_dashed)
+else if not na(pbBox)
+    box.set_right(pbBox, bar_index)
+    if pbBoxDir == 1
+        box.set_top(pbBox, uBnd)
+        box.set_bottom(pbBox, uPbx)
+    else
+        box.set_top(pbBox, dPbx)
+        box.set_bottom(pbBox, dBnd)
 
 // The BOS line keeps extending to the right until it is broken or replaced.
 if not na(keyLine) and msSignal == 0
@@ -876,14 +944,15 @@ if msTrendState == -1 and not na(bear_fib_618) and not na(bear_fib_800)
 // =====================================================================
 // ALERTS
 // =====================================================================
-bool valid_pullback_down = pbLockUp and msTrendState == 1   // bearish Real Pullback in an uptrend
-bool valid_pullback_up   = pbLockDn and msTrendState == -1  // bullish Real Pullback in a downtrend
+// A Real Pullback is identified only at the Real Breakout that confirms the CTS.
+bool valid_pullback_down = msSignal == 1    // bearish Real Pullback confirmed in an uptrend
+bool valid_pullback_up   = msSignal == -1   // bullish Real Pullback confirmed in a downtrend
 
 alertcondition(rangeSeed,            title="New Range Created",        message="SMC [Rohi]: New Price Action Range Created")
 alertcondition(bull_break_confirmed, title="Bullish Real Breakout",    message="SMC [Rohi]: Real Bullish Breakout Confirmed!")
 alertcondition(bear_break_confirmed, title="Bearish Real Breakout",    message="SMC [Rohi]: Real Bearish Breakout Confirmed!")
 alertcondition(fakeBreakoutStart,    title="Fake Breakout of CTS",     message="SMC [Rohi]: Price traded beyond CTS without a Real Breakout (Fake Breakout)")
-alertcondition(valid_pullback_down,  title="Real Pullback Down",       message="SMC [Rohi]: Real Bearish Pullback (outside range)!")
-alertcondition(valid_pullback_up,    title="Real Pullback Up",         message="SMC [Rohi]: Real Bullish Pullback (outside range)!")
+alertcondition(valid_pullback_down,  title="Real Pullback Down",       message="SMC [Rohi]: Real Bearish Pullback confirmed by a Real Breakout")
+alertcondition(valid_pullback_up,    title="Real Pullback Up",         message="SMC [Rohi]: Real Bullish Pullback confirmed by a Real Breakout")
 alertcondition(rngRealUp,            title="Real Range Breakout Up",   message="SMC [Rohi]: Range broken UP by confirmed strict breakout!")
 alertcondition(rngRealDown,          title="Real Range Breakout Down", message="SMC [Rohi]: Range broken DOWN by confirmed strict breakout!")

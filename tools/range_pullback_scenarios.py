@@ -2,7 +2,7 @@ import io, contextlib
 with contextlib.redirect_stdout(io.StringIO()):
     import market_structure_scenarios
 from market_structure_scenarios import B
-import market_structure_sim_v152 as sim_ms2
+import market_structure_sim_v153 as sim_ms2
 def show(name,b,only=None):
     print('==',name)
     for e in sim_ms2.run(b.bars):
