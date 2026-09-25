@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V14.4 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V15.0 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -458,192 +458,202 @@ if not rangeWasActive and not rngClosedNow and (seedUp or seedDn)
         // Mark Candle 1 (range anchor) on the chart.
         label.new(f_x(rangeLeftBar), seedUp ? high[1] : low[1], "1", style=label.style_none, textcolor=color.gray, size=size.tiny, yloc=seedUp ? yloc.abovebar : yloc.belowbar)
 
-bool structLock = rangeActive
-// ---- Compatibility with the original structure engine ----
-// The original code reads these names; they now come from the Range Box above.
-bool rngRealUp   = rngBreakUp or (rngPbClose and rngClosedDir == -1)   // box closed upward
-bool rngRealDown = rngBreakDn or (rngPbClose and rngClosedDir == 1)    // box closed downward
-
-// Box exit classification (market-structure scenarios 4 and 5):
-//   * PULLBACK EXIT  - the box closed against its leg by one of the three main
-//     conditions. This IS the valid pullback: in an up leg the box high is the
-//     swing high and the low that follows becomes the BOS (Key Level); in a
-//     down leg the box low is the swing low and the high that follows becomes
-//     the BOS.
-//   * CONTINUATION EXIT - the box closed in the direction of its leg without a
-//     pullback. Nothing inside that box becomes BOS or CTS.
-bool rngPbExitDn   = rngPbClose and rngClosedDir == 1    // up-leg box -> bearish valid pullback
-bool rngPbExitUp   = rngPbClose and rngClosedDir == -1   // down-leg box -> bullish valid pullback
-
-bool rangeLock = rangeActive   // BOS/CTS are never identified inside a Range Box (not optional)
-bool inRange = rangeActive
-bool rangeBlock = rangeLock
-
-f_levelInsideRange(_level) => rangeActive and not na(_level) and _level <= boxTop and _level >= boxBot
-levelInRange(_lvl) => f_levelInsideRange(_lvl)
+// Box closed upward / downward (plots and alerts)
+bool rngRealUp   = rngBreakUp or (rngPbClose and rngClosedDir == -1)
+bool rngRealDown = rngBreakDn or (rngPbClose and rngClosedDir == 1)
 
 plotchar(rangeSeed, title="Range Seed", char="R", location=location.bottom, color=color.gray, size=size.tiny)
 bgcolor(rngShowBg and rangeActive ? color.new(color.gray, 96) : na, title="Range Active Background")
 
 // =====================================================================
-// MARKET STRUCTURE TRACKING (Running Extremes)
+// MARKET STRUCTURE (CTS / BOS) - implements Market_Structure_Prompt_FA.md
+// ---------------------------------------------------------------------
+// Up-trend cycle (down-trend is the exact mirror):
+//   PHASE A (impulse)  : track H* = highest high of the up impulse. A counter
+//                        move WITHOUT one of the 3 Real Pullback conditions is a
+//                        range/noise: H* just keeps extending (no CTS, no BOS).
+//   -> one of the 3 Real Pullback conditions (bearish) occurs
+//   PHASE B (pullback) : H* is LOCKED (pending CTS). Track L* = lowest low of the
+//                        WHOLE pullback wave since H*, however long it lasts and
+//                        whatever ranges form inside it. Fake moves above H* do
+//                        not move it; fake moves below the last BOS do not
+//                        reverse the trend.
+//   -> Real Breakout (3 conditions) of H*
+//        CTS (Recent High) = H*  and  BOS (Key Level) = L*, identified TOGETHER
+//        at this bar; a new impulse starts (back to PHASE A).
+//   Real Breakout of the last BOS downward (in PHASE A or B) -> trend DOWN.
+//        A = H* (highest high of the last up wave) is the unlabelled reversal
+//        level until the first bearish BOS is identified.
+// Chart start: the trend is undetermined; both directions run the cycle and
+// the first complete cycle (impulse -> Real Pullback -> Real Breakout) sets it.
+// Every timeframe runs these rules on its own candles.
 // =====================================================================
-var float runningHigh    = na
-var int   runningHighBar = na
-var float runningLow     = na
-var int   runningLowBar  = na
-
-if na(runningHigh)
-    runningHigh := high
-    runningHighBar := bar_index
-    runningLow := low
-    runningLowBar := bar_index
-    msTrendState := 1
-
-if high > runningHigh
-    runningHigh := high
-    runningHighBar := bar_index
-if low < runningLow
-    runningLow := low
-    runningLowBar := bar_index
-
-bool no_single_candle_dn = (bar_index - nz(runningHighBar, bar_index)) >= 2
-bool no_single_candle_up = (bar_index - nz(runningLowBar, bar_index)) >= 2
-
-// A valid pullback is one of the three main pullback conditions, or a Range Box
-// that closed by a pullback exit. A continuation break out of a box is NOT a
-// pullback (the original code counted any downward box break as one).
-bool strict_pb_down = (pb_pattern_down and no_single_candle_dn) or rngPbExitDn
-bool strict_pb_up   = (pb_pattern_up   and no_single_candle_up) or rngPbExitUp
-
-// =====================================================================
-// MARKET STRUCTURE (Strict BOS / CTS Lock)
-// =====================================================================
-var float lastSwingHighPrice = na
-var int   lastSwingHighBar   = na
-var float lastSwingLowPrice  = na
-var int   lastSwingLowBar    = na
-
-var float candidateHigh    = na
-var int   candidateHighBar = na
-var float candidateLow     = na
-var int   candidateLowBar  = na
-
-if na(lastSwingHighPrice)
-    lastSwingHighPrice := high
-    lastSwingHighBar := bar_index
-    lastSwingLowPrice := low
-    lastSwingLowBar := bar_index
-
-if strict_pb_down and not inRange
-    if msTrendState >= 0 and (na(candidateHigh) or runningHigh > candidateHigh)
-        candidateHigh := runningHigh
-        candidateHighBar := runningHighBar
-        runningLow := low
-        runningLowBar := bar_index
-
-if strict_pb_up and not inRange
-    if msTrendState <= 0 and (na(candidateLow) or runningLow < candidateLow)
-        candidateLow := runningLow
-        candidateLowBar := runningLowBar
-        runningHigh := high
-        runningHighBar := bar_index
-
-// Scenario 4/5, continuation exit: the box broke out in the trend direction
-// WITHOUT a valid pullback. A pending CTS level that the box traded through
-// lies inside that box, so it is never identified: the structure advances
-// silently (no CTS label, no Recent High/Low or Key Level drawn).
-if rngBreakUp and msTrendState == 1 and not na(candidateHigh) and candidateHigh <= boxTop and candidateHigh >= boxBot
-    lastSwingLowPrice := runningLow
-    lastSwingLowBar := runningLowBar
-    candidateHigh := na
-    runningHigh := high
-    runningHighBar := bar_index
-if rngBreakDn and msTrendState == -1 and not na(candidateLow) and candidateLow <= boxTop and candidateLow >= boxBot
-    lastSwingHighPrice := runningHigh
-    lastSwingHighBar := runningHighBar
-    candidateLow := na
-    runningLow := low
-    runningLowBar := bar_index
-
-// Called unconditionally (f_real_breakout returns false for an na level).
-bool strict_CTS_bull = f_real_breakout(candidateHigh, 1)
-bool strict_CTS_bear = f_real_breakout(candidateLow, -1)
-bool strict_BOS_bull = f_real_breakout(lastSwingHighPrice, 1)
-bool strict_BOS_bear = f_real_breakout(lastSwingLowPrice, -1)
-
 bool is_confirmed = msStrictClose ? barstate.isconfirmed : true
 
-// Range Box rule: no BOS/CTS while a box is active, and a level strictly
-// inside a closed box is never used.
-bool rangeStructBlock = rangeBlock
+// Up side: impulse up (H*) / bearish pullback (L*)
+var float uExt    = na
+var int   uExtBar = na
+var bool  uLock   = false
+var float uPbx    = na
+var int   uPbxBar = na
+// Down side: impulse down (L*) / bullish pullback (H*)
+var float dExt    = na
+var int   dExtBar = na
+var bool  dLock   = false
+var float dPbx    = na
+var int   dPbxBar = na
 
-bool break_candidate_high = strict_CTS_bull and not rangeStructBlock and not levelInRange(candidateHigh)      and not f_inClosedRange(candidateHigh, candidateHighBar)      and is_confirmed
-bool break_candidate_low  = strict_CTS_bear and not rangeStructBlock and not levelInRange(candidateLow)       and not f_inClosedRange(candidateLow, candidateLowBar)        and is_confirmed
-bool break_swing_high     = strict_BOS_bull and not rangeStructBlock and not levelInRange(lastSwingHighPrice) and not f_inClosedRange(lastSwingHighPrice, lastSwingHighBar) and is_confirmed
-bool break_swing_low      = strict_BOS_bear and not rangeStructBlock and not levelInRange(lastSwingLowPrice)  and not f_inClosedRange(lastSwingLowPrice, lastSwingLowBar)   and is_confirmed
+// Level whose Real Breakout reverses the trend: the last BOS, or A right after
+// a reversal (A is not labelled).
+var float keyLevel = na
+var int   keyBar   = na
+var line  keyLine  = na     // drawn BOS line, extended until it is broken or replaced
 
-// CTS level (BOI) the trend must break, captured before this bar's structure update
+// Real Breakout tests, evaluated on every bar (levels are the previous bar's state)
+bool revDnBreak = f_real_breakout(msTrendState == 1 ? keyLevel : na, -1)
+bool revUpBreak = f_real_breakout(msTrendState == -1 ? keyLevel : na, 1)
+bool ctsUpBreak = f_real_breakout(uLock ? uExt : na, 1)
+bool ctsDnBreak = f_real_breakout(dLock ? dExt : na, -1)
+
+// Pending CTS level (for the Fake Breakout marker), captured before the update
 int   fbTrendPre = msTrendState
-float fbLevelPre = msTrendState == 1 ? candidateHigh : msTrendState == -1 ? candidateLow : na
+float fbLevelPre = msTrendState == 1 and uLock ? uExt : msTrendState == -1 and dLock ? dExt : na
 
-msSignal = 0
-float brokenLevelPrice = na
-int   brokenLevelBar   = na
+msSignal = 0            // 1 = CTS up, -1 = CTS down, 2 = trend -> up, -2 = trend -> down
+bool  pbLockUp = false  // bearish Real Pullback locked the up-side CTS candidate on this bar
+bool  pbLockDn = false  // bullish Real Pullback locked the down-side CTS candidate on this bar
+float ctsPrice = na
+int   ctsBar   = na
+float bosPrice = na
+int   bosBar   = na
+float revPrice = na     // A: reversal level after a trend change
+int   revBar   = na
 
-if msTrendState == 1
-    if break_swing_low
-        msTrendState := -1
+int trendPre = msTrendState
+if is_confirmed
+    if trendPre == 1 and revDnBreak
+        // ---- Trend reversal: last BOS broken downward by a Real Breakout ----
         msSignal := -2
-        brokenLevelPrice := lastSwingLowPrice
-        brokenLevelBar := lastSwingLowBar
-        lastSwingHighPrice := na(candidateHigh) ? runningHigh : math.max(runningHigh, candidateHigh)
-        lastSwingHighBar := runningHigh >= (na(candidateHigh)?0:candidateHigh) ? runningHighBar : candidateHighBar
-        candidateLow := na
-        runningLow := low
-        runningLowBar := bar_index
-
-    else if break_candidate_high
-        msSignal := 1
-        brokenLevelPrice := candidateHigh
-        brokenLevelBar := candidateHighBar
-        lastSwingLowPrice := runningLow
-        lastSwingLowBar := runningLowBar
-        candidateHigh := na
-        runningHigh := high
-        runningHighBar := bar_index
-
-else if msTrendState == -1
-    if break_swing_high
-        msTrendState := 1
+        msTrendState := -1
+        revPrice := uExt
+        revBar   := uExtBar
+        if na(uPbx) or low < uPbx
+            dExt    := low
+            dExtBar := bar_index
+        else
+            dExt    := uPbx
+            dExtBar := uPbxBar
+        dLock    := false
+        dPbx     := na
+        dPbxBar  := na
+        keyLevel := uExt
+        keyBar   := uExtBar
+    else if trendPre == -1 and revUpBreak
+        // ---- Trend reversal: last BOS broken upward by a Real Breakout ----
         msSignal := 2
-        brokenLevelPrice := lastSwingHighPrice
-        brokenLevelBar := lastSwingHighBar
-        lastSwingLowPrice := na(candidateLow) ? runningLow : math.min(runningLow, candidateLow)
-        lastSwingLowBar := runningLow <= (na(candidateLow)?999999:candidateLow) ? runningLowBar : candidateLowBar
-        candidateHigh := na
-        runningHigh := high
-        runningHighBar := bar_index
-
-    else if break_candidate_low
-        msSignal := -1
-        brokenLevelPrice := candidateLow
-        brokenLevelBar := candidateLowBar
-        lastSwingHighPrice := runningHigh
-        lastSwingHighBar := runningHighBar
-        candidateLow := na
-        runningLow := low
-        runningLowBar := bar_index
+        msTrendState := 1
+        revPrice := dExt
+        revBar   := dExtBar
+        if na(dPbx) or high > dPbx
+            uExt    := high
+            uExtBar := bar_index
+        else
+            uExt    := dPbx
+            uExtBar := dPbxBar
+        uLock    := false
+        uPbx     := na
+        uPbxBar  := na
+        keyLevel := dExt
+        keyBar   := dExtBar
+    else
+        // ---- Up side (active in an uptrend or while the trend is undetermined) ----
+        if trendPre >= 0
+            if na(uExt)
+                uExt    := high
+                uExtBar := bar_index
+            else if uLock
+                if ctsUpBreak
+                    msSignal := 1
+                    if msTrendState == 0
+                        msTrendState := 1
+                    ctsPrice := uExt
+                    ctsBar   := uExtBar
+                    bosPrice := uPbx
+                    bosBar   := uPbxBar
+                    keyLevel := uPbx
+                    keyBar   := uPbxBar
+                    uExt     := high
+                    uExtBar  := bar_index
+                    uLock    := false
+                    uPbx     := na
+                    uPbxBar  := na
+                else if na(uPbx) or low < uPbx
+                    uPbx    := low
+                    uPbxBar := bar_index
+            else
+                if high > uExt
+                    uExt    := high
+                    uExtBar := bar_index
+                    uPbx    := na
+                    uPbxBar := na
+                else if na(uPbx) or low < uPbx
+                    uPbx    := low
+                    uPbxBar := bar_index
+                if pb_pattern_down
+                    uLock    := true
+                    pbLockUp := true
+                    if na(uPbx)
+                        uPbx    := low
+                        uPbxBar := bar_index
+        // ---- Down side (active in a downtrend or while the trend is undetermined) ----
+        if trendPre <= 0
+            if na(dExt)
+                dExt    := low
+                dExtBar := bar_index
+            else if dLock
+                if ctsDnBreak
+                    msSignal := -1
+                    if msTrendState == 0
+                        msTrendState := -1
+                    ctsPrice := dExt
+                    ctsBar   := dExtBar
+                    bosPrice := dPbx
+                    bosBar   := dPbxBar
+                    keyLevel := dPbx
+                    keyBar   := dPbxBar
+                    dExt     := low
+                    dExtBar  := bar_index
+                    dLock    := false
+                    dPbx     := na
+                    dPbxBar  := na
+                else if na(dPbx) or high > dPbx
+                    dPbx    := high
+                    dPbxBar := bar_index
+            else
+                if low < dExt
+                    dExt    := low
+                    dExtBar := bar_index
+                    dPbx    := na
+                    dPbxBar := na
+                else if na(dPbx) or high > dPbx
+                    dPbx    := high
+                    dPbxBar := bar_index
+                if pb_pattern_up
+                    dLock    := true
+                    pbLockDn := true
+                    if na(dPbx)
+                        dPbx    := high
+                        dPbxBar := bar_index
 
 bull_break_confirmed = (msSignal == 1) or (msSignal == 2)
+bear_break_confirmed = (msSignal == -1) or (msSignal == -2)
 
 // =====================================================================
 // FAKE BREAKOUT
-// Price trades beyond the CTS level (higher high in an uptrend / lower low in
-// a downtrend) but none of the three Real Breakout conditions is met. The
-// Fake Breakout stays in force until a Real Breakout (CTS/BOS) occurs or the
-// CTS level changes. Only the first candle of each Fake Breakout is marked.
-// No marking inside an active Range Box (the box already is that fakeout).
+// Price trades beyond the pending CTS level (phase B) but none of the three
+// Real Breakout conditions is met. The Fake Breakout stays in force until a
+// Real Breakout occurs or the CTS level changes. Only its first candle is
+// marked. No marking inside an active Range Box.
 // =====================================================================
 var bool  fbActive = false
 var float fbLevel  = na
@@ -656,10 +666,9 @@ if fakeBreakoutStart
     fbLevel  := fbLevelPre
 bool fakeBreakoutUp = fakeBreakoutStart and fbTrendPre == 1
 bool fakeBreakoutDn = fakeBreakoutStart and fbTrendPre == -1
-bear_break_confirmed = (msSignal == -1) or (msSignal == -2)
 
-// A confirmed CTS/BOS is the latest real move: the next Range Box must start
-// with a candle counter to it.
+// A confirmed CTS / trend change is the latest real move: the next Range Box
+// must start with a candle counter to it.
 if msSignal != 0
     seedBias := msSignal > 0 ? 1 : -1
 
@@ -668,95 +677,74 @@ if bull_break_confirmed or bear_break_confirmed
     has_real_breakout := true
 
 // =====================================================================
-// WAVE DRAWING (ZigZag Structure)
+// DRAWING: zigzag, CTS / BOS lines, Recent High-Low and Key Level boxes
 // =====================================================================
 var float lastPivotPrice = na
 var int   lastPivotBar   = na
 
-if na(lastPivotPrice) and not na(lastSwingLowPrice)
-    lastPivotPrice := lastSwingLowPrice
-    lastPivotBar := lastSwingLowBar
+// The BOS line keeps extending to the right until it is broken or replaced.
+if not na(keyLine) and msSignal == 0
+    line.set_x2(keyLine, bar_index)
 
-if msShow and msSignal != 0
-    if msSignal == 1
-        if not na(lastPivotBar)
-            line.new(f_x(lastPivotBar), lastPivotPrice, f_x(brokenLevelBar), brokenLevelPrice, color=color.black, width=1)
-        line.new(f_x(brokenLevelBar), brokenLevelPrice, f_x(lastSwingLowBar), lastSwingLowPrice, color=color.black, width=1)
-        lastPivotBar := lastSwingLowBar
-        lastPivotPrice := lastSwingLowPrice
+if msShow and math.abs(msSignal) == 2
+    // Trend change: the BOS line ends at the breaking candle; zigzag goes to A.
+    if not na(keyLine)
+        line.set_x2(keyLine, bar_index)
+        keyLine := na
+    if not na(lastPivotBar)
+        line.new(f_x(lastPivotBar), lastPivotPrice, f_x(revBar), revPrice, color=color.black, width=1)
+    lastPivotBar   := revBar
+    lastPivotPrice := revPrice
 
-    else if msSignal == -1
-        if not na(lastPivotBar)
-            line.new(f_x(lastPivotBar), lastPivotPrice, f_x(brokenLevelBar), brokenLevelPrice, color=color.black, width=1)
-        line.new(f_x(brokenLevelBar), brokenLevelPrice, f_x(lastSwingHighBar), lastSwingHighPrice, color=color.black, width=1)
-        lastPivotBar := lastSwingHighBar
-        lastPivotPrice := lastSwingHighPrice
+if msShow and math.abs(msSignal) == 1
+    isBull_MS = msSignal > 0
+    col       = isBull_MS ? msBullColor : msBearColor
 
-    else if msSignal == -2
-        if not na(lastPivotBar)
-            line.new(f_x(lastPivotBar), lastPivotPrice, f_x(lastSwingHighBar), lastSwingHighPrice, color=color.black, width=1)
-        lastPivotBar := lastSwingHighBar
-        lastPivotPrice := lastSwingHighPrice
+    // Zigzag: last pivot -> CTS -> BOS
+    if not na(lastPivotBar)
+        line.new(f_x(lastPivotBar), lastPivotPrice, f_x(ctsBar), ctsPrice, color=color.black, width=1)
+    line.new(f_x(ctsBar), ctsPrice, f_x(bosBar), bosPrice, color=color.black, width=1)
+    lastPivotBar   := bosBar
+    lastPivotPrice := bosPrice
 
-    else if msSignal == 2
-        if not na(lastPivotBar)
-            line.new(f_x(lastPivotBar), lastPivotPrice, f_x(lastSwingLowBar), lastSwingLowPrice, color=color.black, width=1)
-        lastPivotBar := lastSwingLowBar
-        lastPivotPrice := lastSwingLowPrice
+    // CTS: from the swing to the breaking candle
+    line.new(f_x(ctsBar), ctsPrice, bar_index, ctsPrice, color=col, style=line.style_dotted, width=2)
+    label.new(math.round((f_x(ctsBar) + bar_index) / 2), ctsPrice, "CTS", style=isBull_MS ? label.style_label_down : label.style_label_up, color=color.new(col, 85), textcolor=col, size=size.tiny)
 
-    isBull_MS  = msSignal > 0
-    isReversal = math.abs(msSignal) == 2
-    col        = isBull_MS ? msBullColor : msBearColor
-    txt        = isReversal ? "BOS" : "CTS" 
+    // BOS: from the pullback extreme, extended until broken or replaced
+    if not na(keyLine)
+        line.set_x2(keyLine, bar_index)
+    keyLine := line.new(f_x(bosBar), bosPrice, bar_index, bosPrice, color=col, style=line.style_solid, width=1)
+    label.new(math.round((f_x(bosBar) + bar_index) / 2), bosPrice, "BOS", style=isBull_MS ? label.style_label_up : label.style_label_down, color=color.new(col, 85), textcolor=col, size=size.tiny)
 
-    line.new(f_x(brokenLevelBar), brokenLevelPrice, bar_index, brokenLevelPrice, color=col, style=line.style_dotted, width=2)
-    label.new(math.round((f_x(brokenLevelBar) + bar_index) / 2), brokenLevelPrice, txt, style=isBull_MS ? label.style_label_down : label.style_label_up, color=color.new(col, 85), textcolor=col, size=size.tiny)
+    label.new(f_x(bosBar), bosPrice, "•", style=label.style_none, textcolor=color.orange, size=size.normal, tooltip="Real Pullback Confirmed")
 
+    int ctsOff = math.min(4999, math.max(0, bar_index - ctsBar))
+    int bosOff = math.min(4999, math.max(0, bar_index - bosBar))
+    float volCts = nz(volume[ctsOff], 1)
+    float volBos = nz(volume[bosOff], 1)
     if isBull_MS
-        label.new(f_x(lastSwingLowBar), lastSwingLowPrice, "•", style=label.style_none, textcolor=color.orange, size=size.normal, tooltip="Real Pullback Confirmed")
-    
-        int hb = math.min(4999, math.max(0, bar_index - brokenLevelBar))
-        float vol_cts = nz(volume[hb], 1)
-        float top_cts = high[hb]
-        float bot_cts = math.min(open[hb], close[hb])
-        if bot_cts >= top_cts
-            bot_cts := top_cts - (syminfo.mintick * 10)
-        
-        string txt_cts = "Recent High\nVol: " + str.tostring(vol_cts, format.volume)
-        box.new(left=f_x(brokenLevelBar), top=top_cts, right=bar_index + 15, bottom=bot_cts, bgcolor=color.new(color.teal, 85), border_color=color.teal, border_width=1, border_style=line.style_dotted, text=txt_cts, text_size=size.tiny, text_color=color.teal, text_halign=text.align_right, text_valign=text.align_center)
-    
-        int lb = math.min(4999, math.max(0, bar_index - lastSwingLowBar))
-        float vol_bos = nz(volume[lb], 1)
-        float bot_bos = low[lb]
-        float top_bos = math.max(open[lb], close[lb])
-        if top_bos <= bot_bos
-            top_bos := bot_bos + (syminfo.mintick * 10)
-        
-        string txt_bos = "Key Level\nVol: " + str.tostring(vol_bos, format.volume)
-        box.new(left=f_x(lastSwingLowBar), top=top_bos, right=bar_index + 15, bottom=bot_bos, bgcolor=color.new(#00E676, 85), border_color=#00E676, border_width=1, border_style=line.style_solid, text=txt_bos, text_size=size.tiny, text_color=#00E676, text_halign=text.align_right, text_valign=text.align_center)
-
+        float topC = high[ctsOff]
+        float botC = math.min(open[ctsOff], close[ctsOff])
+        if botC >= topC
+            botC := topC - (syminfo.mintick * 10)
+        box.new(left=f_x(ctsBar), top=topC, right=bar_index + 15, bottom=botC, bgcolor=color.new(color.teal, 85), border_color=color.teal, border_width=1, border_style=line.style_dotted, text="Recent High\nVol: " + str.tostring(volCts, format.volume), text_size=size.tiny, text_color=color.teal, text_halign=text.align_right, text_valign=text.align_center)
+        float botB = low[bosOff]
+        float topB = math.max(open[bosOff], close[bosOff])
+        if topB <= botB
+            topB := botB + (syminfo.mintick * 10)
+        box.new(left=f_x(bosBar), top=topB, right=bar_index + 15, bottom=botB, bgcolor=color.new(#00E676, 85), border_color=#00E676, border_width=1, border_style=line.style_solid, text="Key Level\nVol: " + str.tostring(volBos, format.volume), text_size=size.tiny, text_color=#00E676, text_halign=text.align_right, text_valign=text.align_center)
     else
-        label.new(f_x(lastSwingHighBar), lastSwingHighPrice, "•", style=label.style_none, textcolor=color.orange, size=size.normal, tooltip="Real Pullback Confirmed")
-    
-        int lb_bear_cts = math.min(4999, math.max(0, bar_index - brokenLevelBar))
-        float vol_cts_bear = nz(volume[lb_bear_cts], 1)
-        float bot_cts_bear = low[lb_bear_cts]
-        float top_cts_bear = math.max(open[lb_bear_cts], close[lb_bear_cts])
-        if top_cts_bear <= bot_cts_bear
-            top_cts_bear := bot_cts_bear + (syminfo.mintick * 10)
-        
-        string txt_cts_bear = "Recent Low\nVol: " + str.tostring(vol_cts_bear, format.volume)
-        box.new(left=f_x(brokenLevelBar), top=top_cts_bear, right=bar_index + 15, bottom=bot_cts_bear, bgcolor=color.new(color.orange, 85), border_color=color.orange, border_width=1, border_style=line.style_dotted, text=txt_cts_bear, text_size=size.tiny, text_color=color.orange, text_halign=text.align_right, text_valign=text.align_center)
-    
-        int hb_bear_bos = math.min(4999, math.max(0, bar_index - lastSwingHighBar))
-        float vol_bos_bear = nz(volume[hb_bear_bos], 1)
-        float top_bos_bear = high[hb_bear_bos]
-        float bot_bos_bear = math.min(open[hb_bear_bos], close[hb_bear_bos])
-        if bot_bos_bear >= top_bos_bear
-            bot_bos_bear := top_bos_bear - (syminfo.mintick * 10)
-        
-        string txt_bos_bear = "Key Level\nVol: " + str.tostring(vol_bos_bear, format.volume)
-        box.new(left=f_x(lastSwingHighBar), top=top_bos_bear, right=bar_index + 15, bottom=bot_bos_bear, bgcolor=color.new(#FF1744, 85), border_color=#FF1744, border_width=1, border_style=line.style_solid, text=txt_bos_bear, text_size=size.tiny, text_color=#FF1744, text_halign=text.align_right, text_valign=text.align_center)
+        float botC = low[ctsOff]
+        float topC = math.max(open[ctsOff], close[ctsOff])
+        if topC <= botC
+            topC := botC + (syminfo.mintick * 10)
+        box.new(left=f_x(ctsBar), top=topC, right=bar_index + 15, bottom=botC, bgcolor=color.new(color.orange, 85), border_color=color.orange, border_width=1, border_style=line.style_dotted, text="Recent Low\nVol: " + str.tostring(volCts, format.volume), text_size=size.tiny, text_color=color.orange, text_halign=text.align_right, text_valign=text.align_center)
+        float topB = high[bosOff]
+        float botB = math.min(open[bosOff], close[bosOff])
+        if botB >= topB
+            botB := topB - (syminfo.mintick * 10)
+        box.new(left=f_x(bosBar), top=topB, right=bar_index + 15, bottom=botB, bgcolor=color.new(#FF1744, 85), border_color=#FF1744, border_width=1, border_style=line.style_solid, text="Key Level\nVol: " + str.tostring(volBos, format.volume), text_size=size.tiny, text_color=#FF1744, text_halign=text.align_right, text_valign=text.align_center)
 
 plotchar(bull_break_confirmed, title="Real Bull Breakout", char="•", location=location.belowbar, color=color.blue, size=size.tiny)
 plotchar(bear_break_confirmed, title="Real Bear Breakout", char="•", location=location.abovebar, color=color.red, size=size.tiny)
@@ -841,10 +829,10 @@ if showImbBox and not fvgLock
 // =====================================================================
 // FIB ZONES
 // =====================================================================
-float current_fib_high = msTrendState == 1 ? (na(candidateHigh) ? runningHigh : candidateHigh) : lastSwingHighPrice
-float current_fib_low  = msTrendState == -1 ? (na(candidateLow) ? runningLow : candidateLow) : lastSwingLowPrice
-int   current_fib_high_bar = msTrendState == 1 ? (na(candidateHigh) ? runningHighBar : candidateHighBar) : lastSwingHighBar
-int   current_fib_low_bar  = msTrendState == -1 ? (na(candidateLow) ? runningLowBar : candidateLowBar) : lastSwingLowBar
+float current_fib_high = msTrendState == 1 ? uExt : keyLevel
+float current_fib_low  = msTrendState == -1 ? dExt : keyLevel
+int   current_fib_high_bar = msTrendState == 1 ? uExtBar : keyBar
+int   current_fib_low_bar  = msTrendState == -1 ? dExtBar : keyBar
 
 swing_range = current_fib_high - current_fib_low
 bull_fib_618 = not na(swing_range) ? current_fib_high - (swing_range * 0.618) : na
@@ -886,8 +874,8 @@ if msTrendState == -1 and not na(bear_fib_618) and not na(bear_fib_800)
 // =====================================================================
 // ALERTS
 // =====================================================================
-bool valid_pullback_down = strict_pb_down and not inRange and (msTrendState == 1)
-bool valid_pullback_up   = strict_pb_up   and not inRange and (msTrendState == -1)
+bool valid_pullback_down = pbLockUp and msTrendState == 1   // bearish Real Pullback in an uptrend
+bool valid_pullback_up   = pbLockDn and msTrendState == -1  // bullish Real Pullback in a downtrend
 
 alertcondition(rangeSeed,            title="New Range Created",        message="SMC [Rohi]: New Price Action Range Created")
 alertcondition(bull_break_confirmed, title="Bullish Real Breakout",    message="SMC [Rohi]: Real Bullish Breakout Confirmed!")
