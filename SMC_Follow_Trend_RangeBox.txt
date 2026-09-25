@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V15.5 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V15.6 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -346,11 +346,11 @@ bool noPullbackDn = not pb_pattern_up   and not pb_pattern_up[1]    // down leg:
 // is never reused as C1), and the box only opens if C2 also qualifies.
 int  legDir      = seedBias != 0 ? seedBias : msTrendState
 bool c1AfterExit = na(lastCloseBar) or (bar_index - 1) > lastCloseBar
-// No new range between a Real Pullback and the Real Breakout that confirms it.
-bool pbPending = (msTrendState == 1 and uLock) or (msTrendState == -1 and dLock)
+// A Real Pullback is not identified until the Real Breakout that confirms it,
+// so a pending pullback does NOT prevent a new range from forming.
 
-bool seedUp = legDir == 1  and not pbPending and c1AfterExit and c1Bear and c1FormValid and c2Valid and noPullbackUp
-bool seedDn = legDir == -1 and not pbPending and c1AfterExit and c1Bull and c1FormValid and c2Valid and noPullbackDn
+bool seedUp = legDir == 1  and c1AfterExit and c1Bear and c1FormValid and c2Valid and noPullbackUp
+bool seedDn = legDir == -1 and c1AfterExit and c1Bull and c1FormValid and c2Valid and noPullbackDn
 
 // ---------------- Per-bar Range events ----------------
 bool rangeWasActive = rangeActive
