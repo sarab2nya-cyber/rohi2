@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V15.6 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V15.7 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -307,12 +307,9 @@ bool c1Bear       = bar_index >= 1 and close[1] < open[1]
 bool c1Bull       = bar_index >= 1 and close[1] > open[1]
 bool c1ValidBody  = c1Body > syminfo.mintick
 bool c1Doji       = c1BodyPct <= rngDojiPct
-bool c1Maru       = c1ValidBody and c1BodyPct > bo_maru_body
-bool c1Normal     = c1ValidBody and c1BodyPct >= rngNormalMinPct and c1BodyPct <= rngNormalMaxPct
 bool c1UpperPin   = c1ValidBody and c1Upper >= c1Body * rngPinWickRatio and c1Upper > c1Lower
 bool c1LowerPin   = c1ValidBody and c1Lower >= c1Body * rngPinWickRatio and c1Lower > c1Upper
-bool c1Pin        = c1UpperPin or c1LowerPin
-bool c1FormValid  = c1Pin or c1Doji or c1Normal or c1Maru   // the 4 permitted forms
+bool c1Pin        = c1UpperPin or c1LowerPin   // C1 form only matters for C2 condition D
 
 // ---------------- Candle 2 (Confirmation): indecision test ----------------
 // Protrusion = part of C2's total height (body + wicks) outside C1's range.
@@ -349,8 +346,14 @@ bool c1AfterExit = na(lastCloseBar) or (bar_index - 1) > lastCloseBar
 // A Real Pullback is not identified until the Real Breakout that confirms it,
 // so a pending pullback does NOT prevent a new range from forming.
 
-bool seedUp = legDir == 1  and c1AfterExit and c1Bear and c1FormValid and c2Valid and noPullbackUp
-bool seedDn = legDir == -1 and c1AfterExit and c1Bull and c1FormValid and c2Valid and noPullbackDn
+// C1 may be ANY counter-trend candle (no form restriction). C2 must not be a
+// trend-direction candle (a Doji is neutral, its colour does not matter):
+// a single counter candle followed by trend candles is ignored entirely.
+bool c2NotTrendUp = close <= open or rngDoji
+bool c2NotTrendDn = close >= open or rngDoji
+
+bool seedUp = legDir == 1  and c1AfterExit and c1Bear and c2NotTrendUp and c2Valid and noPullbackUp
+bool seedDn = legDir == -1 and c1AfterExit and c1Bull and c2NotTrendDn and c2Valid and noPullbackDn
 
 // ---------------- Per-bar Range events ----------------
 bool rangeWasActive = rangeActive
