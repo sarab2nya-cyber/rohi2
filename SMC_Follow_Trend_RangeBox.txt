@@ -1,12 +1,12 @@
 //@version=5
-indicator("SMC Follow Trend V15.8 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V15.9 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
 // =====================================================================
 msSwingLen       = input.int(10, "Macro Swing Length (Liquidity)", minval=3, group="Market Structure")
 msShow           = input.bool(true, "Show Market Structure (BOS/CTS)", group="Market Structure")
-msShowFakeBO     = input.bool(true, "Show Fake Breakout of CTS (F)", group="Market Structure")
+msShowFakeBO     = input.bool(true, "Show Fake Breakout of CTS (FBO label)", group="Market Structure")
 msStrictClose    = input.bool(true, "Strict Confirm on Close (Anti-Repaint)", group="Market Structure")
 msBullColor      = input.color(color.blue, "Bullish Color", group="Market Structure")
 msBearColor      = input.color(color.red, "Bearish Color", group="Market Structure")
@@ -29,6 +29,7 @@ useTri           = input.bool(true, "Use Special 3-Candle Patterns (A, B, C)", g
 tri_min_pct      = input.float(0.50, "Candle Length at least % of Ref (largest of last 5 Marubozus)", step=0.05, group=grp_tri)
 tri_near_pct     = input.float(0.05, "Pattern B: C2 closes within % of C1's far end", step=0.01, group=grp_tri)
 tri_a_body_pct   = input.float(0.30, "Pattern A: C1 Body % Beyond BOI - must exceed", step=0.05, group=grp_tri)
+showPatterns     = input.bool(false, "Show Pattern Markers (1,2,3 / P1 / A,B,C)", group=grp_tri, tooltip="Inspection aid: marks every completed pattern shape without the level test. Bullish below the candle, bearish above.")
 
 // PRICE ACTION RANGE Settings
 grp_rng              = "PRICE ACTION RANGE"
@@ -730,23 +731,48 @@ bull_break_confirmed = (msSignal == 1) or (msSignal == 2)
 bear_break_confirmed = (msSignal == -1) or (msSignal == -2)
 
 // =====================================================================
-// FAKE BREAKOUT
-// Price trades beyond the pending CTS level (phase B) but none of the three
-// Real Breakout conditions is met. The Fake Breakout stays in force until a
-// Real Breakout occurs or the CTS level changes. Only its first candle is
-// marked. No marking inside an active Range Box.
+// FAKE BREAKOUT (FBO)
+// START ("FBO in progress"): the first candle that trades beyond the pending
+// CTS level (wick or close) while none of the 3 main Real Breakout conditions
+// and none of the 3 three-candle patterns completes. Later candles beyond the
+// line (inside bars or anything else) keep it in progress.
+// CONFIRMED: price closes back on the other side of the CTS line (can be the
+// start candle itself when it only crossed with a wick).
+// A Real Breakout completing while the FBO is still in progress means the move
+// was not fake: the grey label is deleted. A confirmed FBO label stays even if
+// a Real Breakout follows later. Shown inside ranges as well.
+// Display: an "FBO" label on the CTS line (grey = in progress, red = confirmed).
 // =====================================================================
 var bool  fbActive = false
 var float fbLevel  = na
+var int   fbDir    = 0
+var label fbLabel  = na
 if fbActive and (msSignal != 0 or na(fbLevelPre) or fbLevelPre != fbLevel)
+    // Real Breakout / trend change / new CTS while in progress: not a fake
+    if not na(fbLabel)
+        label.delete(fbLabel)
+    fbLabel  := na
     fbActive := false
-bool fbAttempt = not na(fbLevelPre) and msSignal == 0 and not rangeActive and (fbTrendPre == 1 ? high > fbLevelPre : low < fbLevelPre)
+// One FBO per CTS line: later crossings of the same line belong to the same FBO.
+var float fbDoneLevel = na
+bool fbAttempt = not na(fbLevelPre) and msSignal == 0 and (na(fbDoneLevel) or fbLevelPre != fbDoneLevel) and (fbTrendPre == 1 ? high > fbLevelPre : low < fbLevelPre)
 bool fakeBreakoutStart = fbAttempt and not fbActive and is_confirmed
 if fakeBreakoutStart
     fbActive := true
     fbLevel  := fbLevelPre
-bool fakeBreakoutUp = fakeBreakoutStart and fbTrendPre == 1
-bool fakeBreakoutDn = fakeBreakoutStart and fbTrendPre == -1
+    fbDir    := fbTrendPre
+    if msShowFakeBO
+        fbLabel := label.new(bar_index, fbLevel, "FBO", style=fbDir == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.gray, 80), textcolor=color.gray, size=size.tiny, tooltip="Fake Breakout in progress: price beyond the CTS without any Real Breakout condition or 3-candle pattern")
+bool fakeBreakoutConfirmed = false
+if fbActive and is_confirmed and msSignal == 0 and (fbDir == 1 ? close < fbLevel : close > fbLevel)
+    fakeBreakoutConfirmed := true
+    fbActive    := false
+    fbDoneLevel := fbLevel
+    if not na(fbLabel)
+        label.set_color(fbLabel, color.new(color.red, 80))
+        label.set_textcolor(fbLabel, color.red)
+        label.set_tooltip(fbLabel, "Fake Breakout confirmed: price closed back on the other side of the CTS")
+    fbLabel := na
 
 // A confirmed CTS / trend change is the latest real move: the next Range Box
 // must start with a candle counter to it.
@@ -829,8 +855,39 @@ if msShow and math.abs(msSignal) == 1
 
 plotchar(bull_break_confirmed, title="Real Bull Breakout", char="•", location=location.belowbar, color=color.blue, size=size.tiny)
 plotchar(bear_break_confirmed, title="Real Bear Breakout", char="•", location=location.abovebar, color=color.red, size=size.tiny)
-plotchar(msShowFakeBO and fakeBreakoutUp, title="Fake Breakout (above CTS)", char="F", location=location.abovebar, color=color.gray, size=size.tiny)
-plotchar(msShowFakeBO and fakeBreakoutDn, title="Fake Breakout (below CTS)", char="F", location=location.belowbar, color=color.gray, size=size.tiny)
+
+// ---------------- Pattern markers (inspection aid, off by default) ----------------
+// Shape of each pattern WITHOUT the level test: if a marker appears but no
+// breakout is registered, the level condition (CTS / box boundary) failed.
+//   1, 2, 3 : the 3 main Real Breakout conditions   P1 : Real Pullback condition 1
+//   A, B, C : the special three-candle patterns
+// Bullish below the candle, bearish above it.
+bool mk_r1_up = is_marubozu[1] and is_marubozu and is_bull[1] and is_bull and close > high[1]
+bool mk_r2_up = is_big_maru[1] and is_bull[1] and is_bull and low > mid_1
+bool mk_r3_up = is_big_maru[1] and is_bull[1] and is_bear and (c_range < bo_c2_max_size * c_range[1] - eps) and low > mid_1
+bool mk_r1_dn = is_marubozu[1] and is_marubozu and is_bear[1] and is_bear and close < low[1]
+bool mk_r2_dn = is_big_maru[1] and is_bear[1] and is_bear and high < mid_1
+bool mk_r3_dn = is_big_maru[1] and is_bear[1] and is_bull and (c_range < bo_c2_max_size * c_range[1] - eps) and high < mid_1
+float mkUp1 = low  - atr * 0.4
+float mkUp2 = low  - atr * 0.9
+float mkUp3 = low  - atr * 1.4
+float mkDn1 = high + atr * 0.4
+float mkDn2 = high + atr * 0.9
+float mkDn3 = high + atr * 1.4
+plotshape(showPatterns and mk_r1_up ? mkUp1 : na, title="Pattern 1 (bull)", style=shape.circle, location=location.absolute, color=color.teal, text="1", textcolor=color.teal, size=size.tiny)
+plotshape(showPatterns and mk_r2_up ? mkUp1 : na, title="Pattern 2 (bull)", style=shape.circle, location=location.absolute, color=color.teal, text="2", textcolor=color.teal, size=size.tiny)
+plotshape(showPatterns and mk_r3_up ? mkUp1 : na, title="Pattern 3 (bull)", style=shape.circle, location=location.absolute, color=color.teal, text="3", textcolor=color.teal, size=size.tiny)
+plotshape(showPatterns and pb_r1_up ? mkUp2 : na, title="Pullback P1 (bull)", style=shape.circle, location=location.absolute, color=color.olive, text="P1", textcolor=color.olive, size=size.tiny)
+plotshape(showPatterns and triA_up ? mkUp3 : na, title="Pattern A (bull)", style=shape.circle, location=location.absolute, color=color.blue, text="A", textcolor=color.blue, size=size.tiny)
+plotshape(showPatterns and triB_up ? mkUp3 : na, title="Pattern B (bull)", style=shape.circle, location=location.absolute, color=color.blue, text="B", textcolor=color.blue, size=size.tiny)
+plotshape(showPatterns and triC_up ? mkUp3 : na, title="Pattern C (bull)", style=shape.circle, location=location.absolute, color=color.blue, text="C", textcolor=color.blue, size=size.tiny)
+plotshape(showPatterns and mk_r1_dn ? mkDn1 : na, title="Pattern 1 (bear)", style=shape.circle, location=location.absolute, color=color.maroon, text="1", textcolor=color.maroon, size=size.tiny)
+plotshape(showPatterns and mk_r2_dn ? mkDn1 : na, title="Pattern 2 (bear)", style=shape.circle, location=location.absolute, color=color.maroon, text="2", textcolor=color.maroon, size=size.tiny)
+plotshape(showPatterns and mk_r3_dn ? mkDn1 : na, title="Pattern 3 (bear)", style=shape.circle, location=location.absolute, color=color.maroon, text="3", textcolor=color.maroon, size=size.tiny)
+plotshape(showPatterns and pb_r1_dn ? mkDn2 : na, title="Pullback P1 (bear)", style=shape.circle, location=location.absolute, color=color.orange, text="P1", textcolor=color.orange, size=size.tiny)
+plotshape(showPatterns and triA_dn ? mkDn3 : na, title="Pattern A (bear)", style=shape.circle, location=location.absolute, color=color.purple, text="A", textcolor=color.purple, size=size.tiny)
+plotshape(showPatterns and triB_dn ? mkDn3 : na, title="Pattern B (bear)", style=shape.circle, location=location.absolute, color=color.purple, text="B", textcolor=color.purple, size=size.tiny)
+plotshape(showPatterns and triC_dn ? mkDn3 : na, title="Pattern C (bear)", style=shape.circle, location=location.absolute, color=color.purple, text="C", textcolor=color.purple, size=size.tiny)
 plotchar(rngRealUp,   title="Range Broken Up",   char="▲", location=location.belowbar, color=msBullColor, size=size.tiny)
 plotchar(rngRealDown, title="Range Broken Down", char="▼", location=location.abovebar, color=msBearColor, size=size.tiny)
 
@@ -963,6 +1020,7 @@ alertcondition(rangeSeed,            title="New Range Created",        message="
 alertcondition(bull_break_confirmed, title="Bullish Real Breakout",    message="SMC [Rohi]: Real Bullish Breakout Confirmed!")
 alertcondition(bear_break_confirmed, title="Bearish Real Breakout",    message="SMC [Rohi]: Real Bearish Breakout Confirmed!")
 alertcondition(fakeBreakoutStart,    title="Fake Breakout of CTS",     message="SMC [Rohi]: Price traded beyond CTS without a Real Breakout (Fake Breakout)")
+alertcondition(fakeBreakoutConfirmed, title="Fake Breakout Confirmed", message="SMC [Rohi]: Price closed back across the CTS - Fake Breakout confirmed")
 alertcondition(valid_pullback_down,  title="Real Pullback Down",       message="SMC [Rohi]: Real Bearish Pullback confirmed by a Real Breakout")
 alertcondition(valid_pullback_up,    title="Real Pullback Up",         message="SMC [Rohi]: Real Bullish Pullback confirmed by a Real Breakout")
 alertcondition(rngRealUp,            title="Real Range Breakout Up",   message="SMC [Rohi]: Range broken UP by confirmed strict breakout!")
