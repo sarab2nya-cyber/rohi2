@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V15.9 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V16.0 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -105,34 +105,50 @@ bool rngLowerPin  = rngValidBody and lower_wick >= c_body * rngPinWickRatio and 
 bool rngPinBar    = rngUpperPin or rngLowerPin
 
 // =====================================================================
-// BIG MARUBOZU TRACKER (Pure Prior 5 History)
+// BIG MARUBOZU TRACKER - SAME COLOUR (Pure Prior 5 History)
+// Every comparison is made with the 5 preceding Marubozus of the SAME colour:
+// a bullish candle with the last 5 bullish Marubozus, a bearish candle with the
+// last 5 bearish Marubozus. A pullback is therefore never measured against the
+// (much larger) candles of the opposite impulse.
 // =====================================================================
-var float[] maru_sizes = array.new_float(0)
+var float[] maru_bull_sizes = array.new_float(0)
+var float[] maru_bear_sizes = array.new_float(0)
 
-int bigger_count = 0
-if array.size(maru_sizes) > 0
-    for i = 0 to array.size(maru_sizes) - 1
-        if c_range > array.get(maru_sizes, i)
-            bigger_count += 1
+int bigger_bull = 0
+if array.size(maru_bull_sizes) > 0
+    for i = 0 to array.size(maru_bull_sizes) - 1
+        if c_range > array.get(maru_bull_sizes, i)
+            bigger_bull += 1
+int bigger_bear = 0
+if array.size(maru_bear_sizes) > 0
+    for i = 0 to array.size(maru_bear_sizes) - 1
+        if c_range > array.get(maru_bear_sizes, i)
+            bigger_bear += 1
 
 // "Big" = larger (total candle length) than at least 3 of the 5 preceding
-// Marubozu candles. With fewer than 3 preceding Marubozus this cannot be met.
-bool is_big_maru = is_marubozu and bigger_count >= 3
+// Marubozus of the same colour. With fewer than 3 of them this cannot be met.
+bool is_big_maru = is_marubozu and (is_bull ? bigger_bull >= 3 : bigger_bear >= 3)
 
 // Ref for the three-candle patterns: largest total length among the 5
-// Marubozus BEFORE this bar (read as maruRef[2] when this bar is C1).
-float maruRef = array.size(maru_sizes) > 0 ? array.max(maru_sizes) : na
+// same-colour Marubozus BEFORE this bar (read as [2] when this bar is C1).
+float maruRefBull = array.size(maru_bull_sizes) > 0 ? array.max(maru_bull_sizes) : na
+float maruRefBear = array.size(maru_bear_sizes) > 0 ? array.max(maru_bear_sizes) : na
 
-if is_marubozu
-    array.push(maru_sizes, c_range)
-    if array.size(maru_sizes) > 5
-        array.shift(maru_sizes)
+if is_marubozu and is_bull
+    array.push(maru_bull_sizes, c_range)
+    if array.size(maru_bull_sizes) > 5
+        array.shift(maru_bull_sizes)
+if is_marubozu and is_bear
+    array.push(maru_bear_sizes, c_range)
+    if array.size(maru_bear_sizes) > 5
+        array.shift(maru_bear_sizes)
 
 // =====================================================================
 // SPECIAL THREE-CANDLE PATTERNS (Price action confirmation)
 // C1 = bar[2], C2 = bar[1], C3 = current bar. All three candles share ONE
 // colour (bullish move: all bullish; bearish move: all bearish).
-// Every sized candle is at least 50% of Ref (largest of the 5 Marubozus before C1).
+// Every sized candle is at least 50% of Ref (largest of the 5 SAME-COLOUR
+// Marubozus before C1: bullish patterns vs bullish Marubozus, bearish vs bearish).
 //  A: Marubozu + Pin Bar + Marubozu
 //  B: Pin Bar + Marubozu + Marubozu; C2 is an inside bar of C1, closes in the
 //     last 5% of C1 (towards the move), or closes beyond C1
@@ -141,11 +157,15 @@ if is_marubozu
 // They confirm a Real Breakout (with the level test in f_real_breakout) and a
 // Real Pullback (no level). The 3 main two-candle conditions are unchanged.
 // =====================================================================
-float triRef  = maruRef[2]
-bool  tri_s2  = not na(triRef) and c_range[2] >= tri_min_pct * triRef - eps
-bool  tri_s1  = not na(triRef) and c_range[1] >= tri_min_pct * triRef - eps
-bool  tri_s0  = not na(triRef) and c_range    >= tri_min_pct * triRef - eps
-bool  tri_in  = high[1] <= high[2] and low[1] >= low[2]
+float triRefUp = maruRefBull[2]
+float triRefDn = maruRefBear[2]
+bool  tri_s2u  = not na(triRefUp) and c_range[2] >= tri_min_pct * triRefUp - eps
+bool  tri_s1u  = not na(triRefUp) and c_range[1] >= tri_min_pct * triRefUp - eps
+bool  tri_s0u  = not na(triRefUp) and c_range    >= tri_min_pct * triRefUp - eps
+bool  tri_s2d  = not na(triRefDn) and c_range[2] >= tri_min_pct * triRefDn - eps
+bool  tri_s1d  = not na(triRefDn) and c_range[1] >= tri_min_pct * triRefDn - eps
+bool  tri_s0d  = not na(triRefDn) and c_range    >= tri_min_pct * triRefDn - eps
+bool  tri_in   = high[1] <= high[2] and low[1] >= low[2]
 
 // Bullish
 // SAME DIRECTION + SAME COLOUR: C1, C2 and C3 must ALL be bullish (Pin Bars included).
@@ -153,18 +173,18 @@ bool  tri_in  = high[1] <= high[2] and low[1] >= low[2]
 bool tri_all_bull = is_bull[2] and is_bull[1] and is_bull
 bool tri_c3_up  = close > math.max(high[1], high[2])
 bool tri_near_up = close[1] >= high[2] - tri_near_pct * c_range[2] - eps
-bool triA_up = useTri and tri_all_bull and is_marubozu[2] and tri_s2 and rngPinBar[1] and is_marubozu and tri_s0 and tri_c3_up
-bool triB_up = useTri and tri_all_bull and rngPinBar[2] and is_marubozu[1] and tri_s1 and (tri_in or tri_near_up) and is_marubozu and tri_s0 and tri_c3_up
-bool triC_up = useTri and tri_all_bull and rngNormal[2] and tri_s2 and rngNormal[1] and tri_s1 and is_marubozu and tri_s0 and tri_c3_up
+bool triA_up = useTri and tri_all_bull and is_marubozu[2] and tri_s2u and rngPinBar[1] and is_marubozu and tri_s0u and tri_c3_up
+bool triB_up = useTri and tri_all_bull and rngPinBar[2] and is_marubozu[1] and tri_s1u and (tri_in or tri_near_up) and is_marubozu and tri_s0u and tri_c3_up
+bool triC_up = useTri and tri_all_bull and rngNormal[2] and tri_s2u and rngNormal[1] and tri_s1u and is_marubozu and tri_s0u and tri_c3_up
 
 // Bearish
 // SAME DIRECTION + SAME COLOUR: C1, C2 and C3 must ALL be bearish (Pin Bars included).
 bool tri_all_bear = is_bear[2] and is_bear[1] and is_bear
 bool tri_c3_dn  = close < math.min(low[1], low[2])
 bool tri_near_dn = close[1] <= low[2] + tri_near_pct * c_range[2] + eps
-bool triA_dn = useTri and tri_all_bear and is_marubozu[2] and tri_s2 and rngPinBar[1] and is_marubozu and tri_s0 and tri_c3_dn
-bool triB_dn = useTri and tri_all_bear and rngPinBar[2] and is_marubozu[1] and tri_s1 and (tri_in or tri_near_dn) and is_marubozu and tri_s0 and tri_c3_dn
-bool triC_dn = useTri and tri_all_bear and rngNormal[2] and tri_s2 and rngNormal[1] and tri_s1 and is_marubozu and tri_s0 and tri_c3_dn
+bool triA_dn = useTri and tri_all_bear and is_marubozu[2] and tri_s2d and rngPinBar[1] and is_marubozu and tri_s0d and tri_c3_dn
+bool triB_dn = useTri and tri_all_bear and rngPinBar[2] and is_marubozu[1] and tri_s1d and (tri_in or tri_near_dn) and is_marubozu and tri_s0d and tri_c3_dn
+bool triC_dn = useTri and tri_all_bear and rngNormal[2] and tri_s2d and rngNormal[1] and tri_s1d and is_marubozu and tri_s0d and tri_c3_dn
 
 bool tri_up = triA_up or triB_up or triC_up
 bool tri_dn = triA_dn or triB_dn or triC_dn
