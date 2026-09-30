@@ -3,7 +3,7 @@ import io, contextlib, sys
 with contextlib.redirect_stdout(io.StringIO()):
     import market_structure_scenarios as scen_ms
 from market_structure_scenarios import B
-import market_structure_sim_v170 as S
+import market_structure_sim_v171 as S
 
 SHOW = ('BOX-OPEN', 'BOX-CLOSE', 'BOX-CANCEL', 'BOX-DELETE', 'PULLBACK', 'CTS-up', 'CTS-dn', 'TREND SET', 'TREND->UP', 'TREND->DOWN', 'FBO-START', 'FBO-CONFIRMED', 'FBO-DELETED')
 
@@ -86,4 +86,26 @@ b.c(118.5, 120.2, 0.05, 0.05); b.c(120.2, 121.9, 0.05, 0.05)   # rule 1 vs the C
 b.slow_to(119, 3)
 res.append(show('Rule 1 above CTS but inside the FBO box -> no CTS', b, n0, (['FBO-START', 'BOX-OPEN'], ['CTS-up'])))
 
+# ---- Image 58: uptrend; after a DOWN move (pullback) the first green candles must not open a type-3 range
+b = base(); b.pb_down(4.0); n0 = len(b.bars)                      # pullback down in the uptrend (phase B)
+a = b.p; b.c(a, a + 0.9, 0.1, 0.1); b.c(a + 0.9, a + 0.5, 0.1, 0.1)  # green, then a red inside it
+b.maru_to(119, 3)
+log = [e for e in S.run(b.bars) if e[1] == 'BOX-OPEN' and e[0] >= n0 and e[3] == 3]
+print('== Image 58: no type-3 box against the pullback direction ->', 'OK' if not log else 'FAIL', log); res.append(not log)
+
+# ---- Images 60 / 65: correction = red normal candle, then pattern C (normal, normal, marubozu) from candle 2
+b = base(); n0 = len(b.bars); a = b.p
+b.c(a, a - 0.6, 0.2, 0.2)                                         # red 1 (no pattern yet)
+b.c(a - 0.6, a - 1.9, 0.5, 0.5); b.c(a - 1.9, a - 3.2, 0.5, 0.5); b.c(a - 3.2, a - 5.6, 0.05, 0.05)   # pattern C
+b.slow_to(113, 3)
+res.append(show('Images 60/65: pullback by pattern C from the 2nd correction candle', b, n0, (['PULLBACK'], ['BOX-CLOSE'])))
+
+# ---- Image 67: type-3 box ceiling from the box candles, NOT the wave peak
+b = base(); n0 = len(b.bars); peak = max(x[1] for x in b.bars)
+a = b.p; b.c(a, a - 0.8, 0.1, 0.2); b.c(a - 0.8, a - 0.5, 0.1, 0.1); b.chop(4)
+lg = [e for e in S.run(b.bars) if e[1] == 'BOX-OPEN' and e[0] >= n0]
+top = None
+for e in S.run(b.bars):
+    if e[1] == 'BOX-OPEN' and e[0] >= n0: first = e; break
+print('== Image 67: type-3 box opened', lg[:1], ' wave peak', round(peak, 3))
 print('\nSUMMARY:', sum(res), 'of', len(res), 'scenarios OK')
