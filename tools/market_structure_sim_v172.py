@@ -45,8 +45,8 @@ def run(bars, log=None, fbo_log=None):
             # escape only when C2 closes beyond the wave extreme (the impulse high/low), else the failed pullback is a range
             waveU = max(H[t-1], u['ext']) if (trend >= 0 and u['ext'] is not None and not u['lock']) else H[t-1]
             waveD = min(L[t-1], d['ext']) if (trend <= 0 and d['ext'] is not None and not d['lock']) else L[t-1]
-            seed3Up = trend == 1 and not u['lock'] and after3 and C[t-1] < O[t-1] and C[t] <= waveU and not pdn[t] and not pdn[t-1]
-            seed3Dn = trend == -1 and not d['lock'] and after3 and C[t-1] > O[t-1] and C[t] >= waveD and not pup[t] and not pup[t-1]
+            seed3Up = leg == 1 and after3 and C[t-1] < O[t-1] and C[t] <= waveU and not pdn[t] and not pdn[t-1]
+            seed3Dn = leg == -1 and after3 and C[t-1] > O[t-1] and C[t] >= waveD and not pup[t] and not pup[t-1]
         if t >= 2:
             after12 = lastClose is None or t - 2 > lastClose
             trap = L[t-2] <= C[t-1] <= H[t-2] and L[t-2] <= C[t] <= H[t-2]
@@ -92,7 +92,7 @@ def run(bars, log=None, fbo_log=None):
                 active = True; exH = exL = None
                 log.append((t, 'BOX-OPEN', 'type', 3, 'dir', bdir, 'left', left))
             elif seed12:
-                bdir = trend if trend != 0 else (1 if C[t-2] >= O[t-2] else -1); rtype = 1; left = t - 2; seedBar = t
+                bdir = leg if leg != 0 else (1 if C[t-2] >= O[t-2] else -1); rtype = 1; left = t - 2; seedBar = t
                 top = max(H[t-2], H[t-1], H[t]); bot = min(L[t-2], L[t-1], L[t])
                 active = True; exH = exL = None
                 log.append((t, 'BOX-OPEN', 'type', '1/2', 'dir', bdir, 'left', left))

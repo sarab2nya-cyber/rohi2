@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V17.1 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V17.2 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -408,6 +408,7 @@ bool pbUpExit  = f_real_pullback_at(ceilLvl, 1)     // bullish Real Pullback bre
 // Type 4 (fake breakout): created in the FBO block below (after market structure).
 // Start candles that themselves complete a Real Pullback are the pullback, not a range
 // (see "young box" in the engine).
+int  legDir      = seedBias != 0 ? seedBias : msTrendState
 bool c1AfterExit = na(lastCloseBar) or (bar_index - 1) > lastCloseBar
 bool refAfterExit = na(lastCloseBar) or (bar_index - 2) > lastCloseBar
 bool c1Bear      = bar_index >= 1 and close[1] < open[1]
@@ -421,11 +422,9 @@ float waveLow  = msTrendState <= 0 and not na(dExt) and not dLock ? math.min(dEx
 bool noPullbackUp = not pb_pattern_down and not pb_pattern_down[1]  // up leg: no bearish Real Pullback
 bool noPullbackDn = not pb_pattern_up   and not pb_pattern_up[1]    // down leg: no bullish Real Pullback
 
-// Type 3 - invalid pullback: only AGAINST THE MAIN TREND and only in the wave that
-// follows a real breakout (phase A: no real pullback locked yet). A move against
-// the trend (e.g. a range broken downward in an uptrend) never starts a type 3.
-bool seed3Up = msTrendState == 1  and not uLock and c1AfterExit and c1Bear and close <= waveHigh and noPullbackUp
-bool seed3Dn = msTrendState == -1 and not dLock and c1AfterExit and c1Bull and close >= waveLow  and noPullbackDn
+// Type 3 - invalid pullback (counter to the last real move, as in V17.0)
+bool seed3Up = legDir == 1  and c1AfterExit and c1Bear and close <= waveHigh and noPullbackUp
+bool seed3Dn = legDir == -1 and c1AfterExit and c1Bull and close >= waveLow  and noPullbackDn
 
 // Type 1 / 2 - closes of the next 2 candles trapped inside a reference candle
 bool trapped = bar_index >= 2 and close[1] <= high[2] and close[1] >= low[2] and close <= high[2] and close >= low[2]
@@ -578,7 +577,7 @@ else if not rangeWasActive and not rngJustEnded and seed12
     rangeSeed    := true
     rangeActive  := true
     rangeType    := 1
-    rangeDir     := msTrendState != 0 ? msTrendState : (close[2] >= open[2] ? 1 : -1)
+    rangeDir     := legDir != 0 ? legDir : (close[2] >= open[2] ? 1 : -1)
     boxTop       := math.max(high[2], high[1], high)
     boxBot       := math.min(low[2], low[1], low)
     rangeLeftBar := bar_index - 2

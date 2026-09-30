@@ -3,7 +3,7 @@ import io, contextlib, sys
 with contextlib.redirect_stdout(io.StringIO()):
     import market_structure_scenarios as scen_ms
 from market_structure_scenarios import B
-import market_structure_sim_v171 as S
+import market_structure_sim_v172 as S
 
 SHOW = ('BOX-OPEN', 'BOX-CLOSE', 'BOX-CANCEL', 'BOX-DELETE', 'PULLBACK', 'CTS-up', 'CTS-dn', 'TREND SET', 'TREND->UP', 'TREND->DOWN', 'FBO-START', 'FBO-CONFIRMED', 'FBO-DELETED')
 
