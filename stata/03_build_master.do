@@ -74,6 +74,25 @@ program define prepfile
     cap confirm string variable Year
     if !_rc destring Year, replace force ignore(", ")
     if "`ydef'" != "." qui replace Year = `ydef' if missing(Year)
+    * identifier columns whose Stata name differs from the header (a trailing
+    * space, an underscore, a digit or a different case): rename them
+    foreach target in $FIRMKEY $TICKER Symbol {
+        cap confirm variable `target'
+        if !_rc continue
+        foreach v of varlist _all {
+            local lab : variable label `v'
+            local nv = ustrlower(ustrregexra("`v'", "[^\p{L}]", ""))
+            local nl = ustrlower(ustrregexra(`"`lab'"', "[^\p{L}]", ""))
+            local nt = ustrlower("`target'")
+            if "`nv'" == "`nt'" | "`nl'" == "`nt'" {
+                cap confirm variable `target'
+                if _rc {
+                    rename `v' `target'
+                    di as txt "`fname': column `v' is used as `target'"
+                }
+            }
+        }
+    }
     * which identifiers does this file have?
     local hasid = 0
     foreach v in $FIRMKEY $TICKER Symbol {
@@ -189,6 +208,39 @@ local K = `k'
 *    from the main file: ticker -> code and company label -> code;
 *    companies not in the main file get a new code 9000001, 9000002, ...
 *------------------------------------------------------------------------------
+* Symbol -> ticker map from every row that has both (all seven files): rows
+* with a company label but no ticker get the ticker, so that the same firm is
+* recognised in every file
+clear
+gen str1 _ksy = ""
+forvalues j = 0/`K' {
+    preserve
+        use `p`j'', clear
+        keep _ksy _ktk
+        keep if _ksy != "" & _ktk != ""
+        tempfile u
+        save `u'
+    restore
+    append using `u'
+}
+bys _ksy _ktk: gen int _n2 = _N
+bys _ksy (_n2): keep if _n == _N
+keep _ksy _ktk
+rename _ktk _tk_from_sy
+tempfile SY
+save `SY'
+forvalues j = 0/`K' {
+    use `p`j'', clear
+    local f : word `=`j' + 1' of `files'
+    qui merge m:1 _ksy using `SY', keep(master match) nogen
+    qui count if _ktk == "" & _tk_from_sy != ""
+    post mrep ("`f'") ("ticker taken from company label (Symbol)") (r(N)) (.)
+    qui replace _ktk = _tk_from_sy if _ktk == "" & _tk_from_sy != ""
+    qui replace $TICKER = _tk_from_sy if $TICKER == "" & _tk_from_sy != ""
+    drop _tk_from_sy
+    save `p`j'', replace
+}
+
 use `p0', clear
 foreach key in _ktk _ksy {
     preserve
