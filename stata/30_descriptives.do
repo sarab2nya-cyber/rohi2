@@ -245,7 +245,7 @@ foreach v in InvEff CSDev {
 }
 
 putexcel set "$OUT/Tables.xlsx", sheet("T4b_assumptions") modify
-putexcel A1 = "Test" B1 = "Statistic" C1 = "p-value" D1 = "H0" E1 = "Implication"
+putexcel A1 = "Test" B1 = "Statistic" C1 = "p-value" D1 = "H0" E1 = "Implication if H0 is rejected" F1 = "Decision (5%)"
 putexcel A2 = "F test (pooled OLS vs fixed effects)" B2 = (`Ff') C2 = (`Ffp') ///
     D2 = "All firm effects = 0" E2 = "Rejection: firm effects matter"
 putexcel A3 = "Hausman (random vs fixed effects)" B3 = (`Hc') C3 = (`Hp') ///
@@ -262,4 +262,10 @@ putexcel A8 = "Fisher-ADF unit root, InvEff (inverse chi2)" B8 = (`UR_InvEff') C
     D8 = "All panels have a unit root" E8 = "Rejection: stationary"
 putexcel A9 = "Fisher-ADF unit root, CSDev (inverse chi2)" B9 = (`UR_CSDev') C9 = (`URp_CSDev') ///
     D9 = "All panels have a unit root" E9 = "Rejection: stationary"
+local r = 1
+foreach pv in Ffp Hp MWp WDp CDp SKp URp_InvEff URp_CSDev {
+    local ++r
+    local dec = cond(missing(``pv''), "", cond(``pv'' < 0.05, "Reject H0", "Do not reject H0"))
+    putexcel F`r' = "`dec'"
+}
 drop e_fe OVERINV

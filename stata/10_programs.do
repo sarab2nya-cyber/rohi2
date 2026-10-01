@@ -334,7 +334,9 @@ program define modwald, rclass
     qui gen double `d' = (`e2' - `s2i')^2
     qui bys FirmID: egen double `vi' = total(`d')
     qui replace `vi' = `vi' / (`Ti' * (`Ti' - 1))
-    qui bys FirmID: gen byte `tag' = (_n == 1) & (`Ti' > 1) & (`vi' > 0)
+    * firms whose residual variance is (numerically) zero would divide by ~0:
+    * exclude them (relative tolerance), as xttest3 does for singular groups
+    qui bys FirmID: gen byte `tag' = (_n == 1) & (`Ti' > 2) & (`vi' > 1e-8 * `s2'^2)
     qui gen double `w' = (`s2i' - `s2')^2 / `vi' if `tag'
     qui su `w', meanonly
     local W = r(sum)
