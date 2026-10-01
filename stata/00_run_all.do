@@ -31,8 +31,7 @@ set seed 20261001
 global ROOT   "C:/Users/Rohi/Desktop/Data"
 global CODE   "$ROOT/stata"
 global DATA   "Final_Master_Data.xlsx"   // used only when RUN_SCREEN = 0
-global RAWDATA "Raw_All_Data.dta"        // raw Rahavard Novin export (.dta or .xlsx),
-                                         // the same file used in 04_inspect_raw.do
+global RAWDATA "Master_1380_1403.dta"    // comprehensive database built by 03_build_master.do
 global AGEFILE "Firm_Age.xlsx"           // columns: Symbol (ticker, as «نماد») | FoundYear
 global INFFILE "Inflation.xlsx"          // columns: Year | INF (CPI inflation, %)
 global OUT    "$ROOT/output"

@@ -229,8 +229,9 @@ qui count if !missing(_gap)
 local n = r(N)
 qui count if _gap <= 2 & !missing(_gap)
 di as txt "  holds (|gap| <= 2) in " r(N) " of `n' firm-years"
-qui count if !missing(MT, CFF)
-if r(N) {
+cap confirm numeric variable MT
+if !_rc qui count if !missing(MT, CFF)
+if !_rc & r(N) {
     qui corr CFF MT
     di as txt "  correlation of CFF with column MT (probably net financing cash flow) = " %6.4f r(rho)
 }
