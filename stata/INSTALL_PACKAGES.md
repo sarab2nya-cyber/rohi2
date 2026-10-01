@@ -8,37 +8,33 @@ Stata 17 برای دانلود از اینترنت (دستورهای `ssc instal
 
 ## مراحل نصب (یک بار کافی است)
 
-1. فایل zip پروژه را باز کنید و پوشه `stata_pkgs` را در این مسیر کپی کنید:
-   `C:\Users\Rohi\Desktop\stata_pkgs`
-   داخل این پوشه باید زیرپوشه‌های `ftools`، `require`، `reghdfe`، `estout`، `xtabond2` و `boottest` باشند.
+1. فایل `stata_pkgs.zip` را روی Desktop از حالت فشرده خارج کنید. پوشه‌ای که داخلش زیرپوشه‌های `ftools`، `reghdfe`، `estout` و بقیه هست باید در یکی از این دو مسیر باشد:
+   - `C:\Users\Rohi\Desktop\stata_pkgs`
+   - `C:\Users\Rohi\Desktop\stata_pkgs\stata_pkgs` (اگر Windows پوشه را دوبار تو در تو ساخته باشد؛ اسکریپت این حالت را هم پیدا می‌کند)
+2. فایل **`00_install_packages.do`** را یک بار اجرا کنید. در پایان باید این پیام را ببینید:
+   `All required packages are installed and working.`
+3. بعد فایل اصلی `01_master_CSD_MA_InvEff.do` را اجرا کنید. این فایل هم همین بررسی را در ابتدا انجام می‌دهد.
 
-2. فایل `01_master_CSD_MA_InvEff.do` را اجرا کنید. اسکریپت خودش بسته‌ها را از این پوشه نصب می‌کند و برای این کار به اینترنت نیاز ندارد.
-
-اگر پوشه را جای دیگری گذاشتید، در بخش 0 do-file این خط را اصلاح کنید:
+اگر پوشه را جای دیگری گذاشتید، مسیر `global PKGDIR` را در هر دو فایل اصلاح کنید. **از `/` استفاده کنید، نه `\`**، مثلاً:
 ```stata
-global PKGDIR    "C:\Users\Rohi\Desktop\stata_pkgs"
+global PKGDIR "D:/MyFiles/stata_pkgs"
 ```
 
 ## نصب دستی (اختیاری)
 
-اگر خواستید بسته‌ها را جدا از اسکریپت نصب کنید، این دستورها را در پنجره Command اجرا کنید:
-
 ```stata
-sysdir set PLUS "C:\Users\Rohi\Desktop\plus"
-local D "C:\Users\Rohi\Desktop\stata_pkgs"
+sysdir set PLUS "C:/Users/Rohi/Desktop/plus"
+local D "C:/Users/Rohi/Desktop/stata_pkgs"
 foreach p in ftools require reghdfe estout xtabond2 boottest {
-    net install `p', from("`D'\\`p'") replace
+    net install `p', from("`D'/`p'") replace
 }
 ftools, compile
 reghdfe, compile
-```
-
-برای بررسی نصب، این را اجرا کنید. باید یک جدول رگرسیون نمایش داده شود:
-
-```stata
 sysuse auto, clear
 reghdfe price weight, absorb(rep78)
 ```
+
+> چرا `/`؟ در Stata، اگر بک‌اسلش (`\`) دقیقاً قبل از یک ماکرو بیاید، ماکرو باز نمی‌شود. خطای «Local copy … not found» در نسخه قبلی به همین دلیل بود. Stata در Windows مسیرهای با `/` را بدون مشکل می‌پذیرد.
 
 ## نکات
 

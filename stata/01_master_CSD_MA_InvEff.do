@@ -52,57 +52,93 @@ global INF_SCALE 100        // INF in percent (e.g. 35 = 35%) -> 100; decimals -
 global INVDEF    "cash"     // "cash" = -CFI/L.TA (revaluation-proof); "accrual" = d(PPE+IA)/L.TA
 global FIN_IND   ""         // IndID codes of financial/holding firms to exclude, e.g. "30 31"
 global CLUST     "FirmID"
+global PKGDIR    "C:/Users/Rohi/Desktop/stata_pkgs"   // folder with ftools, reghdfe, ... sub-folders
 
 cap mkdir "$OUT"
 cd "$ROOT"
 
-* Community packages are installed from the LOCAL folder stata_pkgs (shipped
-* with this project) - no internet and no Java needed. Each package sits in
-* its own sub-folder, e.g. $PKGDIR\reghdfe\reghdfe.pkg. SSC is tried only if
-* the local folder is missing.
-global PKGDIR    "C:\Users\Rohi\Desktop\stata_pkgs"
+*------------------------------------------------------------------------------
+* PACKAGE SETUP - fully offline (no internet, no Java).
+* Packages are taken from the project's stata_pkgs folder. NOTE: paths use "/"
+* on purpose: in Stata a backslash written directly before a local macro
+* (backslash + local-macro quote) stops the macro from expanding - this broke the previous
+* version of this block.
+*------------------------------------------------------------------------------
 cap mkdir "$PLUS"
 sysdir set PLUS "$PLUS"
 adopath + "$PLUS"
+
 local REQ "ftools require reghdfe estout"      // required
 local OPT "xtabond2 boottest"                   // optional (robustness only)
+
+* Locate stata_pkgs (also handles Windows "Extract All" nesting it twice)
+local CANDS `""$PKGDIR" "$PKGDIR/stata_pkgs" "$ROOT/stata_pkgs" "$ROOT/stata_pkgs/stata_pkgs" "`c(pwd)'/stata_pkgs" "`c(pwd)'/../stata_pkgs" "`c(pwd)'""'
+local PKGBASE ""
+foreach c of local CANDS {
+    if "`PKGBASE'" == "" {
+        cap confirm file "`c'/reghdfe/reghdfe.pkg"
+        if !_rc local PKGBASE "`c'"
+    }
+}
+
+local NEED 0
+foreach p in `REQ' `OPT' {
+    cap which `p'
+    if _rc local NEED 1
+}
+
+if `NEED' & "`PKGBASE'" == "" {
+    di as err _n "Cannot find the stata_pkgs folder. Looked for reghdfe/reghdfe.pkg in:"
+    foreach c of local CANDS {
+        di as err "   `c'"
+    }
+    di as err "Unzip stata_pkgs.zip and set global PKGDIR (section 0) to the folder that"
+    di as err "directly contains the sub-folders ftools, require, reghdfe, estout, ..."
+    exit 601
+}
+
 foreach p in `REQ' `OPT' {
     cap which `p'
     if _rc {
-        cap confirm file "$PKGDIR\`p'\`p'.pkg"
-        if !_rc {
-            di as txt "Installing `p' from $PKGDIR ..."
-            cap noi net install `p', from("$PKGDIR\`p'") replace
+        cap confirm file "`PKGBASE'/`p'/`p'.pkg"
+        if _rc {
+            di as txt "   `p': not in `PKGBASE' - skipped"
+            continue
         }
-        else {
-            di as txt "Local copy of `p' not found - trying SSC ..."
-            cap noi ssc install `p', replace
+        di as txt "Installing `p' from `PKGBASE'/`p' ..."
+        cap noi net install `p', from("`PKGBASE'/`p'") replace
+        cap which `p'
+        if _rc {
+            * Fallback: run the package directly from its folder (no install)
+            adopath + "`PKGBASE'/`p'"
+            di as txt "   `p': using files in place (adopath)"
         }
     }
 }
 cap noi ftools, compile
 cap noi reghdfe, compile
 
-* Stop early with a clear message if anything required is still missing
+* Verify: every required package found AND reghdfe actually runs
 local MISSING ""
 foreach p of local REQ {
     cap which `p'
     if _rc local MISSING "`MISSING' `p'"
 }
+preserve
 qui sysuse auto, clear
-cap reghdfe price weight, absorb(rep78)
+cap noi reghdfe price weight, absorb(rep78)
 local RHDFE_OK = (_rc == 0)
-clear
+restore
 if "`MISSING'" != "" | !`RHDFE_OK' {
-    di as err _n "Required packages are missing or not working:`MISSING'"
-    if !`RHDFE_OK' di as err "reghdfe is installed but does not run (usually ftools/require missing)."
-    di as err "Check that PKGDIR points to the unzipped stata_pkgs folder (see stata/INSTALL_PACKAGES.md)."
+    di as err _n "Required packages missing or not working:`MISSING'"
+    if !`RHDFE_OK' di as err "reghdfe is found but does not run - see the error printed just above."
     exit 199
 }
 foreach p of local OPT {
     cap which `p'
     if _rc di as txt "Note: optional package `p' not installed - its robustness block will be skipped."
 }
+di as res "All required packages are installed and working."
 
 * Built-in winsorizer (replaces the SSC package winsor2; same syntax as used
 * here: winsor2 varlist, replace cuts(lo hi))
