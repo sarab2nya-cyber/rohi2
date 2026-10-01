@@ -1,10 +1,13 @@
 *==============================================================================
 * 03_build_master.do  -  ONE comprehensive database, 1380-1403, BEFORE screening
 *
-* Put these files in  C:/Users/Rohi/Desktop/Data/Raw/   (.dta preferred,
-* .xlsx is used when the .dta is not there):
-*     Main_1380_1402.dta
-*     File1_1403.dta  File2_1403.dta  ...  File6_1403.dta
+* Put these files in  C:/Users/Rohi/Desktop/Data/Raw/   (.xlsx preferred,
+* the .dta is used only when the .xlsx is not there). Linking columns:
+*   all seven files: Symbol, Year;  File1-3: also بازار, نماد;  File5-6: also
+*   صنعت, طبقه, نماد;  Main: also شرکت, industry codes, صنعت, طبقه, بازار, نماد.
+* Symbol is the key common to every file and is used first.
+*     Main_1380_1402.xlsx
+*     File1_1403.xlsx  File2_1403.xlsx  ...  File6_1403.xlsx
 * Run this file on its own (Do-file Editor > Execute, nothing selected).
 *
 * What it does
@@ -46,16 +49,17 @@ global TEXTVARS "Symbol صنعت طبقه بازار نماد تاریخمصوب
 cap program drop loadraw
 program define loadraw
     args base
-    cap confirm file "$RAW/`base'.dta"
-    if !_rc {
-        use "$RAW/`base'.dta", clear
-        di as txt "Loaded $RAW/`base'.dta  (" _N " rows, " c(k) " columns)"
-        exit
-    }
+    * Excel files are the source (preferred); the .dta is used only if no .xlsx
     cap confirm file "$RAW/`base'.xlsx"
     if !_rc {
         import excel "$RAW/`base'.xlsx", firstrow clear
         di as txt "Loaded $RAW/`base'.xlsx  (" _N " rows, " c(k) " columns)"
+        exit
+    }
+    cap confirm file "$RAW/`base'.dta"
+    if !_rc {
+        use "$RAW/`base'.dta", clear
+        di as txt "Loaded $RAW/`base'.dta  (" _N " rows, " c(k) " columns)"
         exit
     }
     di as err "Not found: $RAW/`base'.dta or $RAW/`base'.xlsx"
@@ -242,7 +246,7 @@ forvalues j = 0/`K' {
 }
 
 use `p0', clear
-foreach key in _ktk _ksy {
+foreach key in _ksy _ktk {
     preserve
         keep `key' $FIRMKEY
         drop if `key' == "" | missing($FIRMKEY)
@@ -257,7 +261,7 @@ forvalues j = 0/`K' {
     local f : word `=`j' + 1' of `files'
     qui count if !missing($FIRMKEY)
     local n0 = r(N)
-    foreach key in _ktk _ksy {
+    foreach key in _ksy _ktk {
         qui merge m:1 `key' using `L`key'', keep(master match) nogen
         qui replace $FIRMKEY = _c`key' if missing($FIRMKEY)
         drop _c`key'
@@ -273,7 +277,7 @@ forvalues j = 0/`K' {
     preserve
         use `p`j'', clear
         keep if missing($FIRMKEY)
-        gen _kname = cond(_ktk != "", _ktk, _ksy)
+        gen _kname = cond(_ksy != "", _ksy, _ktk)
         keep _kname
         tempfile u
         save `u'
@@ -290,7 +294,7 @@ save `reg'
 forvalues j = 0/`K' {
     use `p`j'', clear
     local f : word `=`j' + 1' of `files'
-    gen _kname = cond(_ktk != "", _ktk, _ksy)
+    gen _kname = cond(_ksy != "", _ksy, _ktk)
     qui merge m:1 _kname using `reg', keep(master match) nogen
     qui replace $FIRMKEY = _cnew if missing($FIRMKEY)
     drop _cnew _kname
