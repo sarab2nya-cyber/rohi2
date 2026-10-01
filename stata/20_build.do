@@ -459,8 +459,10 @@ else {
     putexcel A`r' = "Data file ($Y0-$YN)" B`r' = ($S_F0) C`r' = ($S_N0)
     local ++r
 }
-putexcel A`r' = "Less: firm-years with book equity <= 0" C`r' = (-$S_BV)
-local ++r
+if $S_BV {
+    putexcel A`r' = "Less: firm-years with book equity <= 0" C`r' = (-$S_BV)
+    local ++r
+}
 if $S_TA {
     putexcel A`r' = "Less: firm-years with total assets <= 0" C`r' = (-$S_TA)
     local ++r

@@ -8,7 +8,8 @@
 *                         (ticker as in column «نماد», Persian founding year)
 *        $ROOT/$INFFILE   Excel, two columns:  Year | INF   (CPI inflation, %)
 * Output $OUT/screened_data.dta              read by 20_build.do
-*        $ROOT/Final_Master_Data_${SCR_Y0}_${SCR_Y1}.xlsx   sorted research file
+*        $ROOT/Research_Data_${SCR_Y0}_${SCR_Y1}.xlsx  sheets Data, Screening,
+*                                            Firms_per_year, Variables
 *        $OUT/screening_log.dta              rows of the screening table
 *                                            (completed in 20_build.do -> T0_sample)
 *        $OUT/Screening_check.xlsx           lists to verify the automatic choices
@@ -18,7 +19,7 @@
 *   2  less Farabourse firms                       (column «بازار»)
 *   3  less financial firms                        (industry name keywords)
 *   4  less firm-years without financial statements in the database
-*   5  less book equity <= 0                       (20_build.do)
+*   5  less book equity <= 0
 * All firms have an Esfand year-end (sample characteristic, no step). No
 * minimum number of years: a firm-year enters estimation when its lags exist.
 *
@@ -40,6 +41,27 @@
 *   MV   year-end closing price x shares; shares = paid-in capital / 1,000 rials
 *        (قیمتپایانی x سرمایه / 1000); compared with ارزشروز below
 *==============================================================================
+
+*------------------------------------------------------------------------------
+* Settings when this file is run on its own (00_run_all.do sets them otherwise)
+*------------------------------------------------------------------------------
+if "$ROOT" == "" {
+    version 17.0
+    clear all
+    set more off
+    global ROOT    "C:/Users/Rohi/Desktop/Data"
+    global OUT     "$ROOT/output"
+    global RAWDATA "Master_1380_1403.dta"
+    global AGEFILE "Firm_Age.xlsx"
+    global INFFILE "Inflation.xlsx"
+    global SCR_Y0  1380
+    global SCR_Y1  1403
+    global SCR_FARA "فرا"
+    global SCR_FINWORDS "بانک|بیمه|لیزینگ|سرمایهگذاری|هلدینگ|چندرشته|کارگزاری|صندوق|واسطهگری|اعتباری|تامینسرمایه"
+    global SCR_FINCODES ""
+    global SCREEN_ONLY 1
+}
+cap mkdir "$OUT"
 
 *------------------------------------------------------------------------------
 * 0. Load
@@ -151,11 +173,11 @@ scrpost 1 "All firm-years in the database, TSE and Farabourse, $SCR_Y0-$SCR_Y1"
 *------------------------------------------------------------------------------
 di as txt _n "Market (after filling from the firm's other years):"
 tab Market, missing
-gen byte _fara = ustrregexm(_n_Market, "$SCR_FARA")
+gen byte _fara = ustrregexm(_n_Market, "$SCR_FARA") | Market == ""
 qui count if Market == ""
-if r(N) di as txt "Note: " r(N) " firm-years with unknown market are kept with the TSE firms; see Screening_check.xlsx."
+if r(N) di as txt "Note: " r(N) " firm-years with no market in the database are removed with the Farabourse firms."
 drop if _fara
-scrpost 2 "Less: Farabourse firms"
+scrpost 2 "Less: Farabourse firms and firms with no market in the database"
 
 *------------------------------------------------------------------------------
 * Step 3: financial firms
@@ -194,7 +216,6 @@ scrpost 3 "Less: banks, insurance, leasing, investment, holding and other financ
 *------------------------------------------------------------------------------
 drop if missing(جمعکلداراییها)
 scrpost 4 "Less: firm-years without financial statements in the database"
-postclose scr
 
 *------------------------------------------------------------------------------
 * Variables used by the study (million rials)
@@ -218,6 +239,13 @@ gen double CFO    = جریانخالصورودخروجنقدحاصل
 gen double CFI    = جريانخالصورودخروجنقدحاصل
 gen double CFF    = خالصافزايشکاهشدرموجودینقد - جريانخالصورودخروجنقدقبلا
 gen double MV     = قیمتپایانی * سرمایه / 1000
+* Step 5: book equity <= 0 (target leverage undefined)
+qui count if BV <= 0
+di as txt "Removing " r(N) " firm-years with book equity <= 0"
+drop if BV <= 0
+scrpost 5 "Less: firm-years with book equity <= 0"
+postclose scr
+
 gen byte AUDITED  = ustrregexm(حسابرسیشده, "^بل[\x{06CC}\x{064A}]") if حسابرسیشده != "" & حسابرسیشده != "-"
 
 *------------------------------------------------------------------------------
@@ -298,65 +326,95 @@ else {
 }
 
 *------------------------------------------------------------------------------
-* Save: research file sorted by firm and year
+* Save: one workbook  $ROOT/Research_Data_${SCR_Y0}_${SCR_Y1}.xlsx
+*   Data            research variables, sorted by firm and year
+*   Screening       sample-construction table (English)
+*   Firms_per_year  firms in the final sample, by year
+*   Variables       definition and source of every variable
 *------------------------------------------------------------------------------
-keep FirmCode Symbol Year Industry IndID Market AUDITED Age INF INV IA PPE TA TD BV ///
+local XL "$ROOT/Research_Data_${SCR_Y0}_${SCR_Y1}.xlsx"
+cap erase "`XL'"
+keep FirmCode Symbol Year Industry IndID AUDITED Age INF INV IA PPE TA TD BV ///
     Sales COGS SGA OI FinExp CFO CFI CFF MV
-order FirmCode Symbol Year Industry IndID Market AUDITED Age INF INV IA PPE TA TD BV ///
+order FirmCode Symbol Year Industry IndID AUDITED Age INF INV IA PPE TA TD BV ///
     Sales COGS SGA OI FinExp CFO CFI CFF MV
 sort FirmCode Year
 compress
-export excel using "$ROOT/Final_Master_Data_${SCR_Y0}_${SCR_Y1}.xlsx", firstrow(variables) replace
-di as res "Sorted research file: $ROOT/Final_Master_Data_${SCR_Y0}_${SCR_Y1}.xlsx"
-drop Market
 save "$OUT/screened_data.dta", replace
+export excel using "`XL'", sheet("Data") firstrow(variables) replace
 
-*------------------------------------------------------------------------------
-* Screening table (Section 3.1) -> $ROOT/Screening_Table.xlsx
-*   steps 1-4 from above; step 5 (book equity <= 0) previewed here and
-*   applied in 20_build.do; firm-years by year after all steps
-*------------------------------------------------------------------------------
-qui count if BV <= 0
-local nbv = r(N)
-egen byte _tf = tag(FirmCode) if !(BV <= 0)
-qui count if _tf == 1
-local ffin = r(N)
-qui count if !(BV <= 0)
-local nfin = r(N)
-drop _tf
+* Screening
 preserve
     use "$OUT/screening_log.dta", clear
     sort step
     gen double firms_removed     = firms[_n-1] - firms
     gen double firmyears_removed = firmyears[_n-1] - firmyears
-    local N = _N + 2
+    local N = _N + 1
     set obs `N'
-    replace step = 5 in `=_N - 1'
-    replace label = "Less: firm-years with book equity <= 0" in `=_N - 1'
-    replace firmyears_removed = `nbv' in `=_N - 1'
-    replace firmyears = firmyears[_N - 2] - `nbv' in `=_N - 1'
-    replace firms = `ffin' in `=_N - 1'
-    replace firms_removed = firms[_N - 2] - `ffin' in `=_N - 1'
-    replace step = 6 in `=_N'
-    replace label = "Final sample, ${SCR_Y0}-${SCR_Y1} (incl. base year ${SCR_Y0})" in `=_N'
-    replace firms = `ffin' in `=_N'
-    replace firmyears = `nfin' in `=_N'
+    replace step  = `N' in `N'
+    replace label = "Final sample: TSE non-financial firms, ${SCR_Y0}-${SCR_Y1} (${SCR_Y0} = base year)" in `N'
+    replace firms = firms[`N' - 1] in `N'
+    replace firmyears = firmyears[`N' - 1] in `N'
     order step label firms_removed firmyears_removed firms firmyears
-    format firms* firmyears* %9.0fc
+    label variable step              "Step"
+    label variable label             "Screening criterion"
+    label variable firms_removed     "Firms removed"
+    label variable firmyears_removed "Firm-years removed"
+    label variable firms             "Firms remaining"
+    label variable firmyears         "Firm-years remaining"
     di as res _n "SAMPLE SCREENING TABLE"
     list, noobs sep(0) abbrev(20)
-    export excel using "$ROOT/Screening_Table.xlsx", sheet("screening") firstrow(variables) replace
+    export excel using "`XL'", sheet("Screening") firstrow(varlabels) sheetmodify
+    * same table for the report of 20_build.do
+    export excel using "$OUT/Screening_Table.xlsx", sheet("Screening") firstrow(varlabels) replace
 restore
+
+* Firms per year
 preserve
-    keep if !(BV <= 0)
     egen byte _tf = tag(FirmCode Year)
     collapse (sum) firms = _tf, by(Year)
-    rename firms firms_in_year
+    label variable Year  "Fiscal year"
+    label variable firms "Firms in the final sample"
     di as res _n "Firms per year in the final sample"
     list, noobs sep(0)
-    export excel using "$ROOT/Screening_Table.xlsx", sheet("firms_per_year") firstrow(variables) sheetmodify
+    export excel using "`XL'", sheet("Firms_per_year") firstrow(varlabels) sheetmodify
 restore
-di as res "Screening table: $ROOT/Screening_Table.xlsx"
+
+* Variables
+preserve
+    clear
+    input str10 variable str90 definition str110 source
+    "FirmCode" "Company code"                                     "Database company code (شرکت); 9000001+ = firm not in the 1380-1402 file"
+    "Symbol"   "Ticker"                                           "نماد"
+    "Year"     "Fiscal year (Esfand year-end)"                    "Year"
+    "Industry" "Industry (general classification)"                "صنعت"
+    "IndID"    "Industry code (general)"                          "کدصنعتکلی"
+    "AUDITED"  "1 = audited statements, 0 = unaudited"            "حسابرسیشده"
+    "Age"      "Firm age in years"                                "Year - FoundYear (Firm_Age.xlsx)"
+    "INF"      "Annual CPI inflation (%)"                         "Inflation.xlsx"
+    "INV"      "Inventories"                                      "موجودیموادوکالا"
+    "IA"       "Intangible assets"                                "داراییهاینامشهود"
+    "PPE"      "Net property, plant and equipment"                "خالصداراییهایثابت"
+    "TA"       "Total assets"                                     "جمعکلداراییها"
+    "TD"       "Total liabilities"                                "جمعکلبدهیها"
+    "BV"       "Book value of equity"                             "جمعحقوقصاحبانسهامدرپایانسا"
+    "Sales"    "Operating revenue"                                "درآمدحاصلازخدماتوفروش (if empty: جمعدرآمدها)"
+    "COGS"     "Cost of goods sold"                               "بهایتمامشدهکالایفروشرفته"
+    "SGA"      "Selling, general and administrative expenses"     "هزینههایعمومیواداری + هزینههایتوزیعوفروش"
+    "OI"       "Operating profit"                                 "سودزیانعملیاتی (if empty: سودوزیانعملیاتی)"
+    "FinExp"   "Financial expenses"                               "هزینههایمالی"
+    "CFO"      "Net cash flow from operating activities"          "جریانخالصورودخروجنقدحاصل (operating)"
+    "CFI"      "Net cash flow from investing activities"          "جريانخالصورودخروجنقدحاصل (investing)"
+    "CFF"      "Net cash flow from financing activities"          "net change in cash - cash flow before financing"
+    "MV"       "Market value of equity at year end"               "closing price x paid-in capital / 1000"
+    end
+    label variable variable   "Variable"
+    label variable definition "Definition (amounts in million rials)"
+    label variable source     "Source column in the database"
+    export excel using "`XL'", sheet("Variables") firstrow(varlabels) sheetmodify
+restore
+di as res _n "Research workbook: `XL'  (sheets Data, Screening, Firms_per_year, Variables)"
+
 qui count if missing(Age) | missing(INF)
 if r(N) == _N & "$SCREEN_ONLY" != "1" {
     di as err _n "Age and/or INF are empty: the research file is saved, but the models cannot be"

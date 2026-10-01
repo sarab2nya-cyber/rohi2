@@ -187,7 +187,7 @@ di as res "All required packages are installed and working."
 do "$CODE/10_programs.do"
 if $RUN_SCREEN do "$CODE/05_screening.do"
 if $RUN_SCREEN & $SCREEN_ONLY {
-    di as res _n "Research file built: $ROOT/Final_Master_Data_${SCR_Y0}_${SCR_Y1}.xlsx"
+    di as res _n "Research workbook built: $ROOT/Research_Data_${SCR_Y0}_${SCR_Y1}.xlsx"
     di as res "Check it, then set SCREEN_ONLY to 0 in section 0 and run again."
     log close master
     exit
