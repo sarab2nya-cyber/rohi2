@@ -63,6 +63,9 @@ if "$ROOT" == "" {
     global SCR_MINFIRMS 2
     global SCR_BALANCED 0
     global SCR_MINYEARS 6
+    global OLDFILE "Final_Master_Data.xlsx"
+    global SCR_FILLOLD 1
+    global SCR_FILLAGREE 0.90
     global SCR_BAL_Y0 1393
     global SCREEN_ONLY 1
 }
@@ -128,6 +131,63 @@ qui count if _indchg
 if r(N) di as txt "Note: " r(N) " firm-years carry a different industry code; the firm's most frequent code is used."
 bys FirmCode (_nind Year): replace IndID = IndID[_N]
 bys FirmCode (_nind Year): replace Industry = Industry[_N]
+
+*------------------------------------------------------------------------------
+* Link to the previous research file ($OLDFILE: TSE firms, 1392-1403)
+*   key = the database column Symbol (same format in both files)
+*------------------------------------------------------------------------------
+cap confirm variable _raw_Symbol
+if _rc gen str1 _raw_Symbol = ""
+cap confirm string variable _raw_Symbol
+if _rc tostring _raw_Symbol, replace
+gen _ksy = ustrlower(ustrregexra(_raw_Symbol, "[\x{200C}\x{200F}\s\-_]", ""))
+replace _ksy = ustrregexra(_ksy, "\x{064A}", "\x{06CC}")
+replace _ksy = ustrregexra(_ksy, "\x{0643}", "\x{06A9}")
+bys FirmCode _ksy: gen int _nk = _N if _ksy != ""
+bys FirmCode (_nk): gen _fk = _ksy[_N]
+drop _nk _ksy
+gen byte _inold = 0
+local OLDOK = 0
+cap confirm file "$ROOT/$OLDFILE"
+if !_rc & "$SCR_FILLOLD" == "1" {
+    local OLDOK = 1
+    preserve
+        import excel "$ROOT/$OLDFILE", firstrow clear
+        keep Symbol Year TA TD BV PPE IA INV Sales COGS SGA OI FinExp CFO CFI CFF MV
+        foreach v of varlist Year TA TD BV PPE IA INV Sales COGS SGA OI FinExp CFO CFI CFF MV {
+            cap confirm string variable `v'
+            if !_rc destring `v', replace force ignore(", ")
+        }
+        cap confirm string variable Symbol
+        if _rc tostring Symbol, replace
+        gen _fk = ustrlower(ustrregexra(Symbol, "[\x{200C}\x{200F}\s\-_]", ""))
+        replace _fk = ustrregexra(_fk, "\x{064A}", "\x{06CC}")
+        replace _fk = ustrregexra(_fk, "\x{0643}", "\x{06A9}")
+        drop Symbol
+        drop if _fk == "" | missing(Year)
+        duplicates drop _fk Year, force
+        foreach v in COGS SGA FinExp {
+            replace `v' = abs(`v')
+        }
+        foreach v in TA TD BV PPE IA INV Sales COGS SGA OI FinExp CFO CFI CFF MV {
+            rename `v' _o_`v'
+        }
+        tempfile oldv
+        save `oldv'
+        keep _fk
+        duplicates drop
+        gen byte _inold_f = 1
+        tempfile oldf
+        save `oldf'
+    restore
+    merge m:1 _fk using `oldf', keep(master match) nogen
+    replace _inold = 1 if _inold_f == 1
+    drop _inold_f
+    egen byte _t = tag(FirmCode) if _inold
+    qui count if _t == 1
+    di as txt "Firms of the previous file found in the database: " r(N)
+    drop _t
+}
 drop _nind _indchg
 
 *------------------------------------------------------------------------------
@@ -179,6 +239,13 @@ scrpost 1 "All firm-years in the database, TSE and Farabourse, $SCR_Y0-$SCR_Y1"
 di as txt _n "Market (after filling from the firm's other years):"
 tab Market, missing
 gen byte _fara = ustrregexm(_n_Market, "$SCR_FARA") | Market == ""
+* the market column shows the CURRENT market: firms of the previous TSE sample
+* (TSE during 1392-1403, later moved) are kept
+egen byte _t = tag(FirmCode) if _fara & _inold
+qui count if _t == 1
+if r(N) di as txt "Note: " r(N) " firms recorded as Farabourse today were TSE firms in the previous file; they are kept."
+drop _t
+replace _fara = 0 if _inold
 qui count if Market == ""
 if r(N) di as txt "Note: " r(N) " firm-years with no market in the database are removed with the Farabourse firms."
 drop if _fara
@@ -260,8 +327,9 @@ foreach v in Symbol Industry {
 }
 bys FirmCode (Year):  replace IndID = IndID[_n-1] if missing(IndID) & _n > 1
 bys FirmCode (_negY): replace IndID = IndID[_n-1] if missing(IndID) & _n > 1
+bys FirmCode (_fk): replace _fk = _fk[_N]
+bys FirmCode (_inold): replace _inold = _inold[_N]
 drop _negY
-gen byte HasData = !missing(جمعکلداراییها)
 
 *------------------------------------------------------------------------------
 * Variables used by the study (million rials)
@@ -285,6 +353,49 @@ gen double CFO    = جریانخالصورودخروجنقدحاصل
 gen double CFI    = جريانخالصورودخروجنقدحاصل
 gen double CFF    = خالصافزايشکاهشدرموجودینقد - جريانخالصورودخروجنقدقبلا
 gen double MV     = قیمتپایانی * سرمایه / 1000
+
+*------------------------------------------------------------------------------
+* Completing missing statements from the previous file (1392-1403 only).
+*   1 compare both files where both report the firm-year; 2 fill only if the
+*   two sources agree (share of firm-years within 0.5% >= SCR_FILLAGREE for
+*   total assets, book equity and sales); 3 flag the completed rows (FilledOld)
+*------------------------------------------------------------------------------
+gen byte FilledOld = 0
+if `OLDOK' {
+    merge m:1 _fk Year using `oldv', keep(master match) nogen
+    cap postclose fchk
+    postfile fchk str8 variable double(both_reported agree_share) using "$OUT/_fillcheck.dta", replace
+    local okfill = 1
+    foreach v in TA TD BV Sales COGS OI CFO CFI MV {
+        qui count if !missing(`v', _o_`v')
+        local nb = r(N)
+        qui count if !missing(`v', _o_`v') & abs(`v' - _o_`v') <= 0.005 * max(abs(_o_`v'), 1)
+        local sh = cond(`nb' > 0, r(N) / `nb', .)
+        post fchk ("`v'") (`nb') (`sh')
+        if inlist("`v'", "TA", "BV", "Sales") & (`sh' < $SCR_FILLAGREE | `nb' == 0) local okfill = 0
+    }
+    postclose fchk
+    preserve
+        use "$OUT/_fillcheck.dta", clear
+        format agree_share %5.3f
+        di as res _n "AGREEMENT between the database and the previous file (firm-years reported in both)"
+        list, noobs sep(0)
+        export excel using "$OUT/Screening_check.xlsx", sheet("fill_check") firstrow(variables) sheetmodify
+    restore
+    erase "$OUT/_fillcheck.dta"
+    if `okfill' {
+        replace FilledOld = missing(TA) & !missing(_o_TA)
+        foreach v in TA TD BV PPE IA INV Sales COGS SGA OI FinExp CFO CFI CFF MV {
+            replace `v' = _o_`v' if FilledOld
+        }
+        qui count if FilledOld
+        di as res r(N) " firm-years completed from the previous file (flag FilledOld = 1)"
+        tab Year if FilledOld
+    }
+    else di as err "The two sources do not agree closely enough (threshold $SCR_FILLAGREE): nothing is filled. See sheet fill_check."
+    drop _o_*
+}
+gen byte HasData = !missing(TA)
 * Step 5: book equity <= 0 (target leverage undefined): flagged, not used
 gen byte InSample = HasData & !(BV <= 0)
 gen str40 Note = ""
@@ -339,9 +450,9 @@ drop _gap _r
 *------------------------------------------------------------------------------
 local XL "$ROOT/Research_Data_${SCR_Y0}_${SCR_Y1}.xlsx"
 cap erase "`XL'"
-keep FirmCode Symbol Year Industry IndID HasData InSample Note AUDITED ///
+keep FirmCode Symbol Year Industry IndID HasData InSample Note AUDITED FilledOld ///
     INV IA PPE TA TD BV Sales COGS SGA OI FinExp CFO CFI CFF MV
-order FirmCode Symbol Year Industry IndID HasData InSample Note AUDITED ///
+order FirmCode Symbol Year Industry IndID HasData InSample Note AUDITED FilledOld ///
     INV IA PPE TA TD BV Sales COGS SGA OI FinExp CFO CFI CFF MV
 sort FirmCode Year
 compress
@@ -372,6 +483,9 @@ qui count if _tf
 local F = r(N)
 post tbl ("A") ("") ("TSE non-financial firms: full panel (`F' firms x `NY' years)") ///
     ("شرکت‌های بورسی غیرمالی: پنل کامل (شرکت × ۲۴ سال)") (`F') (_N)
+qui count if FilledOld
+if r(N) post tbl ("A") ("") ("  Of which: statements completed from the previous research file (1392-1403)") ///
+    ("  از این میان: صورت‌های مالی تکمیل‌شده از فایل پژوهشی قبلی (۱۳۹۲ تا ۱۴۰۳)") (.) (r(N))
 qui count if !HasData
 post tbl ("A") ("5") ("Less: firm-years without financial statements (not yet listed, delisted or not reported)") ///
     ("حذف سال-شرکت‌هایی که صورت مالی ندارند (هنوز پذیرفته نشده، خارج‌شده یا گزارش‌نشده)") (.) (-r(N))
@@ -644,6 +758,7 @@ preserve
     "IndGroup" "Database industry group (broad, 1-11)"            "کدصنعتکلی"
     "Industry_orig" "Industry name before pooling"                 "صنعت"
     "AUDITED"  "1 = audited statements, 0 = unaudited"            "حسابرسیشده"
+    "FilledOld" "1 = statements taken from the previous research file" "Final_Master_Data.xlsx (1392-1403)"
     "Balanced" "1 = usable data in every year 1393-1403 (sensitivity S8)" "-"
     "INV"      "Inventories"                                      "موجودیموادوکالا"
     "IA"       "Intangible assets"                                "داراییهاینامشهود"

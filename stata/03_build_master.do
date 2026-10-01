@@ -303,32 +303,107 @@ forvalues j = 0/`K' {
 }
 
 *------------------------------------------------------------------------------
-* 3. Merge: main file, then each 1403 file, on company code and year.
-*    Same columns for other firms -> rows added; other columns for the same
-*    firms -> joined side by side; the first non-missing value is kept.
+* 3a. The 1403 file: the six files merged on company code and year.
+*     A column found in several files is compared cell by cell; empty cells are
+*     filled from the next file, and differing values are counted per column
+*     (the first file is kept). Saved as Final_1403.dta / Final_1403.xlsx.
 *------------------------------------------------------------------------------
-use `p0', clear
-forvalues j = 1/`K' {
+cap postclose cf
+postfile cf str20 file str128 variable double(both_reported conflicts) ///
+    using "$ROOT/_conflicts.dta", replace
+use `p1', clear
+forvalues j = 2/`K' {
     qui ds, has(type string)
     local mstr `r(varlist)'
     qui ds, has(type numeric)
     local mnum `r(varlist)'
+    qui ds
+    local mvars `r(varlist)'
+    local fj : word `=`j' + 1' of `files'
     preserve
         use `p`j'', clear
         harmon "`mstr'" "`mnum'"
+        * columns already in the merged file get a temporary name _u1, _u2, ...
+        local pairs ""
+        local c = 0
+        foreach v of varlist _all {
+            if inlist("`v'", "$FIRMKEY", "Year", "_ktk", "_ksy") continue
+            local in : list v in mvars
+            if `in' {
+                local ++c
+                rename `v' _u`c'
+                local pairs "`pairs' `v'"
+            }
+        }
         save `p`j'', replace
     restore
-    qui merge 1:1 $FIRMKEY Year using `p`j'', update
-    local fj : word `=`j' + 1' of `files'
+    qui merge 1:1 $FIRMKEY Year using `p`j''
     qui count if _merge == 2
-    post mrep ("`fj'") ("rows added (company-years not yet present)") (r(N)) (.)
-    qui count if inlist(_merge, 3, 4)
-    post mrep ("`fj'") ("rows joined (same company-year, more columns)") (r(N)) (.)
-    qui count if _merge == 5
-    post mrep ("`fj'") ("cells with conflicting values (first file kept)") (r(N)) (.)
+    post mrep ("`fj'") ("1403: company-years added (not in earlier 1403 files)") (r(N)) (.)
+    qui count if _merge == 3
+    post mrep ("`fj'") ("1403: company-years joined (columns added)") (r(N)) (.)
     drop _merge
+    local c = 0
+    foreach v of local pairs {
+        local ++c
+        cap confirm string variable `v'
+        if !_rc {
+            qui count if `v' != "" & _u`c' != ""
+            local nb = r(N)
+            qui count if `v' != "" & _u`c' != "" & `v' != _u`c'
+            local nc = r(N)
+            qui replace `v' = _u`c' if `v' == ""
+        }
+        else {
+            qui count if !missing(`v', _u`c')
+            local nb = r(N)
+            qui count if !missing(`v', _u`c') & abs(`v' - _u`c') > 0.005 * max(abs(`v'), 1)
+            local nc = r(N)
+            qui replace `v' = _u`c' if missing(`v')
+        }
+        post cf ("`fj'") ("`v'") (`nb') (`nc')
+        drop _u`c'
+    }
 }
+postclose cf
+* identifiers constant within a firm
+foreach v in $TICKER Symbol صنعت طبقه بازار {
+    cap confirm string variable `v'
+    if _rc continue
+    bys $FIRMKEY (`v'): replace `v' = `v'[_N] if `v' == ""
+}
+qui count
+post mrep ("Final_1403") ("company-years in the merged 1403 file") (r(N)) (.)
 drop _ktk _ksy
+order $FIRMKEY Symbol $TICKER Year
+sort Symbol
+compress
+save "$ROOT/Final_1403.dta", replace
+export excel using "$ROOT/Final_1403.xlsx", sheet("Final_1403") firstrow(variables) replace
+di as res "Merged 1403 file: $ROOT/Final_1403.dta and .xlsx"
+tempfile y1403
+save `y1403'
+
+*------------------------------------------------------------------------------
+* 3b. 1380-1402 + 1403, on company code and year
+*------------------------------------------------------------------------------
+use `p0', clear
+drop _ktk _ksy
+qui ds, has(type string)
+local mstr `r(varlist)'
+qui ds, has(type numeric)
+local mnum `r(varlist)'
+preserve
+    use `y1403', clear
+    harmon "`mstr'" "`mnum'"
+    save `y1403', replace
+restore
+qui merge 1:1 $FIRMKEY Year using `y1403', update
+qui count if _merge == 2
+post mrep ("Final_1403") ("company-years added to 1380-1402") (r(N)) (.)
+qui count if inlist(_merge, 3, 4, 5)
+post mrep ("Final_1403") ("1403 company-years already in the main file") (r(N)) (.)
+drop _merge
 
 * identifiers that are fixed within a firm: fill gaps from the firm's other years
 foreach v in $TICKER Symbol صنعت طبقه بازار {
@@ -785,12 +860,20 @@ postclose mrep
 preserve
     use "$ROOT/_dictionary.dta", clear
     export excel using "$ROOT/Master_1380_1403.xlsx", sheet("Dictionary") firstrow(variables) sheetmodify
+    use "$ROOT/_conflicts.dta", clear
+    gsort -conflicts
+    label variable file          "1403 file"
+    label variable variable      "Column"
+    label variable both_reported "Company-years reported in both files"
+    label variable conflicts     "Company-years with different values (> 0.5%)"
+    export excel using "$ROOT/Master_1380_1403.xlsx", sheet("Conflicts_1403") firstrow(varlabels) sheetmodify
     use "$ROOT/_merge_report.dta", clear
     list, noobs sep(0) abbrev(30)
     export excel using "$ROOT/Master_1380_1403.xlsx", sheet("Merge_report") firstrow(variables) sheetmodify
 restore
 erase "$ROOT/_dictionary.dta"
 erase "$ROOT/_merge_report.dta"
+erase "$ROOT/_conflicts.dta"
 
 * restore Persian labels in the .dta (name = label)
 use "$ROOT/Master_1380_1403.dta", clear
