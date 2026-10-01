@@ -16,22 +16,38 @@ The sample is constructed in the following steps:
 5. Exclude firm-years without financial statements in the database (before listing, after delisting, or not reported).
 6. Exclude firm-years with zero or negative book equity. Leverage above one and a negative market-to-book ratio make a target capital structure undefined for these firm-years, and their investment reflects financial distress rather than financing choices.
 
-All firms have a fiscal year ending in Esfand (March), so every firm-year shares the same macroeconomic window.
+All firms have a fiscal year ending in Esfand (March), so every firm-year shares the same macroeconomic window. Table 1 reports the construction of the sample.
 
-| Step | Screening criterion | Firms | Firm-years |
+**Table 1. Sample construction**
+
+| Step | Panel A. Screening criterion | Firms | Firm-years |
 |---|---|---|---|
-| 1 | All firm-years in the database (TSE and Farabourse), 1380–1403 | [n] | [n] |
-| 2 | Less: Farabourse firms and firms with no market in the database | [−n] | [−n] |
-| 3 | Less: banks, insurance, leasing, investment, holding, brokerage and fund companies | [−n] | [−n] |
-| 4 | Less: printing, retail, utilities and auxiliary financial activities | [−n] | [−n] |
-| | TSE non-financial firms: full panel (firms × 24 years) | [n] | [n] |
-| 5 | Less: firm-years without financial statements | — | [−n] |
-| 6 | Less: firm-years with zero or negative book equity | — | [−n] |
-| = | Final sample (unbalanced panel, including base year 1380) | [n] | [n] |
+| 1 | All firm-years in the database (TSE and Farabourse), 1380–1403 | 1,286 | 9,434 |
+| 2 | Less: Farabourse firms and firms with no market in the database | −916 | −3,819 |
+| 3 | Less: banks, insurance, leasing, investment, holding, brokerage and fund companies | −28 | −58 |
+| 4 | Less: printing, retail, utilities and auxiliary financial activities | −10 | −30 |
+| | TSE non-financial firms: full panel (332 firms × 24 years) | 332 | 7,968 |
+| 5 | Less: firm-years without financial statements (not yet listed, delisted or not reported) | — | −3,062 |
+| 6 | Less: firm-years with zero or negative book equity | — | −214 |
+| = | Final sample (unbalanced panel, including base year 1380) | 319 | 4,692 |
+| | **Panel B. Data availability of the final sample** | | |
+| | Firms with data in all 24 years | 23 | 552 |
+| | Firms with data for part of the period | 274 | 4,118 |
+| | Firms with data in only one year | 22 | 22 |
+| | Of all firms: first year with data after 1380 (listed later) | 120 | |
+| | Of all firms: last year with data before 1403 (delisted or not reported) | 109 | |
+| | Of all firms: one or more missing years inside their period | 196 | |
+| | Firms with data in every year 1393–1403 (balanced subsample, test S8) | 82 | 1,726 |
 
-No minimum number of years is imposed. A firm-year enters an estimation when the lagged data that the estimation requires exist; firms with a short history therefore contribute only the years for which their lags are observed. An unbalanced panel is used because requiring every firm to report in all 24 years would keep only the firms that survived the whole period. Over-leveraged firms that fell into distress or left the exchange, exactly the firms at the centre of H1a, would be removed, and so would every firm listed after 1380, including the large wave of listings after the privatisations of the late 1380s. Such a sample would be biased toward survivors (survivorship bias) and would be too small for System GMM. The forward orthogonal deviation used in the GMM estimator (Section 3.8.2) is designed for panels with gaps. As a sensitivity test (S8), the models are re-estimated on the balanced subsample of firms with usable data in every year 1393–1403.
+The final sample is an unbalanced panel of 319 firms and 4,692 firm-years, an average of 14.7 years per firm. Only 23 firms report in all 24 years, while 120 firms entered the exchange after 1380 and 109 left it, or stopped reporting, before 1403. No minimum number of years is imposed. A firm-year enters an estimation when the lagged data that the estimation requires exist; the 22 firms with a single year of data therefore enter only the cross-sectional first-stage models, and firms with gaps contribute the years whose lags are observed. The rule is set by data availability rather than by a researcher-chosen threshold.
 
-Industries with fewer than two firms in the final sample are pooled into one category ("other industries"). Accounting data are collected from the Rahavard Novin database and cross-checked against the original filings in the Codal disclosure system. Market values of equity are computed as the year-end closing price times the number of shares, and the annual consumer-price inflation rate is obtained from the Central Bank of the Islamic Republic of Iran.
+An unbalanced panel is used for three reasons. First, requiring every firm to report in all 24 years would keep 23 firms, too few for System GMM, whose instrument count must stay below the number of cross-sectional units. Second, such a sample would retain only survivors. Over-leveraged firms that fell into distress or left the exchange, the firms at the centre of H1a, would be removed, and so would every firm listed after 1380, including the wave of listings that followed the privatisations of the late 1380s; the estimates would be subject to survivorship bias. Third, the forward orthogonal deviation used in the GMM estimator (Section 3.8.2) is designed for panels with gaps. To show that entry and exit do not drive the results, all models are re-estimated on the balanced subsample of 82 firms with usable data in every year 1393–1403 (sensitivity test S8).
+
+**Industries.** Industries are defined by the industry name in the database. The database also reports a broad group code (eleven groups, each combining several industries), which is too coarse to serve as an industry classification and is not used. Industries with a single firm in the final sample are pooled into one category ("other industries"). In the estimations that use industry cells (industry leverage in Eq. 2, the DEA frontier and the industry dummies), industries with fewer than five firms are pooled into one group, so that no cell rests on one or two firms.
+
+**Data sources and assembly.** Accounting data are collected from the Rahavard Novin database and cross-checked against the original filings in the Codal disclosure system. Data for 1380–1402 come from one extraction; data for 1403 come from six extractions that are merged on the company code (or, where the code is not reported, on the ticker). The database reports the statement of cash flows in the three-category format of the revised Iranian Accounting Standard No. 2 for all years, so operating, investing and financing cash flows are defined consistently across the period; the identity between the three flows and the change in cash is verified for every firm-year. Statements are taken from the separate (parent-company) financial statements. Market value of equity is the year-end closing price multiplied by the number of shares (paid-in capital divided by the nominal value of 1,000 rials). The annual inflation rate is obtained from the Central Bank of the Islamic Republic of Iran. All monetary amounts are in million rials.
+
+**Structural change.** The 24-year window spans regimes with very different inflation, exchange-rate and sanctions conditions. Year dummies in every model absorb shocks common to all firms; the crisis years 1397–1399 are excluded in sensitivity test S6, and the models are re-estimated on the original study period 1395–1403 in sensitivity test S10.
 
 Fiscal year 1380 serves only as a base year for variables that require prior-year values. Because the investment-expectation model uses lagged sales growth and the dynamic models use the lagged dependent variable, the first year of each estimation is: target leverage model, Eq. (2), 1381; investment-expectation model, Eq. (1), 1382; dynamic models, Eqs. (6)–(12), 1383. The firm-year counts of each estimation are reported with the results.
 
@@ -63,7 +79,7 @@ TDA is total debt divided by total assets. The determinants are measured at t−
 
 - **IOB**: financial expense / total assets (interest burden).
 - **COL**: (inventory + net PP&E) / total assets (collateral value of assets).
-- **LTA**: natural logarithm of total assets in 1392 prices (size). Deflation is necessary because nominal assets grow mechanically with inflation of 30–40% a year.
+- **LTA**: natural logarithm of total assets in 1380 prices (size). Deflation is necessary because nominal assets grow mechanically with inflation of 30–40% a year.
 - **MTB**: market value / book value of equity (growth opportunities).
 - **PROFIT**: operating income / total assets (profitability).
 - **INDLEV**: median TDA of the firm's industry in the same year, excluding the firm itself (industry leverage norm). Industries with fewer than five firms are pooled into one group, so that the median never rests on one or two peers.
@@ -100,7 +116,7 @@ Stage is measured at **t−1**. Dickinson's classification uses the sign of CFI,
 
 Managerial ability is measured with the two-stage approach of Demerjian, Lev and McVay (2012). The approach separates the efficiency with which a firm converts resources into revenue into a part attributable to the firm and a part attributable to its managers.
 
-**Stage 1: firm efficiency.** Data envelopment analysis (DEA) estimates the efficiency with which each firm converts inputs into sales, relative to the efficient frontier of its peers. The model is input-oriented with variable returns to scale. The output is sales. The inputs are cost of goods sold, selling, general and administrative expenses, net PP&E at t−1 and intangible assets at t−1. Lagged capital stocks are used because they are the resources available to managers during the year. The frontier is estimated for each industry over all sample years, with monetary values deflated to 1392 prices with the consumer price index; industries with fewer than five firms are pooled into one group. Industry-year frontiers are too small in this sample: with four inputs and few firms per industry-year, more than half of the firm-years lie on the frontier, so efficiency does not discriminate between firms. The industry frontier provides many more units than the rule of thumb of three times the number of inputs and outputs (Cooper, Seiford & Tone, 2007). Deflation makes values comparable across years under high inflation. Industry-year frontiers are reported as a sensitivity test. The efficiency score FE lies in (0, 1].
+**Stage 1: firm efficiency.** Data envelopment analysis (DEA) estimates the efficiency with which each firm converts inputs into sales, relative to the efficient frontier of its peers. The model is input-oriented with variable returns to scale. The output is sales. The inputs are cost of goods sold, selling, general and administrative expenses, net PP&E at t−1 and intangible assets at t−1. Lagged capital stocks are used because they are the resources available to managers during the year. The frontier is estimated for each industry over all sample years, with monetary values deflated to 1380 prices with the consumer price index; industries with fewer than five firms are pooled into one group. Industry-year frontiers are too small in this sample: with four inputs and few firms per industry-year, more than half of the firm-years lie on the frontier, so efficiency does not discriminate between firms. The industry frontier provides many more units than the rule of thumb of three times the number of inputs and outputs (Cooper, Seiford & Tone, 2007). Deflation makes values comparable across years under high inflation. Industry-year frontiers are reported as a sensitivity test. The efficiency score FE lies in (0, 1].
 
 **Stage 2: removing firm-level drivers.** Firm efficiency is regressed on characteristics that make efficiency easier or harder to achieve regardless of who manages the firm:
 
@@ -203,7 +219,7 @@ Stage differences are inferred only from the interaction terms above. As a descr
 
 Three sources of endogeneity make static panel estimators inconsistent in this setting (Wintoki, Linck & Netter, 2012):
 
-1. **Dynamic dependence.** Investment distortions persist, so InvEff~t−1~ belongs in the model. With a firm effect η~i~, pooled OLS biases γ₁ upward and the within estimator biases it downward; the within bias is of order 1/T (Nickell, 1981) and is not negligible with about nine effective years.
+1. **Dynamic dependence.** Investment distortions persist, so InvEff~t−1~ belongs in the model. With a firm effect η~i~, pooled OLS biases γ₁ upward and the within estimator biases it downward; the within bias is of order 1/T (Nickell, 1981); with an average of about 15 years per firm it is smaller than in short panels but not negligible.
 2. **Simultaneity.** Investment financed with new debt raises leverage in the same year, so contemporaneous CSD⁺ and CSD⁻ would be jointly determined with InvEff. Measuring the deviation at t−1 removes this mechanical link (Section 3.7), but lagged deviation can still respond to past investment shocks, so it is not treated as exogenous.
 3. **Unobserved heterogeneity and measurement error.** MA is constructed from sales efficiency, which shares shocks with investment, and both MA and CSDev are estimated regressors.
 
@@ -223,7 +239,7 @@ Lags in the table refer to the regressor as it enters the model; for example, th
 | Year dummies | Strictly exogenous | IV-style | IV-style |
 | Industry dummies, ln(Age) | Time-invariant / deterministic trend | Not used | IV-style, levels only |
 
-The controls are treated as endogenous rather than predetermined. Size, growth opportunities, profitability and cash flow respond to past investment shocks, so even their lagged values may be correlated with the error (Wintoki, Linck & Netter, 2012); in this sample the Hansen test also rejected the weaker predetermined assumption. The instrument matrix is collapsed and lag depth is restricted to two, so that the instrument count stays below the 299 cross-sectional units. Instrument proliferation overfits the endogenous regressors and weakens the Hansen test (Roodman, 2009a). The instrument count is reported for every model.
+The controls are treated as endogenous rather than predetermined. Size, growth opportunities, profitability and cash flow respond to past investment shocks, so even their lagged values may be correlated with the error (Wintoki, Linck & Netter, 2012); in this sample the Hansen test also rejected the weaker predetermined assumption. The instrument matrix is collapsed and lag depth is restricted to two, so that the instrument count stays below the 319 cross-sectional units. Because the instruments are collapsed, their number does not grow with the length of the panel, which matters with up to 24 years per firm. Instrument proliferation overfits the endogenous regressors and weakens the Hansen test (Roodman, 2009a). The instrument count is reported for every model.
 
 Restricting lag depth keeps the instrument count low but can leave the instruments weak, and weak instruments make GMM estimates imprecise and biased toward OLS (Bun & Windmeijer, 2010). Instrument strength is therefore checked before any hypothesis model is estimated. For each main regressor (CSD⁺, CSD⁻, MA), the cluster-robust first-stage F statistic of its collapsed lag instruments is computed for the transformed and levels equations. The lag window is fixed by a rule set in advance: lags 2–3 are kept unless the weakest first-stage F is below 10 (Staiger & Stock, 1997) and the window of lags 2–4 gives stronger instruments, in which case lags 2–4 are used. The F statistics and the window selected are reported in the Online Appendix (OA10). The rule depends only on the first stages, never on the hypothesis tests.
 
@@ -235,7 +251,7 @@ Year and industry effects enter every equation in which they are identified:
 |---|---|---|
 | Expectation model, Eq. (1) | Absorbed: separate estimation for each industry-year | Absorbed: separate estimation for each industry-year |
 | Target leverage, Eq. (2) | Captured by INF (year dummies would absorb INF) | Industry dummies |
-| DEA frontier | Frontier per industry-year | Frontier per industry-year |
+| DEA frontier | Pooled over all years (values in 1380 prices) | Frontier per industry |
 | Tobit, Eq. (5) | Year dummies | Industry dummies |
 | GMM models, Eqs. (6)–(12) | Year dummies in both equations | Industry dummies in the levels equation only |
 
@@ -306,7 +322,7 @@ GMM does not require normally distributed or homoskedastic errors. Its validity 
 | Instrument exogeneity | Hansen J; Difference-in-Hansen | Revise the instrument set or the assumed timing of regressors |
 | Heteroskedasticity and within-firm correlation | Not required | Two-step robust covariance with Windmeijer correction |
 | Cross-sectional dependence | Pesaran (2015) CD test on residuals | Year dummies absorb common shocks |
-| Stationarity | With N = 299 and T ≈ 9, asymptotics run in N; Fisher-type panel unit-root tests on InvEff and CSDev are reported for completeness | — |
+| Stationarity | With N = 319 and up to 24 years per firm, Fisher-type panel unit-root tests (which allow unbalanced panels) on InvEff and CSDev are reported | Year dummies; variables are ratios or residuals |
 | Influential observations | Distribution checks | 1/99 winsorization; trimming in sensitivity tests |
 
 ### 3.10.3 Static benchmarks
@@ -347,25 +363,26 @@ The robustness tests replace one element of the design at a time with an accepte
 | S5 | Near-target firms | Exclude firm-years with \|CSDev\| < 0.25 SD, whose direction is mostly estimation noise |
 | S6 | Crisis years | Exclude 1397–1398 (sanctions and currency crisis) and 1399 (COVID-19) |
 | S7 | Industry composition | Re-estimate excluding one industry at a time |
-| S8 | Sample composition | Balanced subsample: firms with usable data in every year 1393–1403, to assess survivorship effects |
+| S8 | Sample composition | Balanced subsample: the 82 firms with usable data in every year 1393–1403, to assess survivorship effects |
+| S10 | Study period | Original study period 1395–1403 (data from 1392), to check that the extension to 1380 does not drive the results |
 | S9 | Elements of the original design | S9a: first differences instead of forward orthogonal deviations; S9b: original four controls (LTA, MTB, PROFIT, FCF); S9c: original specification as a whole (CSD and MA at t, first differences, four controls, lags 2–3) |
 
 ### 3.11.3 Additional identification checks
 
 - **Coefficient stability.** Oster's (2019) δ is computed for β₁ and β₂, with R²max = 1.3 × R²: how strong selection on unobservables would have to be, relative to observables, to explain away the effect.
-- **Placebo test.** CSDev is randomly reassigned across firms within each industry-year 1,000 times. The distribution of placebo coefficients is compared with the actual estimates.
+- **Placebo test.** CSDev is randomly reassigned across firms within each industry-year 500 times. The distribution of placebo coefficients is compared with the actual estimates.
 - **Generated-regressor inference.** Firm-level cluster bootstrap of the full procedure (Section 3.10.4).
 
 ### 3.11.4 Online Appendix
 
 | Table | Content |
 |---|---|
-| OA1 | Sample construction by year and industry |
+| OA1 | Sample construction by year and industry; firms per year; industry list with codes (Persian and English names) |
 | OA2 | First-stage estimates: Eq. (1) by industry-year (distribution of coefficients and R²), Eq. (2), and the Tobit model, Eq. (5) |
 | OA3 | Frequency of Dickinson's five stages and stage transitions |
 | OA4 | Static fixed-effects estimates of Eqs. (6)–(12), with F and Hausman tests |
 | OA5 | Full estimates for R1–R10 |
-| OA6 | Full estimates for S1–S9 |
+| OA6 | Full estimates for S1–S10 |
 | OA7 | Reverse-causality model, Eq. (13) |
 | OA8 | Oster bounds, placebo distribution and bootstrap standard errors |
 | OA9 | Within-stage estimates of Eqs. (6), (9) and (11) |
@@ -383,7 +400,7 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 | TDA | TD / TA | TD, TA |
 | IOB | FinExp / TA | FinExp, TA |
 | COL | (INV + PPE) / TA | INV, PPE, TA |
-| LTA | ln(TA / CPI), total assets in 1392 prices | TA, INF |
+| LTA | ln(TA / CPI), total assets in 1380 prices | TA, INF |
 | MTB | MV / BV | MV, BV |
 | PROFIT | OI / TA | OI, TA |
 | INDLEV | Median TDA of the industry-year, excluding the firm | TD, TA, IndID |
@@ -403,7 +420,7 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 | σ(CFO) | Standard deviation of CFO / TA over t−3 to t−1 | CFO, TA |
 | σ(Sales) | Standard deviation of Sales / TA over t−3 to t−1 | Sales, TA |
 | Age | ln(1 + firm age in years) | Age |
-| CPI | Price index built from INF, base year 1392 = 1 | INF |
+| CPI | Price index built from INF, base year 1380 = 1 | INF |
 
 ## References
 
@@ -442,7 +459,8 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 
 ## Notes for the Author (remove before submission)
 
-- Fill in the [n] counts in the sample-construction table in 3.1 from the Screening sheet of Research_Data_1380_1403.xlsx.
+- Table 1 uses the counts of the Screening sheet of Research_Data_1380_1403.xlsx. Check steps 1-2 before submission: 1,286 firms in step 1 is more than twice the number of firms in the 1380-1402 file (551). If 1403 rows were not matched to their firm (Merge_report), they appear as separate firms and inflate steps 1 and 2; fix the merge and re-run before reporting.
+- State the source and type of the inflation series you use (CBI or Statistical Centre; annual average or Esfand-to-Esfand).
 - Complete the Synn and Williams (2015) reference, and check every reference against the published version before submission.
 - The design changes of this version (CSD and MA at t−1, forward orthogonal deviations, extended controls) were fixed before the final estimation; the earlier specification is reported in S9c. State this in the cover letter if a reviewer asks how the specification was chosen.
 - Report the frequency of Dickinson's five original stages to support the consolidation in 3.4.

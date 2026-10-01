@@ -415,19 +415,19 @@ local f1 = r(N)
 qui count if InSample & _ny == 1
 post tbl ("B") ("") ("Firms with data in only one year") ("شرکت‌هایی که فقط یک سال داده دارند") (`f1') (r(N))
 qui count if _tfs == 1 & _first > $SCR_Y0
-post tbl ("B") ("") ("  Of these: first year with data after ${SCR_Y0} (listed later)") ///
+post tbl ("B") ("") ("  Of all firms: first year with data after ${SCR_Y0} (listed later)") ///
     ("از این میان: اولین داده بعد از ۱۳۸۰ (پذیرش دیرتر)") (r(N)) (.)
 qui count if _tfs == 1 & _last < $SCR_Y1
-post tbl ("B") ("") ("  Of these: last year with data before ${SCR_Y1} (delisted or not reported)") ///
+post tbl ("B") ("") ("  Of all firms: last year with data before ${SCR_Y1} (delisted or not reported)") ///
     ("از این میان: آخرین داده قبل از ۱۴۰۳ (خروج یا عدم گزارش)") (r(N)) (.)
+qui count if _tfs == 1 & _gap
+post tbl ("B") ("") ("  Of all firms: missing years inside their period") ///
+    ("از این میان: سال‌های خالی در میانه‌ی دوره") (r(N)) (.)
 qui count if _tfs == 1 & Balanced
 local fb = r(N)
 qui count if InSample & Balanced
 post tbl ("B") ("") ("Firms with data in every year ${SCR_BAL_Y0}-${SCR_Y1} (balanced subsample, sensitivity test S8)") ///
     ("شرکت‌هایی که در همه‌ی سال‌های ۱۳۹۳ تا ۱۴۰۳ داده دارند (زیرنمونه‌ی متوازن، آزمون حساسیت S8)") (`fb') (r(N))
-qui count if _tfs == 1 & _gap
-post tbl ("B") ("") ("  Of these: missing years inside their period") ///
-    ("از این میان: سال‌های خالی در میانه‌ی دوره") (r(N)) (.)
 postclose tbl
 drop _tf _tfs _ny _first _last _gap
 
