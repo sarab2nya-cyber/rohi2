@@ -19,6 +19,12 @@ set more off
 global ROOT    "C:/Users/Rohi/Desktop/Data"
 global RAWFILE "Raw_All_Data.xlsx"        // the raw export (.xlsx or .dta)
 local  OUTX    "$ROOT/raw_inspection.xlsx"
+cap erase "`OUTX'"       // start a fresh file (close it in Excel first)
+cap confirm file "`OUTX'"
+if !_rc {
+    di as err "raw_inspection.xlsx is open in Excel - close it and run again."
+    exit 603
+}
 
 if ustrregexm("$RAWFILE", "\.dta$") use "$ROOT/$RAWFILE", clear
 else import excel "$ROOT/$RAWFILE", firstrow clear
@@ -65,7 +71,7 @@ foreach v of varlist _all {
 postclose `P'
 preserve
     use "$ROOT/_raw_dictionary.dta", clear
-    export excel using "`OUTX'", sheet("dictionary", replace) firstrow(variables)
+    export excel using "`OUTX'", sheet("dictionary") firstrow(variables) replace
 restore
 
 *------------------------------------------------------------------------------
