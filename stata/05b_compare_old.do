@@ -25,6 +25,7 @@ program define normtk
     gen _k = ustrregexra(`src', "[\x{200C}\x{200F}\s\-_]", "")
     replace _k = ustrregexra(_k, "\x{064A}", "\x{06CC}")
     replace _k = ustrregexra(_k, "\x{0643}", "\x{06A9}")
+    replace _k = ustrlower(_k)
 end
 
 * previous data
@@ -39,34 +40,65 @@ gen byte in_old = 1
 tempfile old
 save `old'
 
-* new database (before screening)
+* new database (before screening): keys from both Symbol and the ticker
 use "$ROOT/Master_1380_1403.dta", clear
-normtk نماد
-gen byte in_new  = 1
-gen byte has_ta  = !missing(جمعکلداراییها)
-gen market_new = بازار
-keep _k Year in_new has_ta market_new
+gen byte has_ta = !missing(جمعکلداراییها)
+gen market_new  = بازار
+rename شرکت code
+tempfile base
+save `base'
+* key from the new Symbol column
+normtk Symbol
+keep _k Year code has_ta market_new
 drop if _k == ""
 bys _k Year (has_ta): keep if _n == _N
-tempfile new
-save `new'
+gen byte in_new = 1
+tempfile N_S
+save `N_S'
+* key from the new ticker column
+use `base', clear
+normtk نماد
+keep _k Year code has_ta market_new
+drop if _k == ""
+bys _k Year (has_ta): keep if _n == _N
+gen byte in_new = 1
+tempfile N_T
+save `N_T'
 
-* final sample
+* final sample (company codes)
 use "$OUT/screened_data.dta", clear
-normtk Symbol
-keep _k Year
+keep FirmCode Year
+rename FirmCode code
 duplicates drop
 gen byte in_final = 1
 tempfile fin
 save `fin'
 
+* match the old file: first on the new Symbol column, then on the new ticker
 use `old', clear
-merge 1:1 _k Year using `new', keep(master match) nogen
-merge 1:1 _k Year using `fin', keep(master match) nogen
+merge 1:1 _k Year using `N_S', keep(master match) gen(_mS)
+qui count if _mS == 3
+di as res "Old firm-years matched on the new Symbol column: " r(N)
+preserve
+    use `N_T', clear
+    foreach v in code has_ta market_new in_new {
+        rename `v' `v'_t
+    }
+    tempfile NT2
+    save `NT2'
+restore
+merge 1:1 _k Year using `NT2', keep(master match) gen(_mT)
+qui count if _mS != 3 & _mT == 3
+di as res "Additional old firm-years matched on the new ticker (نماد): " r(N)
+foreach v in code has_ta in_new {
+    replace `v' = `v'_t if _mS != 3 & _mT == 3
+}
+replace market_new = market_new_t if _mS != 3 & _mT == 3
+drop *_t _mS _mT
+merge m:1 code Year using `fin', keep(master match) nogen
 foreach v in in_new has_ta in_final {
     replace `v' = 0 if missing(`v')
 }
-replace market_new = "" if missing(market_new)
 gen byte fara = ustrregexm(market_new, "فرا")
 
 preserve
