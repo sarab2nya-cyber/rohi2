@@ -442,19 +442,26 @@ drop HasData InSample Note _keepfirm
 * Industries with fewer than $SCR_MINFIRMS firms in the final sample are pooled
 * into one group "سایر صنایع" (Other industries), code 999
 *------------------------------------------------------------------------------
-gen double IndID_orig    = IndID
+* The database code «کدصنعتکلی» is a broad group (1-11) that bundles several
+* industries, so industries are defined by their NAME («صنعت»); the group code
+* is kept as IndGroup. New industry codes: 1, 2, ... by name; 999 = pooled.
+gen double IndGroup      = IndID
 gen        Industry_orig = Industry
+gen _ik = ustrregexra(Industry, "[\x{200C}\x{200F}\x{0640}\x{064B}-\x{065F}\x{0670}\s\-،,]", "")
+replace _ik = ustrregexra(_ik, "\x{064A}", "\x{06CC}")
+replace _ik = ustrregexra(_ik, "\x{0643}", "\x{06A9}")
+replace _ik = ustrregexra(_ik, "[\x{0622}\x{0623}\x{0625}]", "\x{0627}")
 egen byte _tf = tag(FirmCode)
-bys IndID: egen int _nf = total(_tf)
-gen byte _pool = _nf < $SCR_MINFIRMS | missing(IndID)
-qui count if missing(IndID)
-if r(N) di as txt "Note: " r(N) " firm-years have no industry code; they join Other industries (999)."
+bys _ik: egen int _nf = total(_tf)
+gen byte _pool = _nf < $SCR_MINFIRMS | _ik == ""
+qui count if _ik == ""
+if r(N) di as txt "Note: " r(N) " firm-years have no industry name; they join Other industries (999)."
 local pooled ""
 preserve
-    keep if _pool & _tf & !missing(IndID)
+    keep if _pool & _tf & _ik != ""
     if _N {
         di as txt _n "Industries with fewer than $SCR_MINFIRMS firms (pooled into Other industries):"
-        list IndID Industry, noobs sep(0)
+        list IndGroup Industry, noobs sep(0)
         keep Industry
         duplicates drop
         forvalues i = 1/`=_N' {
@@ -463,12 +470,14 @@ preserve
     }
     else di as txt "No industry has fewer than $SCR_MINFIRMS firms; nothing is pooled."
 restore
+egen int _newid = group(_ik) if !_pool
+replace IndID    = _newid
 replace IndID    = 999 if _pool
 replace Industry = "سایر صنایع" if _pool
-drop _tf _nf _pool
+drop _tf _nf _pool _ik _newid
 
 * industry names in English (keywords on the normalised Persian name)
-gen _k = ustrregexra(Industry, "[\x{200C}\x{200F}\s\-،,]", "")
+gen _k = ustrregexra(Industry, "[\x{200C}\x{200F}\x{0640}\x{064B}-\x{065F}\x{0670}\s\-،,]", "")
 replace _k = ustrregexra(_k, "\x{064A}", "\x{06CC}")
 replace _k = ustrregexra(_k, "\x{0643}", "\x{06A9}")
 replace _k = ustrregexra(_k, "[\x{0622}\x{0623}\x{0625}]", "\x{0627}")
@@ -492,7 +501,7 @@ local R16 "لاستیک|پلاستیک|Rubber and plastic products"
 local R17 "خودرو|Motor vehicles and parts"
 local R18 "تجهیزاتحملونقل|Other transport equipment"
 local R19 "برقی|Electrical machinery and apparatus"
-local R20 "ماشینالات|Machinery and equipment"
+local R20 "ماشین|Machinery and equipment"
 local R21 "ارتباطی|Communication equipment"
 local R22 "پزشکی|اپتیکی|اندازهگیری|Medical, optical and measuring instruments"
 local R23 "منسوجات|نساجی|Textiles"
@@ -521,25 +530,28 @@ if r(N) di as txt "Note: " r(N) " firm-years have an industry without an English
 
 * data for the models
 preserve
-    drop Industry_EN IndID_orig Industry_orig
+    drop Industry_EN IndGroup Industry_orig
     save "$OUT/screened_data.dta", replace
 restore
 
 * Data sheet (final sample, sorted by firm and year)
-order FirmCode Symbol Year IndID Industry Industry_EN IndID_orig Industry_orig
+order FirmCode Symbol Year IndID Industry Industry_EN IndGroup Industry_orig
 sort FirmCode Year
 export excel using "`XL'", sheet("Data") firstrow(variables) replace
 
 * Industries sheet: code, Persian and English name, firms and firm-years
 preserve
     egen byte _tf = tag(FirmCode)
-    collapse (sum) firms = _tf (count) firmyears = Year, by(IndID Industry Industry_EN)
+    collapse (sum) firms = _tf (count) firmyears = Year (min) IndGroup, by(IndID Industry Industry_EN)
+    order IndID Industry Industry_EN IndGroup firms firmyears
     sort IndID
     gen note = ""
-    replace note = `"Pooled: industries with fewer than $SCR_MINFIRMS firms (`pooled') and firms without an industry code"' if IndID == 999
+    replace note = `"Pooled: industries with fewer than $SCR_MINFIRMS firms (`pooled') and firms without an industry name"' if IndID == 999
+    replace IndGroup = . if IndID == 999
     label variable IndID       "Industry code"
     label variable Industry    "Industry (Persian)"
     label variable Industry_EN "Industry (English)"
+    label variable IndGroup    "Database industry group (کدصنعتکلی)"
     label variable firms       "Firms"
     label variable firmyears   "Firm-years"
     label variable note        "Note"
@@ -587,9 +599,10 @@ preserve
     "Symbol"   "Ticker"                                           "نماد"
     "Year"     "Fiscal year (Esfand year-end)"                    "Year"
     "Industry" "Industry (general classification)"                "صنعت"
-    "IndID"    "Industry code (999 = pooled other industries)"    "کدصنعتکلی"
+    "IndID"    "Industry code by industry name (999 = pooled)"    "صنعت"
     "Industry_EN" "Industry (English)"                            "translated from صنعت"
-    "IndID_orig" "Industry code before pooling single-firm industries" "کدصنعتکلی"
+    "IndGroup" "Database industry group (broad, 1-11)"            "کدصنعتکلی"
+    "Industry_orig" "Industry name before pooling"                 "صنعت"
     "AUDITED"  "1 = audited statements, 0 = unaudited"            "حسابرسیشده"
     "Balanced" "1 = usable data in every year 1393-1403 (sensitivity S8)" "-"
     "INV"      "Inventories"                                      "موجودیموادوکالا"
