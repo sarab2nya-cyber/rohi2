@@ -7,6 +7,7 @@
 *   5 Economic magnitude  6 Robustness / sensitivity / identification
 *   7 First stages and within-stage estimates  8 Figures (linked pictures)
 *==============================================================================
+di as res "70_report.do version 2026-10-01c"
 global RPT     "$OUT/Results_Report.rtf"
 global RPTMODE "replace"
 
@@ -29,14 +30,14 @@ end
 * .dta file -> matrix (numeric variables), row names from string variables
 cap program drop dta2mat
 program define dta2mat
-    syntax using/, Matrix(name) ROWvars(string) KEEPvars(string) [COND(string)]
+    syntax using/, Matrix(name) ROWvars(string) KEEPvars(string) [TAGval(string)]
     preserve
     cap use "`using'", clear
     if _rc {
         restore
         exit
     }
-    if `"`cond'"' != "" qui keep if `cond'
+    if "`tagval'" != "" qui keep if tag == "`tagval'"
     if _N == 0 {
         restore
         exit
@@ -135,7 +136,7 @@ end
 * 1. DATA
 *==============================================================================
 dta2mat using "$OUT/log_winsorization.dta", matrix(W) rowvars(variable) ///
-    keepvars(N p_low p_high n_low n_high) cond(tag == "main")
+    keepvars(N p_low p_high n_low n_high) tagval(main)
 rpt_mat W, title("Table 0. Winsorization of ratios and generated measures at the 1st and 99th percentiles") ///
     note("p_low/p_high: cut-offs; n_low/n_high: values replaced.")
 
