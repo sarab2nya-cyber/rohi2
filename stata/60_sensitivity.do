@@ -24,10 +24,10 @@ runkey, test("S2b Min cell 15")
 * S3 DEA specification
 rebuild, rts(crs) tag(S3a)
 runkey, test("S3a DEA CRS")
-rebuild, mindea(10) tag(S3b)
-runkey, test("S3b DEA min frontier 10")
-rebuild, mindea(20) tag(S3c)
-runkey, test("S3c DEA min frontier 20")
+rebuild, deafront(indyr) mindea(15) tag(S3b)
+runkey, test("S3b DEA industry-year frontier")
+rebuild, deafront(indyr) mindea(20) tag(S3c)
+runkey, test("S3c DEA ind-year, min 20")
 
 * S4 GMM instrument depth (main data)
 rebuild

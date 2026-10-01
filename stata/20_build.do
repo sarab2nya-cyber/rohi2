@@ -12,7 +12,7 @@ cap program drop buildpanel
 program define buildpanel
     syntax [, CUTS(numlist min=2 max=2) TRIM MINCELL(integer 10) MINDEA(integer 15) ///
         RTS(string) EXPMODEL(string) INVDEF(string) LEVDEF(string) TARGET(string) ///
-        LCDEF(string) TAG(string) VERBOSE]
+        LCDEF(string) TAG(string) DEAFRONT(string) VERBOSE]
     if "`cuts'"     == "" local cuts     "1 99"
     if "`rts'"      == "" local rts      "vrs"
     if "`expmodel'" == "" local expmodel "biddle"
@@ -21,6 +21,7 @@ program define buildpanel
     if "`levdef'"   == "" local levdef   "book"
     if "`target'"   == "" local target   "base"
     if "`lcdef'"    == "" local lcdef    "cons"
+    if "`deafront'" == "" local deafront "ind"     // DEA frontier: ind (all years) | indyr
     if "`tag'"      == "" local tag      "main"
     local trimopt = cond("`trim'" != "", "trim", "")
     local V = cond("`verbose'" != "", "noisily", "quietly")
@@ -62,10 +63,19 @@ program define buildpanel
 
     * INDLEV: median TDA of the industry-year, excluding the firm itself
     egen long INDYR = group(IndID Year)
+    * industries with fewer than 5 firms are pooled into one group (IND_D);
+    * used for INDLEV, the DEA frontier and the industry dummies
+    egen byte _tf = tag(IndID FirmID)
+    bys IndID: egen _nf = total(_tf)
+    gen long IND_D = cond(_nf >= 5, IndID, 9999)
+    drop _tf _nf
+    egen long INDYR_D = group(IND_D Year)
     gen double INDLEV = .
     tempvar tv
-    gen byte `tv' = !missing(TDA, INDYR)
-    mata: loo_median("TDA", "INDYR", "INDLEV", "`tv'")
+    gen byte `tv' = !missing(TDA, INDYR_D)
+    sort INDYR_D FirmID
+    mata: loo_median("TDA", "INDYR_D", "INDLEV", "`tv'")
+    sort FirmID Year
     drop `tv'
 
     sort FirmID Year
@@ -168,8 +178,10 @@ program define buildpanel
 
     *--------------------------------------------------------------------------
     * 3.5 Managerial ability (Demerjian, Lev & McVay 2012)
-    *     Stage 1: input-oriented DEA per industry-year (>= mindea firms),
-    *     otherwise pooled within industry; values in 1392 prices
+    *     Stage 1: input-oriented DEA. Main: one frontier per industry over all
+    *     years (values in 1392 prices) - industry-year frontiers put more than
+    *     half of the firms on the frontier (no discrimination). Option
+    *     deafront(indyr): per industry-year (>= mindea firms), else pooled.
     *--------------------------------------------------------------------------
     sort FirmID Year
     gen double rSales = Sales / CPI
@@ -179,9 +191,15 @@ program define buildpanel
     gen double rIA_L  = L.IA  / L.CPI
     gen byte dea_ok = !missing(rSales, rCOGS, rSGA, rPPE_L, rIA_L) & rSales > 0 & ///
         rCOGS >= 0 & rSGA >= 0 & rPPE_L >= 0 & rIA_L >= 0
-    bys INDYR: egen n_dea = total(dea_ok)
-    gen long DEA_CELL = INDYR if n_dea >= `mindea'
-    replace DEA_CELL = -IndID if n_dea < `mindea'
+    if "`deafront'" == "indyr" {
+        bys INDYR: egen n_dea = total(dea_ok)
+        gen long DEA_CELL = INDYR if n_dea >= `mindea'
+        replace DEA_CELL = -IndID if n_dea < `mindea'
+    }
+    else {
+        bys IND_D: egen n_dea = total(dea_ok)
+        gen long DEA_CELL = -IND_D
+    }
     gen double FE = .
     local vrs = ("`rts'" == "vrs")
     levelsof DEA_CELL if dea_ok, local(dcells)
@@ -219,10 +237,6 @@ program define buildpanel
     drop yd_1
     * industry dummies: industries with fewer than 5 firms are pooled into one
     * category (single-firm industry dummies are not identified in GMM)
-    egen byte _tf = tag(IndID FirmID)
-    bys IndID: egen _nf = total(_tf)
-    gen long IND_D = cond(_nf >= 5, IndID, 9999)
-    drop _tf _nf
     sort FirmID Year
     tab IND_D, gen(ind_)
     drop ind_1
@@ -267,6 +281,11 @@ global INF_SCALE = cond(r(max) > 1, 100, 1)
 di as txt "INF treated as " cond($INF_SCALE == 100, "percent", "decimal")
 
 * basic validity: total assets must be positive
+* negative or zero book equity: target leverage is not defined (standard
+* exclusion in the capital-structure literature)
+qui count if BV <= 0
+di as txt "Excluding " r(N) " firm-years with non-positive book equity (BV <= 0)"
+drop if BV <= 0
 qui count if TA <= 0
 if r(N) di as err "Dropping " r(N) " firm-years with non-positive total assets"
 drop if TA <= 0
