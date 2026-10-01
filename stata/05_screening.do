@@ -61,7 +61,8 @@ if "$ROOT" == "" {
     global SCR_FINCODES ""
     global SCR_EXWORDS "چاپ|خردهفروشی|عرضهبرق|کمکیبهنهادهایمالی"
     global SCR_MINFIRMS 2
-    global SCR_BALANCED 1
+    global SCR_BALANCED 0
+    global SCR_BAL_Y0 1393
     global SCREEN_ONLY 1
 }
 cap mkdir "$OUT"
@@ -378,7 +379,11 @@ post tbl ("A") ("6") ("Less: firm-years with zero or negative book equity") ///
     ("حذف سال-شرکت‌هایی که حقوق صاحبان سهام صفر یا منفی دارند") (.) (-r(N))
 bys FirmCode: egen int _ny = total(InSample)
 egen byte _tfs = tag(FirmCode) if _ny > 0
-* Step 7: balanced panel - only firms with usable data in every year
+* flag for sensitivity test S8: usable data in every year ${SCR_BAL_Y0}-${SCR_Y1}
+bys FirmCode: egen int _nyb = total(InSample & Year >= $SCR_BAL_Y0)
+gen byte Balanced = _nyb == ($SCR_Y1 - $SCR_BAL_Y0 + 1)
+drop _nyb
+* Step 7 (only if SCR_BALANCED = 1): balanced panel over the whole period
 gen byte _keepfirm = _ny > 0
 if "$SCR_BALANCED" == "1" {
     replace _keepfirm = _ny == `NY'
@@ -393,7 +398,7 @@ local FS = r(N)
 qui count if InSample & _keepfirm
 local NS = r(N)
 post tbl ("A") ("=") ("Final sample") ("نمونه‌ی نهایی") (`FS') (`NS')
-* Panel B: data availability of the firms remaining after step 6 (before step 7)
+* Panel B: data availability of the firms remaining after step 6
 bys FirmCode: egen int _first = min(cond(InSample, Year, .))
 bys FirmCode: egen int _last  = max(cond(InSample, Year, .))
 gen byte _gap = _ny > 0 & (_last - _first + 1) > _ny
@@ -415,6 +420,11 @@ post tbl ("B") ("") ("  Of these: first year with data after ${SCR_Y0} (listed l
 qui count if _tfs == 1 & _last < $SCR_Y1
 post tbl ("B") ("") ("  Of these: last year with data before ${SCR_Y1} (delisted or not reported)") ///
     ("از این میان: آخرین داده قبل از ۱۴۰۳ (خروج یا عدم گزارش)") (r(N)) (.)
+qui count if _tfs == 1 & Balanced
+local fb = r(N)
+qui count if InSample & Balanced
+post tbl ("B") ("") ("Firms with data in every year ${SCR_BAL_Y0}-${SCR_Y1} (balanced subsample, sensitivity test S8)") ///
+    ("شرکت‌هایی که در همه‌ی سال‌های ۱۳۹۳ تا ۱۴۰۳ داده دارند (زیرنمونه‌ی متوازن، آزمون حساسیت S8)") (`fb') (r(N))
 qui count if _tfs == 1 & _gap
 post tbl ("B") ("") ("  Of these: missing years inside their period") ///
     ("از این میان: سال‌های خالی در میانه‌ی دوره") (r(N)) (.)
@@ -581,6 +591,7 @@ preserve
     "Industry_EN" "Industry (English)"                            "translated from صنعت"
     "IndID_orig" "Industry code before pooling single-firm industries" "کدصنعتکلی"
     "AUDITED"  "1 = audited statements, 0 = unaudited"            "حسابرسیشده"
+    "Balanced" "1 = usable data in every year 1393-1403 (sensitivity S8)" "-"
     "INV"      "Inventories"                                      "موجودیموادوکالا"
     "IA"       "Intangible assets"                                "داراییهاینامشهود"
     "PPE"      "Net property, plant and equipment"                "خالصداراییهایثابت"

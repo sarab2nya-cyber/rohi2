@@ -53,7 +53,8 @@ global SCR_FINCODES ""   // e.g. "56 57 58 66 67" to add codes
 * other excluded industries: printing, retail, utilities, auxiliary financial activities
 global SCR_EXWORDS "چاپ|خردهفروشی|عرضهبرق|کمکیبهنهادهایمالی"
 global SCR_MINFIRMS 2    // industries with fewer firms are pooled into "Other industries" (999)
-global SCR_BALANCED 1    // 1 = keep only firms with usable data in every year (balanced panel)
+global SCR_BALANCED 0    // 0 = unbalanced panel (main); 1 = only firms with data in every year
+global SCR_BAL_Y0 1393   // S8: balanced subsample, usable data in every year 1393-1403
 global RUN_ROBUST    1      // 1 = run 50_robustness.do
 global RUN_SENS      1      // 1 = run 60_sensitivity.do
 global PLACEBO_REPS  500    // placebo permutations (static FE, fast)

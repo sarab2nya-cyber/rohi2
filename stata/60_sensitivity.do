@@ -96,9 +96,18 @@ preserve
     export excel using "$OUT/Tables.xlsx", sheet("T8b_leave_industry_out", replace) firstrow(variables)
 restore
 
-* S8 unbalanced panel
-di as txt _n "S8: requires the firms removed by the continuity filter (not in the current" ///
-    _n "    data file). Add them to Final_Master_Data.xlsx with a flag and re-run."
+* S8 balanced subsample: firms with usable data in every year $SCR_BAL_Y0-$YN
+*    (survivorship check; the main sample is the unbalanced panel)
+cap confirm variable Balanced
+if !_rc {
+    cap postclose keyres
+    postfile keyres str24 test str4 model str16 term double(b se p ar2p hansenp ninst N) ///
+        using "$OUT/S8_keyresults.dta", replace
+    rebuild
+    runkey, test("S8 Balanced subsample") cond(Balanced == 1)
+    postclose keyres
+    keytable "$OUT/S8_keyresults.dta" "T8c_balanced"
+}
 
 *------------------------------------------------------------------------------
 * Oster (2019) coefficient stability for beta1 and beta2 (static OLS)

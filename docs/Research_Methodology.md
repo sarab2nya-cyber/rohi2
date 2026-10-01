@@ -5,37 +5,37 @@ subtitle: "The Asymmetric Impact of Managerial Ability on Investment Efficiency 
 
 ## 3.1 Sample Selection and Data
 
-The empirical analysis uses a balanced panel of 299 non-financial firms listed on the Tehran Stock Exchange (TSE) over the Iranian fiscal years 1393–1403 (approximately March 2014 to March 2025). Iran is a useful emerging-market setting for this question for three reasons. Firms rely heavily on bank debt. Inflation is high and volatile. External equity financing is costly. Together, these conditions make deviations from target leverage both frequent and costly, which gives the tests statistical power.
+The empirical analysis uses an unbalanced panel of non-financial firms listed on the Tehran Stock Exchange (TSE) over the Iranian fiscal years 1380–1403 (approximately March 2001 to March 2025). Iran is a useful emerging-market setting for this question for three reasons. Firms rely heavily on bank debt. Inflation is high and volatile. External equity financing is costly. Together, these conditions make deviations from target leverage both frequent and costly, which gives the tests statistical power. The 24-year window covers several distinct macroeconomic regimes, including the expansion of the 1380s, the sanctions of 1390–1392 and 1397 onward, and the period of the nuclear agreement.
 
 The sample is constructed in the following steps:
 
-1. Start from all firms listed on the TSE during 1392–1403.
-2. Exclude banks, credit institutions, insurance companies, investment companies, holding companies and leasing companies. Their leverage reflects regulatory capital requirements and intermediation activity rather than financing choices, and their asset structure is not comparable (Fama & French, 1992).
-3. Retain firms whose fiscal year ends in Esfand (March) and that did not change their fiscal year during the period, so that every firm-year shares the same macroeconomic window.
-4. Retain firms that are continuously listed and have the accounting and market data needed to construct every variable.
-5. Exclude firm-years with zero or negative book equity. Leverage above one and a negative market-to-book ratio make a target capital structure undefined for these firm-years, and their investment reflects financial distress rather than financing choices.
+1. Start from all firm-years in the database for 1380–1403, on both the TSE and Farabourse.
+2. Exclude Farabourse firms and firms whose market is not recorded, so that the sample consists of firms traded on the main exchange.
+3. Exclude banks, credit institutions, insurance, leasing, investment, holding, brokerage and fund companies. Their leverage reflects regulatory capital requirements and intermediation activity rather than financing choices, and their asset structure is not comparable (Fama & French, 1992).
+4. Exclude printing, retail, utilities (electricity, gas, steam and hot water) and activities auxiliary to financial intermediation, whose regulated pricing or business model makes investment and leverage not comparable with manufacturing and mining firms.
+5. Exclude firm-years without financial statements in the database (before listing, after delisting, or not reported).
+6. Exclude firm-years with zero or negative book equity. Leverage above one and a negative market-to-book ratio make a target capital structure undefined for these firm-years, and their investment reflects financial distress rather than financing choices.
 
-| Screening step | Firms | Firm-years |
-|---|---|---|
-| TSE-listed firms, 1392–1403 | [n] | [n] |
-| Less: financial, investment, holding and leasing firms | [−n] | [−n] |
-| Less: fiscal year not ending in Esfand, or changed during the period | [−n] | [−n] |
-| Less: not continuously listed or missing data | [−n] | [−n] |
-| Less: firm-years with book equity ≤ 0 | — | [−n] |
-| Final sample, including base year 1392 | 299 | 3,588 |
-| Firm-years in the study period 1393–1403 | 299 | 3,289 |
+All firms have a fiscal year ending in Esfand (March), so every firm-year shares the same macroeconomic window.
 
-Accounting data are collected from the Rahavard Novin database and cross-checked against the original filings in the Codal disclosure system. Market values of equity are obtained from the TSE, and the annual consumer-price inflation rate from the Central Bank of the Islamic Republic of Iran.
-
-Fiscal year 1392 serves only as a base year for variables that require prior-year values. Because the investment-expectation model uses lagged sales growth and the dynamic models use the lagged dependent variable, the effective estimation windows are as follows:
-
-| Estimation step | Requires | Effective window | Firm-years |
+| Step | Screening criterion | Firms | Firm-years |
 |---|---|---|---|
-| Target leverage model, Eq. (2) | Determinants at t−1 | 1393–1403 | 3,289 |
-| Investment-expectation model, Eq. (1) | Sales at t−2 | 1394–1403 | 2,990 |
-| Dynamic models, Eqs. (6)–(12) | InvEff at t−1 | 1395–1403 | 2,691 |
+| 1 | All firm-years in the database (TSE and Farabourse), 1380–1403 | [n] | [n] |
+| 2 | Less: Farabourse firms and firms with no market in the database | [−n] | [−n] |
+| 3 | Less: banks, insurance, leasing, investment, holding, brokerage and fund companies | [−n] | [−n] |
+| 4 | Less: printing, retail, utilities and auxiliary financial activities | [−n] | [−n] |
+| | TSE non-financial firms: full panel (firms × 24 years) | [n] | [n] |
+| 5 | Less: firm-years without financial statements | — | [−n] |
+| 6 | Less: firm-years with zero or negative book equity | — | [−n] |
+| = | Final sample (unbalanced panel, including base year 1380) | [n] | [n] |
 
-All continuous ratios are winsorized at the 1st and 99th percentiles of their pooled distributions after construction. Raw accounting levels are not winsorized, because doing so would distort the ratios built from them. The generated measures InvEff, CSDev and MA are winsorized at the same percentiles. Expense items (cost of goods sold, SG&A and financial expense) are used in absolute value, because some databases record them with a negative sign. The balanced-panel requirement may introduce survivorship bias toward stronger firms; Section 3.11 discusses this. All estimations are performed in Stata 17.
+No minimum number of years is imposed. A firm-year enters an estimation when the lagged data that the estimation requires exist; firms with a short history therefore contribute only the years for which their lags are observed. An unbalanced panel is used because requiring every firm to report in all 24 years would keep only the firms that survived the whole period. Over-leveraged firms that fell into distress or left the exchange, exactly the firms at the centre of H1a, would be removed, and so would every firm listed after 1380, including the large wave of listings after the privatisations of the late 1380s. Such a sample would be biased toward survivors (survivorship bias) and would be too small for System GMM. The forward orthogonal deviation used in the GMM estimator (Section 3.8.2) is designed for panels with gaps. As a sensitivity test (S8), the models are re-estimated on the balanced subsample of firms with usable data in every year 1393–1403.
+
+Industries with fewer than two firms in the final sample are pooled into one category ("other industries"). Accounting data are collected from the Rahavard Novin database and cross-checked against the original filings in the Codal disclosure system. Market values of equity are computed as the year-end closing price times the number of shares, and the annual consumer-price inflation rate is obtained from the Central Bank of the Islamic Republic of Iran.
+
+Fiscal year 1380 serves only as a base year for variables that require prior-year values. Because the investment-expectation model uses lagged sales growth and the dynamic models use the lagged dependent variable, the first year of each estimation is: target leverage model, Eq. (2), 1381; investment-expectation model, Eq. (1), 1382; dynamic models, Eqs. (6)–(12), 1383. The firm-year counts of each estimation are reported with the results.
+
+All continuous ratios are winsorized at the 1st and 99th percentiles of their pooled distributions after construction. Raw accounting levels are not winsorized, because doing so would distort the ratios built from them. The generated measures InvEff, CSDev and MA are winsorized at the same percentiles. Expense items (cost of goods sold, SG&A and financial expense) are used in absolute value, because some databases record them with a negative sign. All estimations are performed in Stata 17.
 
 ## 3.2 Dependent Variable: Investment Inefficiency
 
@@ -347,7 +347,7 @@ The robustness tests replace one element of the design at a time with an accepte
 | S5 | Near-target firms | Exclude firm-years with \|CSDev\| < 0.25 SD, whose direction is mostly estimation noise |
 | S6 | Crisis years | Exclude 1397–1398 (sanctions and currency crisis) and 1399 (COVID-19) |
 | S7 | Industry composition | Re-estimate excluding one industry at a time |
-| S8 | Sample composition | Unbalanced panel that adds firms dropped by the continuity filter, to assess survivorship bias |
+| S8 | Sample composition | Balanced subsample: firms with usable data in every year 1393–1403, to assess survivorship effects |
 | S9 | Elements of the original design | S9a: first differences instead of forward orthogonal deviations; S9b: original four controls (LTA, MTB, PROFIT, FCF); S9c: original specification as a whole (CSD and MA at t, first differences, four controls, lags 2–3) |
 
 ### 3.11.3 Additional identification checks
@@ -442,10 +442,8 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 
 ## Notes for the Author (remove before submission)
 
-- Fill in the [n] counts in the sample-construction table in 3.1 from your screening records, including the firm-years removed for non-positive book equity (reported in the Stata log). Update 299 firms / 3,588 records if the equity filter changes them.
+- Fill in the [n] counts in the sample-construction table in 3.1 from the Screening sheet of Research_Data_1380_1403.xlsx.
 - Complete the Synn and Williams (2015) reference, and check every reference against the published version before submission.
-- The firm-year counts in the effective-window table assume the panel stays balanced after lags; update them with the actual estimation N.
 - The design changes of this version (CSD and MA at t−1, forward orthogonal deviations, extended controls) were fixed before the final estimation; the earlier specification is reported in S9c. State this in the cover letter if a reviewer asks how the specification was chosen.
-- Sales and total assets for 1391, if available, would extend InvEff to 1393 and the GMM sample to 1394.
 - Report the frequency of Dickinson's five original stages to support the consolidation in 3.4.
 - Check the number of industries and firms per industry-year. This determines how many industry-years use the pooled fallback in Eq. (1) and in the DEA.
