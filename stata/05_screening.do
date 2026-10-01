@@ -210,12 +210,33 @@ preserve
 restore
 drop if _finf
 scrpost 3 "Less: banks, insurance, leasing, investment, holding and other financial firms"
+postclose scr
 
 *------------------------------------------------------------------------------
-* Step 4: firm-years without financial statements in the database
+* Step 4: full panel - every remaining firm in every year $SCR_Y0-$SCR_Y1.
+*   Firms that entered the exchange later, left earlier, or have gaps are
+*   NOT removed: their missing years stay in the panel as empty rows
+*   (HasData = 0) and are reported in the screening table.
 *------------------------------------------------------------------------------
-drop if missing(جمعکلداراییها)
-scrpost 4 "Less: firm-years without financial statements in the database"
+local NY = $SCR_Y1 - $SCR_Y0 + 1
+preserve
+    keep FirmCode
+    duplicates drop
+    expand `NY'
+    bys FirmCode: gen int Year = $SCR_Y0 + _n - 1
+    tempfile grid
+    save `grid'
+restore
+merge 1:1 FirmCode Year using `grid', nogen
+gen int _negY = -Year
+foreach v in Symbol Industry {
+    bys FirmCode (Year):  replace `v' = `v'[_n-1] if `v' == "" & _n > 1
+    bys FirmCode (_negY): replace `v' = `v'[_n-1] if `v' == "" & _n > 1
+}
+bys FirmCode (Year):  replace IndID = IndID[_n-1] if missing(IndID) & _n > 1
+bys FirmCode (_negY): replace IndID = IndID[_n-1] if missing(IndID) & _n > 1
+drop _negY
+gen byte HasData = !missing(جمعکلداراییها)
 
 *------------------------------------------------------------------------------
 * Variables used by the study (million rials)
@@ -239,12 +260,13 @@ gen double CFO    = جریانخالصورودخروجنقدحاصل
 gen double CFI    = جريانخالصورودخروجنقدحاصل
 gen double CFF    = خالصافزايشکاهشدرموجودینقد - جريانخالصورودخروجنقدقبلا
 gen double MV     = قیمتپایانی * سرمایه / 1000
-* Step 5: book equity <= 0 (target leverage undefined)
-qui count if BV <= 0
-di as txt "Removing " r(N) " firm-years with book equity <= 0"
-drop if BV <= 0
-scrpost 5 "Less: firm-years with book equity <= 0"
-postclose scr
+* Step 5: book equity <= 0 (target leverage undefined): flagged, not used
+gen byte InSample = HasData & !(BV <= 0)
+gen str40 Note = ""
+replace Note = "no financial statements in the database" if !HasData
+replace Note = "book equity <= 0" if HasData & BV <= 0
+qui count if HasData & BV <= 0
+di as txt r(N) " firm-years with book equity <= 0 are flagged (InSample = 0)"
 
 gen byte AUDITED  = ustrregexm(حسابرسیشده, "^بل[\x{06CC}\x{064A}]") if حسابرسیشده != "" & حسابرسیشده != "-"
 
@@ -278,8 +300,8 @@ di as res _n "CHECK 5. Unaudited statements"
 tab Year AUDITED, missing
 di as res _n "CHECK 6. Missing values in the study variables"
 foreach v in TA TD BV PPE IA INV Sales COGS SGA OI FinExp CFO CFI CFF MV {
-    qui count if missing(`v')
-    di as txt %-7s "`v'" " missing: " %6.0f r(N)
+    qui count if missing(`v') & HasData
+    di as txt %-7s "`v'" " missing (firm-years with statements): " %6.0f r(N)
 }
 drop _gap _r
 
@@ -334,47 +356,92 @@ else {
 *------------------------------------------------------------------------------
 local XL "$ROOT/Research_Data_${SCR_Y0}_${SCR_Y1}.xlsx"
 cap erase "`XL'"
-keep FirmCode Symbol Year Industry IndID AUDITED Age INF INV IA PPE TA TD BV ///
-    Sales COGS SGA OI FinExp CFO CFI CFF MV
-order FirmCode Symbol Year Industry IndID AUDITED Age INF INV IA PPE TA TD BV ///
-    Sales COGS SGA OI FinExp CFO CFI CFF MV
+keep FirmCode Symbol Year Industry IndID HasData InSample Note AUDITED Age INF ///
+    INV IA PPE TA TD BV Sales COGS SGA OI FinExp CFO CFI CFF MV
+order FirmCode Symbol Year Industry IndID HasData InSample Note AUDITED Age INF ///
+    INV IA PPE TA TD BV Sales COGS SGA OI FinExp CFO CFI CFF MV
 sort FirmCode Year
 compress
-save "$OUT/screened_data.dta", replace
 export excel using "`XL'", sheet("Data") firstrow(variables) replace
 
-* Screening
+*------------------------------------------------------------------------------
+* Screening table: Panel A sample construction, Panel B data availability
+*------------------------------------------------------------------------------
+cap postclose tbl
+postfile tbl str8 panel str110 criterion double(firms firmyears) using "$OUT/screening_table.dta", replace
 preserve
     use "$OUT/screening_log.dta", clear
     sort step
-    gen double firms_removed     = firms[_n-1] - firms
-    gen double firmyears_removed = firmyears[_n-1] - firmyears
-    local N = _N + 1
-    set obs `N'
-    replace step  = `N' in `N'
-    replace label = "Final sample: TSE non-financial firms, ${SCR_Y0}-${SCR_Y1} (${SCR_Y0} = base year)" in `N'
-    replace firms = firms[`N' - 1] in `N'
-    replace firmyears = firmyears[`N' - 1] in `N'
-    order step label firms_removed firmyears_removed firms firmyears
-    label variable step              "Step"
-    label variable label             "Screening criterion"
-    label variable firms_removed     "Firms removed"
-    label variable firmyears_removed "Firm-years removed"
-    label variable firms             "Firms remaining"
-    label variable firmyears         "Firm-years remaining"
-    di as res _n "SAMPLE SCREENING TABLE"
+    post tbl ("A") ("All firm-years in the database (TSE and Farabourse), ${SCR_Y0}-${SCR_Y1}") (firms[1]) (firmyears[1])
+    post tbl ("A") ("Less: Farabourse firms and firms with no market in the database") (firms[2] - firms[1]) (firmyears[2] - firmyears[1])
+    post tbl ("A") ("Less: banks, insurance, leasing, investment, holding and other financial firms") (firms[3] - firms[2]) (firmyears[3] - firmyears[2])
+restore
+egen byte _tf = tag(FirmCode)
+qui count if _tf
+local F = r(N)
+post tbl ("A") ("TSE non-financial firms: full panel, `F' firms x `NY' years") (`F') (_N)
+qui count if !HasData
+post tbl ("A") ("Less: firm-years with no financial statements (not yet listed, delisted or not reported)") (.) (-r(N))
+qui count if HasData & BV <= 0
+post tbl ("A") ("Less: firm-years with book equity <= 0") (.) (-r(N))
+bys FirmCode: egen int _ny = total(InSample)
+egen byte _tfs = tag(FirmCode) if _ny > 0
+qui count if _tfs == 1
+local FS = r(N)
+qui count if InSample
+local NS = r(N)
+post tbl ("A") ("Firm-years available for the analysis") (`FS') (`NS')
+* Panel B: data availability of the `FS' firms
+bys FirmCode: egen int _first = min(cond(InSample, Year, .))
+bys FirmCode: egen int _last  = max(cond(InSample, Year, .))
+gen byte _gap = _ny > 0 & (_last - _first + 1) > _ny
+qui count if _tfs == 1 & _ny == `NY'
+local fa = r(N)
+qui count if InSample & _ny == `NY'
+post tbl ("B") ("Firms with data in all `NY' years") (`fa') (r(N))
+qui count if _tfs == 1 & inrange(_ny, 2, `NY' - 1)
+local fp = r(N)
+qui count if InSample & inrange(_ny, 2, `NY' - 1)
+post tbl ("B") ("Firms with data in part of the period (2 to `=`NY' - 1' years)") (`fp') (r(N))
+qui count if _tfs == 1 & _ny == 1
+local f1 = r(N)
+qui count if InSample & _ny == 1
+post tbl ("B") ("Firms with data in only one year") (`f1') (r(N))
+qui count if _tfs == 1 & _first > $SCR_Y0
+post tbl ("B") ("  Of all firms: first year with data after ${SCR_Y0} (listed later)") (r(N)) (.)
+qui count if _tfs == 1 & _last < $SCR_Y1
+post tbl ("B") ("  Of all firms: last year with data before ${SCR_Y1} (delisted or not reported)") (r(N)) (.)
+qui count if _tfs == 1 & _gap
+post tbl ("B") ("  Of all firms: one or more missing years inside their period") (r(N)) (.)
+postclose tbl
+drop _tf _tfs _ny _first _last _gap
+
+* data for the models: usable firm-years only (gaps are handled by the panel lags)
+preserve
+    keep if InSample
+    drop HasData InSample Note
+    save "$OUT/screened_data.dta", replace
+restore
+
+* Screening sheet
+preserve
+    use "$OUT/screening_table.dta", clear
+    label variable panel     "Panel"
+    label variable criterion "Criterion"
+    label variable firms     "Firms"
+    label variable firmyears "Firm-years"
+    di as res _n "SAMPLE SCREENING TABLE (Panel A: construction; Panel B: data availability)"
     list, noobs sep(0) abbrev(20)
     export excel using "`XL'", sheet("Screening") firstrow(varlabels) sheetmodify
-    * same table for the report of 20_build.do
     export excel using "$OUT/Screening_Table.xlsx", sheet("Screening") firstrow(varlabels) replace
 restore
 
 * Firms per year
 preserve
-    egen byte _tf = tag(FirmCode Year)
-    collapse (sum) firms = _tf, by(Year)
+    collapse (sum) firms = InSample (count) panel = InSample, by(Year)
     label variable Year  "Fiscal year"
-    label variable firms "Firms in the final sample"
+    label variable firms "Firms with usable data"
+    label variable panel "Firms in the panel"
     di as res _n "Firms per year in the final sample"
     list, noobs sep(0)
     export excel using "`XL'", sheet("Firms_per_year") firstrow(varlabels) sheetmodify
@@ -389,6 +456,9 @@ preserve
     "Year"     "Fiscal year (Esfand year-end)"                    "Year"
     "Industry" "Industry (general classification)"                "صنعت"
     "IndID"    "Industry code (general)"                          "کدصنعتکلی"
+    "HasData"  "1 = financial statements exist for this firm-year" "جمعکلداراییها not empty"
+    "InSample" "1 = firm-year used in the analysis"               "HasData = 1 and book equity > 0"
+    "Note"     "Reason a firm-year is not used"                    "-"
     "AUDITED"  "1 = audited statements, 0 = unaudited"            "حسابرسیشده"
     "Age"      "Firm age in years"                                "Year - FoundYear (Firm_Age.xlsx)"
     "INF"      "Annual CPI inflation (%)"                         "Inflation.xlsx"

@@ -437,23 +437,19 @@ drop _tf
 putexcel set "$OUT/Tables.xlsx", sheet("T0_sample") modify
 putexcel A1 = "Sample construction" B1 = "Firms" C1 = "Firm-years"
 local r = 2
-cap confirm file "$OUT/screening_log.dta"
+cap confirm file "$OUT/screening_table.dta"
 if !_rc & "$RUN_SCREEN" == "1" {
     preserve
-    use "$OUT/screening_log.dta", clear
-    sort step
+    use "$OUT/screening_table.dta", clear
     forvalues i = 1/`=_N' {
-        local lab = label[`i']
-        local fi = firms[`i']
-        local ny = firmyears[`i']
-        if `i' > 1 {
-            local fi = firms[`i'] - firms[`i' - 1]
-            local ny = firmyears[`i'] - firmyears[`i' - 1]
-        }
-        putexcel A`r' = "`lab'" B`r' = (`fi') C`r' = (`ny')
+        local lab = criterion[`i']
+        putexcel A`r' = "`lab'"
+        if !missing(firms[`i'])     putexcel B`r' = (firms[`i'])
+        if !missing(firmyears[`i']) putexcel C`r' = (firmyears[`i'])
         local ++r
     }
     restore
+    local r = `r' + 1
 }
 else {
     putexcel A`r' = "Data file ($Y0-$YN)" B`r' = ($S_F0) C`r' = ($S_N0)
