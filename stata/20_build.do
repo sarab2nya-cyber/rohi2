@@ -52,7 +52,7 @@ program define buildpanel
     else                    gen double TDA = TD / (TD + MV)
     gen double IOB    = FinExp / TA
     gen double COL    = (INV + PPE) / TA
-    gen double LTA    = ln(TA)
+    gen double LTA    = ln(TA / CPI)          // real size, 1392 prices
     gen double MTB    = MV / BV
     gen double PROFIT = OI / TA
     gen double FCF    = CFO / TA
@@ -97,6 +97,8 @@ program define buildpanel
     wins CSDev, `W'
     gen double CSDP = max( CSDev, 0) if !missing(CSDev)
     gen double CSDN = max(-CSDev, 0) if !missing(CSDev)
+    gen byte OVERLEV  = CSDev > 0 if !missing(CSDev)
+    gen byte UNDERLEV = CSDev < 0 if !missing(CSDev)
 
     *--------------------------------------------------------------------------
     * 3.2 Expectation model, Eq. (1), by industry-year (>= mincell obs);
@@ -286,9 +288,11 @@ label var TDAhat  "Target leverage (Eq. 2)"
 label var CSDev   "Capital structure deviation"
 label var CSDP    "CSD+ (over-leverage)"
 label var CSDN    "CSD- (under-leverage)"
+label var OVERLEV  "Over-leveraged (CSDev > 0)"
+label var UNDERLEV "Under-leveraged (CSDev < 0)"
 label var FE      "DEA firm efficiency"
 label var MA      "Managerial ability (centered)"
-label var LTA     "Size: ln(total assets)"
+label var LTA     "Size: ln(real total assets)"
 label var MTB     "Market-to-book"
 label var PROFIT  "Profitability"
 label var FCF     "Operating cash flow / TA"

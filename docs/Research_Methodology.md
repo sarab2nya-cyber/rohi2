@@ -61,7 +61,7 @@ TDA is total debt divided by total assets. The determinants are measured at t−
 
 - **IOB**: financial expense / total assets (interest burden).
 - **COL**: (inventory + net PP&E) / total assets (collateral value of assets).
-- **LTA**: natural logarithm of total assets (size).
+- **LTA**: natural logarithm of total assets in 1392 prices (size). Deflation is necessary because nominal assets grow mechanically with inflation of 30–40% a year.
 - **MTB**: market value / book value of equity (growth opportunities).
 - **PROFIT**: operating income / total assets (profitability).
 - **INDLEV**: median TDA of the firm's industry, excluding the firm itself (industry leverage norm).
@@ -119,13 +119,27 @@ All models include year dummies (ν~t~) and industry dummies (λ~j~); Section 3.
 
 ## 3.7 Empirical Models
 
-Each hypothesis is tested with a dedicated dynamic panel model, and each prediction is stated as a sign restriction on a named coefficient. Because InvEff is signed, a negative coefficient indicates a shift toward under-investment and a positive coefficient a shift toward over-investment. In all equations, X is the vector of controls (LTA, MTB, PROFIT, FCF), η~i~ is the unobserved firm effect, ν~t~ are year dummies, λ~j~ are industry dummies and ε is the idiosyncratic error.
+Each hypothesis is tested with its own dynamic panel model, and each prediction is stated as a sign restriction on a named coefficient. Because InvEff is signed, a negative coefficient indicates a shift toward under-investment and a positive coefficient a shift toward over-investment. In all equations, X is the vector of controls (LTA, MTB, PROFIT, FCF), η~i~ is the unobserved firm effect, ν~t~ are year dummies, λ~j~ are industry dummies and ε is the idiosyncratic error.
 
 ### 3.7.1 Direct effects of capital structure deviation (H1a, H1b)
 
+Each direct-effect hypothesis is tested in its own model. H1a is tested with:
+
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \phi\, UNDER_{i,t} + \delta' X_{i,t} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6a)$$
+
+H1b is tested with:
+
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_2 CSD^{-}_{i,t} + \phi\, OVER_{i,t} + \delta' X_{i,t} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6b)$$
+
+UNDER (OVER) equals 1 for under-leveraged (over-leveraged) firm-years. The indicator absorbs the mean investment of firms on the other side of the target, so the slope on CSD⁺ in Eq. (6a) is identified only from over-leveraged firms, and the slope on CSD⁻ in Eq. (6b) only from under-leveraged firms. Because CSD⁺ is zero for every firm with UNDER = 1 and CSD⁻ is zero for every firm with UNDER = 0, omitting the other side's slope does not bias the tested coefficient.
+
+H1a predicts β₁ < 0: the further a firm lies above its target, the further its investment falls below the expected level, consistent with debt overhang (Myers, 1977). H1b predicts β₂ > 0: the further a firm lies below its target, the further its investment rises above the expected level, consistent with free-cash-flow problems when debt discipline is weak (Jensen, 1986).
+
+Asymmetry, the central claim of the study, compares the two slopes and therefore requires both in one equation:
+
 $$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \delta' X_{i,t} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6)$$
 
-H1a predicts β₁ < 0: the further a firm lies above its target, the further its investment falls below the expected level, consistent with debt overhang (Myers, 1977). H1b predicts β₂ > 0: the further a firm lies below its target, the further its investment rises above the expected level, consistent with free-cash-flow problems when debt discipline is weak (Jensen, 1986). Asymmetry is tested with a Wald test of β₁ + β₂ = 0. Both components enter one equation because they are complementary parts of the same deviation; estimating either alone would load the omitted component onto the intercept and bias the included coefficient.
+Asymmetry is tested with a Wald test of β₁ + β₂ = 0 in Eq. (6).
 
 ### 3.7.2 Life-cycle moderation (H2a, H2b)
 
@@ -165,8 +179,8 @@ H3b predicts β₈ < 0 (higher ability reduces over-investment from under-levera
 
 | Hypothesis | Equation | Coefficient | Predicted sign |
 |---|---|---|---|
-| H1a | (6) | β₁: CSD⁺ | − |
-| H1b | (6) | β₂: CSD⁻ | + |
+| H1a | (6a) | β₁: CSD⁺ | − |
+| H1b | (6b) | β₂: CSD⁻ | + |
 | Asymmetry | (6) | β₁ + β₂ | ≠ 0 |
 | H2a | (7) | β₃: CSD⁺ × GROW; β₄: CSD⁺ × DEC | −; − |
 | H2b | (8) | β₅: CSD⁻ × MAT | + |
@@ -192,7 +206,7 @@ Eqs. (6)–(12) are estimated with the two-step System GMM estimator (Arellano &
 | Regressor | Assumption | Differenced equation: GMM-style instruments | Levels equation: instruments |
 |---|---|---|---|
 | InvEff~t−1~ | Endogenous | Levels at t−2 and t−3 | Δ at t−1 |
-| CSD⁺, CSD⁻, MA | Endogenous | Levels at t−2 and t−3 | Δ at t−1 |
+| CSD⁺, CSD⁻, UNDER, OVER, MA | Endogenous | Levels at t−2 and t−3 | Δ at t−1 |
 | Products with CSD⁺, CSD⁻ or MA | Endogenous; instrumented by lags of the product itself | Levels at t−2 and t−3 | Δ at t−1 |
 | Stage indicators (t−1) | Predetermined | Levels at t−1 and t−2 | Δ at t |
 | LTA, MTB, PROFIT, FCF | Predetermined | Levels at t−1 and t−2 | Δ at t |
@@ -354,7 +368,7 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 | TDA | TD / TA | TD, TA |
 | IOB | FinExp / TA | FinExp, TA |
 | COL | (INV + PPE) / TA | INV, PPE, TA |
-| LTA | ln(TA) | TA |
+| LTA | ln(TA / CPI), total assets in 1392 prices | TA, INF |
 | MTB | MV / BV | MV, BV |
 | PROFIT | OI / TA | OI, TA |
 | INDLEV | Median TDA of the industry-year, excluding the firm | TD, TA, IndID |

@@ -42,8 +42,14 @@ global BOOT_REPS     0      // full-procedure bootstrap replications (slow; e.g.
 
 * controls and model definitions (Section 3.7)
 global XCTRL  "LTA MTB PROFIT FCF"
-global MODELS "6 7 8 9 10 11 12"
+global MODELS    "6a 6b 6 7 8 9 10 11 12"   // 6a = H1a, 6b = H1b, 6 = asymmetry test
+global KEYMODELS "6a 6b 7 8 9 10 11 12"     // models with a hypothesis coefficient
+global CTRL_TYPE "pred"   // controls: "pred" (lags t-1,t-2, main) or "endog" (lags t-2,t-3)
 * endogenous regressors (lags t-2, t-3)          * predetermined (lags t-1, t-2)
+global E6a "CSDP UNDERLEV"
+global P6a ""
+global E6b "CSDN OVERLEV"
+global P6b ""
 global E6  "CSDP CSDN"
 global P6  ""
 global E7  "CSDP CSDN CSDP_GROW CSDP_DEC"

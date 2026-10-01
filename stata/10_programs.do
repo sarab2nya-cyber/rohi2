@@ -154,6 +154,7 @@ program define rungmm
     if "`cond'" == "" local cond "1"
     local coll = cond("`nocollapse'" == "", "collapse", "")
     local ctrl "$XCTRL"
+    local lagc = cond("$CTRL_TYPE" == "endog", "`lage'", "`lagp'")
     if "`nolevel'" == "" {
         local rhs    "L.`dep' `endog' `pred' `ctrl' yd_* ind_*"
         local levopt "iv(ind_*, eq(level)) iv(lnAge, eq(level))"
@@ -164,10 +165,11 @@ program define rungmm
         local levopt ""
         local nl     "noleveleq"
     }
+    local predgmm = cond("`pred'" != "", "gmm(`pred', lag(`lagp') `coll')", "")
     local q = cond("`quiet'" != "", "quietly", "noisily")
     `q' xtabond2 `dep' `rhs' if `cond', ///
         gmm(`dep', lag(`lage') `coll') gmm(`endog', lag(`lage') `coll') ///
-        gmm(`pred' `ctrl', lag(`lagp') `coll') iv(yd_*) `levopt' ///
+        gmm(`ctrl', lag(`lagc') `coll') `predgmm' iv(yd_*) `levopt' ///
         twostep robust small artests(2) `nl'
 end
 
@@ -192,16 +194,11 @@ program define gmmstats
             }
         }
     }
-    qui estadd scalar ar1p     = e(ar1p)
-    qui estadd scalar ar2p     = e(ar2p)
-    qui estadd scalar hansen   = e(hansen)
-    qui estadd scalar hansenp  = e(hansenp)
+    * e(ar1p) e(ar2p) e(hansen) e(hansenp) are already stored by xtabond2
     qui estadd scalar dhansen  = `dh'
     qui estadd scalar dhansenp = `dhp'
     qui estadd scalar ninst    = e(j)
     qui estadd scalar nfirms   = e(N_g)
-    cap qui estadd scalar Fstat = e(F)
-    cap qui estadd scalar Fp    = e(F_p)
     est store `name'
     di as txt "  AR(1) p = " %6.4f e(ar1p) "  AR(2) p = " %6.4f e(ar2p) ///
         "  Hansen p = " %6.4f e(hansenp) "  Diff-in-Hansen (levels) p = " %6.4f `dhp' ///
@@ -489,7 +486,9 @@ end
 cap program drop runkey
 program define runkey
     syntax , TEST(string) [STATIC LAGE(string) LAGP(string) NOCOLLAPSE NOLEVEL COND(string)]
-    local K6  "CSDP CSDN"
+    local K6a "CSDP"
+    local K6b "CSDN"
+    local K6  ""
     local K7  "CSDP_GROW CSDP_DEC"
     local K8  "CSDN_MAT"
     local K9  "CSDP_MA"
@@ -497,7 +496,7 @@ program define runkey
     local K11 "CSDN_MA"
     local K12 "CSDN_MA_MAT"
     if "`cond'" == "" local cond "1"
-    foreach m of global MODELS {
+    foreach m of global KEYMODELS {
         if "`static'" != "" {
             cap qui reghdfe InvEff ${E`m'} ${P`m'} $XCTRL if EST & (`cond'), ///
                 absorb(FirmID Year) vce(cluster FirmID)

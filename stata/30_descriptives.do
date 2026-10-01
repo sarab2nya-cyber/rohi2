@@ -33,7 +33,6 @@ putexcel A1 = matrix(T1), names nformat("0.0000")
 * direction of deviations: over/under-investment and over/under-leverage
 di as res _n "T1b. Direction of investment and leverage deviations"
 gen byte OVERINV = InvEff > 0 if !missing(InvEff)
-gen byte OVERLEV = CSDev  > 0 if !missing(CSDev)
 tab OVERINV OVERLEV if EST, cell row col matcell(DIR)
 ttest InvEff if EST, by(OVERLEV)
 local mu1 = r(mu_1)
@@ -123,10 +122,66 @@ restore
 di as res _n "Share of firm-years whose InvEff comes from cell regressions (1) vs fallback (2)"
 tab InvEff_src if EST
 
-di as res _n "DEA efficiency: share on the frontier (FE = 1) and mean by year"
-gen byte FE1 = FE == 1 if !missing(FE)
-tabstat FE FE1 if Year >= 1393, by(Year) stat(mean n) format(%6.3f)
-drop FE1
+*------------------------------------------------------------------------------
+* OA2b Data envelopment analysis (stage 1 of managerial ability)
+*------------------------------------------------------------------------------
+di as res _n "OA2b. DEA (input-oriented, VRS): frontiers, efficiency scores, share efficient"
+gen byte FE1     = FE == 1 if !missing(FE)
+gen byte DEA_own = DEA_CELL > 0 if !missing(FE)
+egen byte _tagcell = tag(DEA_CELL) if !missing(FE)
+tabstat FE FE1 DEA_own if Year >= 1393, by(Year) stat(mean n) format(%6.3f)
+qui count if _tagcell == 1 & DEA_CELL > 0
+local nf_own = r(N)
+qui count if _tagcell == 1 & DEA_CELL < 0
+local nf_pool = r(N)
+qui su FE if Year >= 1393
+local fe_mean = r(mean)
+local fe_n = r(N)
+qui su FE1 if Year >= 1393
+local fe_eff = r(mean)
+qui su DEA_own if Year >= 1393
+local fe_own = r(mean)
+di as txt "  frontiers estimated: `nf_own' industry-year, `nf_pool' industry-pooled"
+putexcel set "$OUT/Tables.xlsx", sheet("OA2b_DEA") modify
+putexcel A1 = "Data envelopment analysis (Demerjian et al. 2012, stage 1)"
+putexcel A2 = "Firm-years with an efficiency score" B2 = (`fe_n')
+putexcel A3 = "Mean efficiency score (FE)"          B3 = (`fe_mean')
+putexcel A4 = "Share on the frontier (FE = 1)"      B4 = (`fe_eff')
+putexcel A5 = "Industry-year frontiers"             B5 = (`nf_own')
+putexcel A6 = "Industry-pooled frontiers (small cells)" B6 = (`nf_pool')
+putexcel A7 = "Share of firm-years scored on an industry-year frontier" B7 = (`fe_own')
+drop FE1 DEA_own _tagcell
+
+*------------------------------------------------------------------------------
+* Figures of the descriptive analysis (saved before any model is estimated)
+*------------------------------------------------------------------------------
+graph set window fontface "Times New Roman"
+histogram InvEff if EST, bin(50) xline(0, lc(maroon)) graphregion(color(white)) ///
+    title("Distribution of investment inefficiency (InvEff)", size(medsmall)) ///
+    note("Right of 0: over-investment; left of 0: under-investment.")
+graph export "$OUT/Fig0a_InvEff_distribution.png", replace width(2000)
+histogram CSDev if EST, bin(50) xline(0, lc(maroon)) graphregion(color(white)) ///
+    title("Distribution of capital structure deviation (CSDev)", size(medsmall)) ///
+    note("Right of 0: over-leveraged; left of 0: under-leveraged.")
+graph export "$OUT/Fig0b_CSDev_distribution.png", replace width(2000)
+histogram FE if Year >= 1393, bin(40) graphregion(color(white)) ///
+    title("DEA efficiency scores (stage 1 of managerial ability)", size(medsmall))
+graph export "$OUT/Fig0c_DEA_scores.png", replace width(2000)
+histogram MA if EST, bin(50) graphregion(color(white)) ///
+    title("Managerial ability (Tobit residual, centered)", size(medsmall))
+graph export "$OUT/Fig0d_MA_distribution.png", replace width(2000)
+graph bar (mean) InvEff if EST, over(OVERLEV, relabel(1 "Under-leveraged" 2 "Over-leveraged")) ///
+    over(STAGE_L) asyvars blabel(bar, format(%9.3f)) graphregion(color(white)) ///
+    ytitle("Mean InvEff") title("Mean investment inefficiency by life-cycle stage (t-1) and leverage direction", size(medsmall)) ///
+    legend(pos(6) rows(1))
+graph export "$OUT/Fig0e_InvEff_by_stage_direction.png", replace width(2200)
+twoway (lpoly InvEff CSDev if EST & CSDev < 0, lc(navy) lw(medthick)) ///
+       (lpoly InvEff CSDev if EST & CSDev > 0, lc(maroon) lw(medthick)), ///
+    xline(0, lc(gs10)) yline(0, lp(dot) lc(gs8)) graphregion(color(white)) ///
+    xtitle("Capital structure deviation (CSDev)") ytitle("InvEff (local polynomial)") ///
+    legend(order(1 "Under-leveraged side" 2 "Over-leveraged side") pos(6) rows(1)) ///
+    title("Investment inefficiency across capital structure deviation", size(medsmall))
+graph export "$OUT/Fig0f_InvEff_vs_CSDev.png", replace width(2200)
 
 *------------------------------------------------------------------------------
 * T4 Multicollinearity: VIF of the static main-effects model (Section 3.10.1)
@@ -207,4 +262,4 @@ putexcel A8 = "Fisher-ADF unit root, InvEff (inverse chi2)" B8 = (`UR_InvEff') C
     D8 = "All panels have a unit root" E8 = "Rejection: stationary"
 putexcel A9 = "Fisher-ADF unit root, CSDev (inverse chi2)" B9 = (`UR_CSDev') C9 = (`URp_CSDev') ///
     D9 = "All panels have a unit root" E9 = "Rejection: stationary"
-drop e_fe OVERINV OVERLEV
+drop e_fe OVERINV

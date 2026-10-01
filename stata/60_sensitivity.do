@@ -48,17 +48,19 @@ di as res _n "T8. Sensitivity: key coefficients (two-sided p: * 0.10 ** 0.05 ***
 keytable "$OUT/S_keyresults.dta" "T8_sensitivity"
 
 *------------------------------------------------------------------------------
-* S7 leave one industry out (Eq. 6: beta1, beta2)
+* S7 leave one industry out (Eq. 6a: beta1, Eq. 6b: beta2)
 *------------------------------------------------------------------------------
 cap postclose loo
 postfile loo int industry double(b1 p1 b2 p2) using "$OUT/S7_leave_industry_out.dta", replace
 qui levelsof IndID if EST, local(inds)
 foreach j of local inds {
-    cap rungmm, dep(InvEff) endog($E6) cond(IndID != `j') quiet
+    cap rungmm, dep(InvEff) endog($E6a) cond(IndID != `j') quiet
     if _rc continue
     local b1 = _b[CSDP]
     lcw CSDP 1
     local p1 = 2 * ttail(r(df), abs(r(est) / r(se)))
+    cap rungmm, dep(InvEff) endog($E6b) cond(IndID != `j') quiet
+    if _rc continue
     local b2 = _b[CSDN]
     lcw CSDN 1
     local p2 = 2 * ttail(r(df), abs(r(est) / r(se)))
@@ -67,7 +69,7 @@ foreach j of local inds {
 postclose loo
 preserve
     use "$OUT/S7_leave_industry_out.dta", clear
-    di as res _n "S7. Leave-one-industry-out, Eq. (6)"
+    di as res _n "S7. Leave-one-industry-out, Eqs. (6a) and (6b)"
     gen byte sig1 = p1 < 0.05 & b1 < 0
     gen byte sig2 = p2 < 0.05 & b2 > 0
     tabstat b1 b2 sig1 sig2, stat(n min mean max) format(%9.4f)
@@ -165,11 +167,10 @@ if $BOOT_REPS > 0 {
         local B2 = .
         local B4 = .
         local B8 = .
-        cap rungmm, dep(InvEff) endog($E6) quiet
-        if !_rc {
-            local B1 = _b[CSDP]
-            local B2 = _b[CSDN]
-        }
+        cap rungmm, dep(InvEff) endog($E6a) quiet
+        if !_rc local B1 = _b[CSDP]
+        cap rungmm, dep(InvEff) endog($E6b) quiet
+        if !_rc local B2 = _b[CSDN]
         cap rungmm, dep(InvEff) endog($E9) quiet
         if !_rc local B4 = _b[CSDP_MA]
         cap rungmm, dep(InvEff) endog($E11) quiet

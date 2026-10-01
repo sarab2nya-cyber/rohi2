@@ -40,9 +40,16 @@ foreach m of global MODELS {
 * B. Hypothesis tests (one-sided, predicted sign) and Wald tests
 *------------------------------------------------------------------------------
 di as res _n "Hypothesis tests"
-qui est restore G6
+* H1a - its own model, Eq. (6a)
+qui est restore G6a
 addtest H1a, dir(neg) : CSDP 1
+est store G6a
+* H1b - its own model, Eq. (6b)
+qui est restore G6b
 addtest H1b, dir(pos) : CSDN 1
+est store G6b
+* asymmetry - joint model, Eq. (6)
+qui est restore G6
 test CSDP + CSDN = 0
 qui estadd scalar p_asym = r(p)
 est store G6
@@ -84,24 +91,24 @@ est store G12
 *------------------------------------------------------------------------------
 * C. Tables
 *------------------------------------------------------------------------------
-local KEEP "L.InvEff CSDP CSDN MA GROW DEC MAT GD CSDP_GROW CSDP_DEC CSDN_MAT CSDP_MA CSDN_MA CSDP_GD MA_GD CSDP_MA_GD MA_MAT CSDN_MA_MAT $XCTRL"
-local STATS "N nfirms ninst ar1p ar2p hansenp dhansenp Fstat g_fe g_ols p_H1a p_H1b p_asym p_H2aG p_H2aD p_joint p_H2b p_H3a p_H3aM p_H3aGD p_H3a3 p_H3b p_H3bGD p_H3bM p_H3b3"
+local KEEP "L.InvEff CSDP CSDN UNDERLEV OVERLEV MA GROW DEC MAT GD CSDP_GROW CSDP_DEC CSDN_MAT CSDP_MA CSDN_MA CSDP_GD MA_GD CSDP_MA_GD MA_MAT CSDN_MA_MAT $XCTRL"
+local STATS "N nfirms ninst ar1p ar2p hansenp dhansenp F g_fe g_ols p_H1a p_H1b p_asym p_H2aG p_H2aD p_joint p_H2b p_H3a p_H3aM p_H3aGD p_H3a3 p_H3b p_H3bGD p_H3bM p_H3b3"
 local SLAB `"Observations Firms Instruments "AR(1) p" "AR(2) p" "Hansen p" "Diff-in-Hansen (levels) p" "Wald F" "gamma1 within (lower bound)" "gamma1 pooled OLS (upper bound)" "H1a p" "H1b p" "Asymmetry p (b1+b2=0)" "H2a growth p" "H2a decline p" "H2a joint Wald p" "H2b p" "H3a p" "H3a maturity p" "H3a growth/decline p" "H3a three-way p" "H3b p" "H3b growth/decline p" "H3b maturity p" "H3b three-way p""'
 
-esttab G6 G7 G8 G9 G10 G11 G12 using "$OUT/T5_main_GMM.rtf", replace label ///
+esttab G6a G6b G6 G7 G8 G9 G10 G11 G12 using "$OUT/T5_main_GMM.rtf", replace label ///
     b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) keep(`KEEP') order(`KEEP') ///
-    mtitles("Eq.(6) H1" "Eq.(7) H2a" "Eq.(8) H2b" "Eq.(9) H3a" "Eq.(10) H3a" "Eq.(11) H3b" "Eq.(12) H3b") ///
+    mtitles("Eq.(6a) H1a" "Eq.(6b) H1b" "Eq.(6) asymmetry" "Eq.(7) H2a" "Eq.(8) H2b" "Eq.(9) H3a" "Eq.(10) H3a" "Eq.(11) H3b" "Eq.(12) H3b") ///
     stats(`STATS', labels(`SLAB') fmt(%9.0f %9.0f %9.0f %9.3f)) ///
     title("Table 5. Capital structure deviation, life cycle, managerial ability and investment inefficiency: two-step System GMM") ///
     addnotes("Dependent variable: InvEff (signed residual of Eq. 1). Windmeijer-corrected SE in parentheses." ///
              "Year dummies (both equations) and industry dummies (levels equation) included. Hypothesis p-values are one-sided.")
-esttab G6 G7 G8 G9 G10 G11 G12 using "$OUT/T5_main_GMM.csv", replace ///
+esttab G6a G6b G6 G7 G8 G9 G10 G11 G12 using "$OUT/T5_main_GMM.csv", replace ///
     b(%9.5f) se(%9.5f) star(* 0.10 ** 0.05 *** 0.01) keep(`KEEP') order(`KEEP') stats(`STATS')
 
-esttab S6 S7 S8 S9 S10 S11 S12 using "$OUT/OA4_static_FE.rtf", replace label ///
+esttab S6a S6b S6 S7 S8 S9 S10 S11 S12 using "$OUT/OA4_static_FE.rtf", replace label ///
     b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
-    keep(CSDP CSDN MA GROW DEC MAT GD CSDP_GROW CSDP_DEC CSDN_MAT CSDP_MA CSDN_MA CSDP_GD MA_GD CSDP_MA_GD MA_MAT CSDN_MA_MAT $XCTRL) ///
-    mtitles("Eq.(6)" "Eq.(7)" "Eq.(8)" "Eq.(9)" "Eq.(10)" "Eq.(11)" "Eq.(12)") ///
+    keep(CSDP CSDN UNDERLEV OVERLEV MA GROW DEC MAT GD CSDP_GROW CSDP_DEC CSDN_MAT CSDP_MA CSDN_MA CSDP_GD MA_GD CSDP_MA_GD MA_MAT CSDN_MA_MAT $XCTRL) ///
+    mtitles("Eq.(6a)" "Eq.(6b)" "Eq.(6)" "Eq.(7)" "Eq.(8)" "Eq.(9)" "Eq.(10)" "Eq.(11)" "Eq.(12)") ///
     stats(N r2_within, labels("Observations" "Within R-squared")) ///
     title("Table OA4. Static two-way fixed-effects benchmarks") ///
     addnotes("Firm and year fixed effects. SE clustered by firm.")
@@ -148,9 +155,10 @@ program define postslope
 end
 global MABS = `mabs'
 
-qui est restore G6
-postslope "(6)" "CSD+" `sdp' CSDP 1
-postslope "(6)" "CSD-" `sdn' CSDN 1
+qui est restore G6a
+postslope "(6a)" "CSD+" `sdp' CSDP 1
+qui est restore G6b
+postslope "(6b)" "CSD-" `sdn' CSDN 1
 qui est restore G7
 postslope "(7)" "CSD+, maturity" `sdp' CSDP 1
 postslope "(7)" "CSD+, growth"   `sdp' CSDP 1 CSDP_GROW 1
