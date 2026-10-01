@@ -41,13 +41,13 @@ Investment inefficiency is measured as the deviation of actual investment from t
 
 $$Invest_{i,t} = \alpha_0 + \alpha_1\, SalesGrowth_{i,t-1} + \varepsilon_{i,t} \qquad (1)$$
 
-Invest is the net increase in tangible and intangible assets, (PPE + IA)~t~ − (PPE + IA)~t−1~, scaled by total assets at t−1. SalesGrowth is the annual percentage change in sales.
+Invest is cash investment: net cash paid in investing activities (−CFI) scaled by total assets at t−1. SalesGrowth is the annual percentage change in sales. A cash-based measure is used because TSE firms revalued property, plant and equipment on a large scale in 1398–1401. Under the accrual measure, the increase in net PPE and intangible assets, these revaluations would appear as investment although no resources were spent.
 
 Equation (1) is estimated cross-sectionally for each industry-year with at least 10 observations, so each industry-year has its own intercept and growth sensitivity. Industry-years with fewer than 10 observations are estimated within the industry over all years with year dummies. Estimating by industry-year prevents industry investment cycles and economy-wide shocks, such as the currency crises of 1397 and 1401, from being classified as firm-level inefficiency.
 
 The residual ε̂ is the measure of investment inefficiency, **InvEff**, and it is kept **signed**. A positive residual indicates over-investment (investment above the level justified by growth opportunities). A negative residual indicates under-investment. Unlike the absolute residual commonly used in prior work, the signed measure preserves the direction of the distortion, which is required to separate H1a from H1b. Under this convention, a regressor with a negative coefficient moves the firm toward under-investment and one with a positive coefficient moves it toward over-investment.
 
-Two alternative expectation models are used in the robustness tests (Section 3.11): the model of Chen, Hope, Li and Wang (2011), which allows investment to respond differently to sales declines, and a cash-based investment measure, −CFI scaled by lagged total assets, which is unaffected by asset revaluations.
+Two alternatives are used in the robustness tests (Section 3.11): the expectation model of Chen, Hope, Li and Wang (2011), which allows investment to respond differently to sales declines, and the accrual investment measure, [(PPE + IA)~t~ − (PPE + IA)~t−1~] / TA~t−1~.
 
 ## 3.3 Independent Variable: Capital Structure Deviation
 
@@ -317,7 +317,7 @@ The robustness tests replace one element of the design at a time with an accepte
 | R3 | Target-leverage estimator | Eq. (2) with firm fixed effects, isolating transitory deviation from a firm-specific target |
 | R4 | Timing of deviation | CSD⁺ and CSD⁻ measured at t−1 |
 | R5 | Expectation model | Chen et al. (2011), with an asymmetric response to sales declines |
-| R6 | Investment measure | Cash-based investment, −CFI / TA~t−1~, unaffected by asset revaluations |
+| R6 | Investment measure | Accrual investment, [(PPE + IA)~t~ − (PPE + IA)~t−1~] / TA~t−1~, which includes asset revaluations |
 | R7 | Managerial ability | Industry-year percentile rank of MA; two-year average of MA to reduce measurement error |
 | R8 | Life cycle | Dickinson's original five stages; age- and growth-based classification (Anthony & Ramesh, 1992) |
 | R9 | Dependent variable | Multinomial logit on the Biddle et al. (2009) quartile classes: under-investment, benchmark, over-investment |
@@ -362,7 +362,7 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 
 | Variable | Definition | Data items |
 |---|---|---|
-| Invest | [(PPE + IA)~t~ − (PPE + IA)~t−1~] / TA~t−1~ | PPE, IA, TA |
+| Invest | −CFI~t~ / TA~t−1~ (cash investment) | CFI, TA |
 | SalesGrowth | (Sales~t~ − Sales~t−1~) / Sales~t−1~ | Sales |
 | InvEff | Signed residual of Eq. (1), estimated by industry-year | Invest, SalesGrowth, IndID |
 | TDA | TD / TA | TD, TA |
