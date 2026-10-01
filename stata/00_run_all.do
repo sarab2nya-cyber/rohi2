@@ -30,11 +30,22 @@ set seed 20261001
 *------------------------------------------------------------------------------
 global ROOT   "C:/Users/Rohi/Desktop/Data"
 global CODE   "$ROOT/stata"
-global DATA   "Final_Master_Data.xlsx"
+global DATA   "Final_Master_Data.xlsx"   // used only when RUN_SCREEN = 0
+global RAWDATA "Raw_All_Data.xlsx"       // raw export, screened by 05_screening.do
 global OUT    "$ROOT/output"
 global PLUS   "C:/Users/Rohi/Desktop/plus"
 global PKGDIR "C:/Users/Rohi/Desktop/stata_pkgs"
 
+global RUN_SCREEN    1      // 1 = screen $RAWDATA (05_screening.do); 0 = use $DATA as is
+* screening settings (Section 3.1)
+global SCR_Y0 1380
+global SCR_Y1 1403
+global SCR_FARA "فرا"     // Market values containing this text = Farabourse
+* financial industries: keywords matched in the industry name (spaces and
+* half-spaces removed) and/or general industry codes; check the list that
+* 05_screening.do prints and writes to Screening_check.xlsx
+global SCR_FINWORDS "بانک|بیمه|لیزینگ|سرمایهگذاری|هلدینگ|چندرشته|کارگزاری|صندوق|واسطهگری|اعتباری|تامینسرمایه"
+global SCR_FINCODES ""   // e.g. "56 57 58 66 67" to add codes
 global RUN_ROBUST    1      // 1 = run 50_robustness.do
 global RUN_SENS      1      // 1 = run 60_sensitivity.do
 global PLACEBO_REPS  500    // placebo permutations (static FE, fast)
@@ -170,6 +181,7 @@ di as res "All required packages are installed and working."
 * RUN
 *------------------------------------------------------------------------------
 do "$CODE/10_programs.do"
+if $RUN_SCREEN do "$CODE/05_screening.do"
 do "$CODE/20_build.do"
 do "$CODE/30_descriptives.do"
 do "$CODE/40_main_models.do"

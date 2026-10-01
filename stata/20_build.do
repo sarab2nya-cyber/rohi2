@@ -288,7 +288,8 @@ end
 *==============================================================================
 * Import and prepare the raw panel (once)
 *==============================================================================
-import excel "$ROOT/$DATA", firstrow clear
+if "$RUN_SCREEN" == "1" use "$OUT/screened_data.dta", clear   // from 05_screening.do
+else import excel "$ROOT/$DATA", firstrow clear
 
 * string identifiers are kept; everything else must be numeric
 foreach v of varlist _all {
@@ -435,8 +436,35 @@ local ne = r(N)
 drop _tf
 putexcel set "$OUT/Tables.xlsx", sheet("T0_sample") modify
 putexcel A1 = "Sample construction" B1 = "Firms" C1 = "Firm-years"
-putexcel A2 = "Data file after manual screening ($Y0-$YN)" B2 = ($S_F0) C2 = ($S_N0)
-putexcel A3 = "Less: firm-years with book equity <= 0" C3 = (-$S_BV)
-putexcel A4 = "Less: firm-years with total assets <= 0" C4 = (-$S_TA)
-putexcel A5 = "Final panel, including base year" B5 = ($S_F1) C5 = ($S_N1)
-putexcel A6 = "GMM estimation sample (lags available; from `=$Y0 + 3')" B6 = (`fe') C6 = (`ne')
+local r = 2
+cap confirm file "$OUT/screening_log.dta"
+if !_rc & "$RUN_SCREEN" == "1" {
+    preserve
+    use "$OUT/screening_log.dta", clear
+    sort step
+    forvalues i = 1/`=_N' {
+        local lab = label[`i']
+        local fi = firms[`i']
+        local ny = firmyears[`i']
+        if `i' > 1 {
+            local fi = firms[`i'] - firms[`i' - 1]
+            local ny = firmyears[`i'] - firmyears[`i' - 1]
+        }
+        putexcel A`r' = "`lab'" B`r' = (`fi') C`r' = (`ny')
+        local ++r
+    }
+    restore
+}
+else {
+    putexcel A`r' = "Data file ($Y0-$YN)" B`r' = ($S_F0) C`r' = ($S_N0)
+    local ++r
+}
+putexcel A`r' = "Less: firm-years with book equity <= 0" C`r' = (-$S_BV)
+local ++r
+if $S_TA {
+    putexcel A`r' = "Less: firm-years with total assets <= 0" C`r' = (-$S_TA)
+    local ++r
+}
+putexcel A`r' = "Final panel, including base year $Y0" B`r' = ($S_F1) C`r' = ($S_N1)
+local ++r
+putexcel A`r' = "GMM estimation sample (lagged data available; `=$Y0 + 3'-$YN)" B`r' = (`fe') C`r' = (`ne')
