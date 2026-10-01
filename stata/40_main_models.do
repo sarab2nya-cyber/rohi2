@@ -89,6 +89,90 @@ addtest H3b3,  dir(neg) : CSDN_MA_MAT 1
 est store G12
 
 *------------------------------------------------------------------------------
+* B2. ONE TABLE PER HYPOTHESIS (GMM model + static FE benchmark side by side)
+*------------------------------------------------------------------------------
+local T6a "Table 5.1 - H1a: over-leverage (CSD+) and investment inefficiency, Eq. (6a)"
+local T6b "Table 5.2 - H1b: under-leverage (CSD-) and investment inefficiency, Eq. (6b)"
+local T6  "Table 5.3 - Asymmetry of the two effects, Eq. (6)"
+local T7  "Table 5.4 - H2a: over-leverage x life cycle (reference = maturity), Eq. (7)"
+local T8  "Table 5.5 - H2b: under-leverage x maturity (reference = growth/decline), Eq. (8)"
+local T9  "Table 5.6 - H3a: over-leverage x managerial ability, Eq. (9)"
+local T10 "Table 5.7 - H3a: over-leverage x managerial ability x growth/decline, Eq. (10)"
+local T11 "Table 5.8 - H3b: under-leverage x managerial ability, Eq. (11)"
+local T12 "Table 5.9 - H3b: under-leverage x managerial ability x maturity, Eq. (12)"
+local H6a "p_H1a"
+local H6b "p_H1b"
+local H6  "p_asym"
+local H7  "p_H2aG p_H2aD p_joint"
+local H8  "p_H2b"
+local H9  "p_H3a"
+local H10 "p_H3aM p_H3aGD p_H3a3"
+local H11 "p_H3b"
+local H12 "p_H3bGD p_H3bM p_H3b3"
+foreach m of global MODELS {
+    esttab G`m' S`m' using "$OUT/T5_eq`m'.rtf", replace label ///
+        b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
+        keep(L.InvEff ${E`m'} ${P`m'} $XCTRL) order(L.InvEff ${E`m'} ${P`m'}) ///
+        mtitles("Two-step System GMM" "Static two-way FE") ///
+        stats(N nfirms ninst ar1p ar2p hansenp dhansenp `H`m'', fmt(%9.0f %9.0f %9.0f %9.3f)) ///
+        title("`T`m''") ///
+        addnotes("Dependent variable: InvEff. GMM: Windmeijer-corrected SE; FE: SE clustered by firm." ///
+                 "Hypothesis p-values (p_H...) are one-sided in the predicted direction; p_asym and p_joint are Wald tests.")
+}
+
+*------------------------------------------------------------------------------
+* B3. HYPOTHESIS DECISION TABLE (one row per hypothesis)
+*------------------------------------------------------------------------------
+cap postclose hyp
+postfile hyp str8 hypothesis str6 eq str26 coefficient str4 predicted double(estimate se p) ///
+    str16 decision double(ar2p hansenp) using "$OUT/T5_hypothesis_summary.dta", replace
+cap program drop posthyp
+program define posthyp
+    args h eq coef pred dir
+    macro shift 5
+    lcw `*'
+    local b  = r(est)
+    local se = r(se)
+    local t  = `b' / `se'
+    if "`dir'" == "neg"      local p = ttail(r(df), -`t')
+    else if "`dir'" == "pos" local p = ttail(r(df),  `t')
+    else                     local p = 2 * ttail(r(df), abs(`t'))
+    local dec = cond(`p' < 0.01, "Supported (1%)", cond(`p' < 0.05, "Supported (5%)", ///
+        cond(`p' < 0.10, "Supported (10%)", "Not supported")))
+    if "`dir'" == "two" local dec = cond(`p' < 0.10, "Asymmetric", "Symmetric")
+    post hyp ("`h'") ("`eq'") ("`coef'") ("`pred'") (`b') (`se') (`p') ("`dec'") (e(ar2p)) (e(hansenp))
+end
+qui est restore G6a
+posthyp "H1a" "(6a)" "CSD+"                 "-" neg CSDP 1
+qui est restore G6b
+posthyp "H1b" "(6b)" "CSD-"                 "+" pos CSDN 1
+qui est restore G6
+posthyp "Asym" "(6)" "CSD+ + CSD- = 0"      "!=0" two CSDP 1 CSDN 1
+qui est restore G7
+posthyp "H2a-G" "(7)" "CSD+ x Growth"       "-" neg CSDP_GROW 1
+posthyp "H2a-D" "(7)" "CSD+ x Decline"      "-" neg CSDP_DEC 1
+qui est restore G8
+posthyp "H2b" "(8)" "CSD- x Maturity"       "+" pos CSDN_MAT 1
+qui est restore G9
+posthyp "H3a" "(9)" "CSD+ x MA"             "+" pos CSDP_MA 1
+qui est restore G10
+posthyp "H3a-GD" "(10)" "CSD+ x MA x GD"    "+" pos CSDP_MA_GD 1
+qui est restore G11
+posthyp "H3b" "(11)" "CSD- x MA"            "-" neg CSDN_MA 1
+qui est restore G12
+posthyp "H3b-MAT" "(12)" "CSD- x MA x MAT"  "-" neg CSDN_MA_MAT 1
+postclose hyp
+preserve
+    use "$OUT/T5_hypothesis_summary.dta", clear
+    format estimate se %9.4f
+    format p ar2p hansenp %6.4f
+    di as res _n "{hline 100}" _n "HYPOTHESIS DECISIONS (one-sided p in the predicted direction; two-step System GMM)" _n "{hline 100}"
+    list, noobs sep(0) abbrev(12)
+    di as txt "Valid only if AR(2) p > 0.10 and Hansen p > 0.10 for that model (Section 3.8.4)."
+    export excel using "$OUT/Tables.xlsx", sheet("T5_hypotheses", replace) firstrow(variables)
+restore
+
+*------------------------------------------------------------------------------
 * C. Tables
 *------------------------------------------------------------------------------
 local KEEP "L.InvEff CSDP CSDN UNDERLEV OVERLEV MA GROW DEC MAT GD CSDP_GROW CSDP_DEC CSDN_MAT CSDP_MA CSDN_MA CSDP_GD MA_GD CSDP_MA_GD MA_MAT CSDN_MA_MAT $XCTRL"
