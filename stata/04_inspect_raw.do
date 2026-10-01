@@ -77,7 +77,7 @@ foreach f in تلفیقی حسابرسیشده تجدیدارائهشده نوع
     cap confirm variable `f'
     if _rc continue
     preserve
-        contract `f', freq(rows) zero
+        contract `f', freq(rows)
         export excel using "`OUTX'", sheet("flag`k'", replace) firstrow(variables)
     restore
 }
