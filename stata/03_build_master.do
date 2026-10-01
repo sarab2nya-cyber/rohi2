@@ -5,7 +5,7 @@
 * the .dta is used only when the .xlsx is not there). Linking columns:
 *   all seven files: Symbol, Year;  File1-3: also بازار, نماد;  File5-6: also
 *   صنعت, طبقه, نماد;  Main: also شرکت, industry codes, صنعت, طبقه, بازار, نماد.
-* Symbol is the key common to every file and is used first.
+* Firms are identified by Symbol (company label) linked with the database code.
 *     Main_1380_1402.xlsx
 *     File1_1403.xlsx  File2_1403.xlsx  ...  File6_1403.xlsx
 * Run this file on its own (Do-file Editor > Execute, nothing selected).
@@ -245,59 +245,91 @@ forvalues j = 0/`K' {
     save `p`j'', replace
 }
 
-use `p0', clear
-foreach key in _ksy _ktk {
-    preserve
-        keep `key' $FIRMKEY
-        drop if `key' == "" | missing($FIRMKEY)
-        bys `key' ($FIRMKEY): keep if _n == _N
-        rename $FIRMKEY _c`key'
-        tempfile L`key'
-        save `L`key''
-    restore
-}
-forvalues j = 0/`K' {
-    use `p`j'', clear
-    local f : word `=`j' + 1' of `files'
-    qui count if !missing($FIRMKEY)
-    local n0 = r(N)
-    foreach key in _ksy _ktk {
-        qui merge m:1 `key' using `L`key'', keep(master match) nogen
-        qui replace $FIRMKEY = _c`key' if missing($FIRMKEY)
-        drop _c`key'
-    }
-    qui count if !missing($FIRMKEY)
-    post mrep ("`f'") ("company code found from ticker or name") (r(N) - `n0') (.)
-    save `p`j'', replace
-}
-* registry of companies that are not in the main file
+*------------------------------------------------------------------------------
+* Firm identity. A firm is the connected group of rows that share a company
+* label (Symbol; the ticker only where Symbol is empty) or a database company
+* code (شرکت, main file). A firm whose name changed keeps its code, and a firm
+* whose code is inconsistent keeps its name, so neither splits into two firms.
+*------------------------------------------------------------------------------
 clear
-gen str1 _kname = ""
+gen str1 _ksy = ""
 forvalues j = 0/`K' {
     preserve
         use `p`j'', clear
-        keep if missing($FIRMKEY)
-        gen _kname = cond(_ksy != "", _ksy, _ktk)
-        keep _kname
+        keep _ksy _ktk $FIRMKEY
         tempfile u
         save `u'
     restore
     append using `u'
 }
-duplicates drop _kname, force
-drop if _kname == ""
-sort _kname
-gen double _cnew = 9000000 + _n
-post mrep ("All") ("companies not in the 1380-1402 file (new codes 9000001+)") (_N) (.)
-tempfile reg
-save `reg'
+gen _node = cond(_ksy != "", _ksy, _ktk)
+drop if _node == "" & missing($FIRMKEY)
+keep _node $FIRMKEY
+duplicates drop
+gen long _g = _n
+local changed = 1
+local it = 0
+while `changed' & `it' < 50 {
+    local ++it
+    local changed = 0
+    bys _node: egen long _m = min(_g) if _node != ""
+    qui count if !missing(_m) & _m < _g
+    if r(N) local changed = 1
+    qui replace _g = _m if !missing(_m) & _m < _g
+    drop _m
+    bys $FIRMKEY: egen long _m = min(_g) if !missing($FIRMKEY)
+    qui count if !missing(_m) & _m < _g
+    if r(N) local changed = 1
+    qui replace _g = _m if !missing(_m) & _m < _g
+    drop _m
+}
+egen long _fid = group(_g)
+* diagnostics: firms with several names or several database codes
+preserve
+    bys _fid _node: gen byte _t1 = _n == 1 & _node != ""
+    bys _fid $FIRMKEY: gen byte _t2 = _n == 1 & !missing($FIRMKEY)
+    bys _fid: egen int nnames = total(_t1)
+    bys _fid: egen int ncodes = total(_t2)
+    bys _fid: keep if _n == 1
+    qui count if nnames > 1
+    post mrep ("All") ("firms with more than one company label (name changes)") (r(N)) (.)
+    qui count if ncodes > 1
+    post mrep ("All") ("firms with more than one database code") (r(N)) (.)
+    qui su nnames
+    post mrep ("All") ("largest number of labels in one firm (check if large)") (r(max)) (.)
+restore
+preserve
+    keep _node _fid
+    drop if _node == ""
+    duplicates drop _node, force
+    tempfile LN
+    save `LN'
+restore
+preserve
+    keep $FIRMKEY _fid
+    drop if missing($FIRMKEY)
+    duplicates drop $FIRMKEY, force
+    tempfile LC
+    save `LC'
+restore
+qui su _fid
+post mrep ("All") ("firms identified across the seven files") (r(max)) (.)
+
 forvalues j = 0/`K' {
     use `p`j'', clear
     local f : word `=`j' + 1' of `files'
-    gen _kname = cond(_ksy != "", _ksy, _ktk)
-    qui merge m:1 _kname using `reg', keep(master match) nogen
-    qui replace $FIRMKEY = _cnew if missing($FIRMKEY)
-    drop _cnew _kname
+    gen _node = cond(_ksy != "", _ksy, _ktk)
+    qui merge m:1 _node using `LN', keep(master match) nogen
+    rename _fid _f1
+    qui merge m:1 $FIRMKEY using `LC', keep(master match) nogen
+    qui replace _f1 = _fid if missing(_f1)
+    drop _fid _node
+    rename $FIRMKEY CompanyCode_db
+    gen double $FIRMKEY = _f1
+    drop _f1
+    qui count if missing($FIRMKEY)
+    if r(N) post mrep ("`f'") ("rows without a firm (no label, ticker or code)") (r(N)) (.)
+    qui drop if missing($FIRMKEY)
     onerow "`f'"
     save `p`j'', replace
 }
@@ -414,7 +446,7 @@ foreach v in $TICKER Symbol صنعت طبقه بازار {
     bys $FIRMKEY (_negY): replace `v' = `v'[_n-1] if `v' == "" & _n > 1 & !missing($FIRMKEY)
     drop _negY
 }
-foreach v in کدصنعتجزئی کدصنعتکلی {
+foreach v in CompanyCode_db کدصنعتجزئی کدصنعتکلی {
     cap confirm numeric variable `v'
     if _rc continue
     bys $FIRMKEY (Year): replace `v' = `v'[_n-1] if missing(`v') & _n > 1 & !missing($FIRMKEY)
@@ -434,7 +466,7 @@ foreach v of varlist _all {
     if r(N) == 0 drop `v'
 }
 local ids ""
-foreach v in $FIRMKEY $TICKER Symbol Year کدصنعتکلی کدصنعتجزئی صنعت طبقه بازار تاریخمصوب نوع تلفیقی حسابرسیشده تجدیدارائهشده {
+foreach v in $FIRMKEY CompanyCode_db Symbol $TICKER Year کدصنعتکلی کدصنعتجزئی صنعت طبقه بازار تاریخمصوب نوع تلفیقی حسابرسیشده تجدیدارائهشده {
     cap confirm variable `v'
     if !_rc local ids "`ids' `v'"
 }
