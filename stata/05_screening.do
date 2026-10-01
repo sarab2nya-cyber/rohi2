@@ -16,10 +16,12 @@
 *
 * Screening (Section 3.1)
 *   1  all firm-years $SCR_Y0-$SCR_Y1 in the database (TSE and Farabourse)
-*   2  less Farabourse firms                       (column «بازار»)
-*   3  less financial firms                        (industry name keywords)
-*   4  less firm-years without financial statements in the database
-*   5  less book equity <= 0
+*   2  less Farabourse firms and firms with no market   (column «بازار»)
+*   3  less financial firms                              (industry keywords)
+*   4  less printing, retail, utilities, auxiliary financial activities
+*   5  less firm-years without financial statements
+*   6  less firm-years with book equity <= 0
+*   Industries with fewer than $SCR_MINFIRMS firms are pooled into code 999.
 * All firms have an Esfand year-end (sample characteristic, no step). No
 * minimum number of years: a firm-year enters estimation when its lags exist.
 *
@@ -59,6 +61,8 @@ if "$ROOT" == "" {
     global SCR_FARA "فرا"
     global SCR_FINWORDS "بانک|بیمه|لیزینگ|سرمایهگذاری|هلدینگ|چندرشته|کارگزاری|صندوق|واسطهگری|اعتباری|تامینسرمایه"
     global SCR_FINCODES ""
+    global SCR_EXWORDS "چاپ|خردهفروشی|عرضهبرق|کمکیبهنهادهایمالی"
+    global SCR_MINFIRMS 2
     global SCREEN_ONLY 1
 }
 cap mkdir "$OUT"
@@ -210,6 +214,26 @@ preserve
 restore
 drop if _finf
 scrpost 3 "Less: banks, insurance, leasing, investment, holding and other financial firms"
+
+*------------------------------------------------------------------------------
+* Step 4: other excluded industries (printing, retail, utilities - electricity,
+*         gas, steam and hot water -, activities auxiliary to financial
+*         intermediation); keywords in SCR_EXWORDS
+*------------------------------------------------------------------------------
+gen byte _ex = ustrregexm(_n_Industry, "$SCR_EXWORDS")
+bys FirmCode: egen byte _exf = max(_ex)
+preserve
+    keep if _exf
+    if _N {
+        contract IndID Industry, freq(firmyears)
+        di as txt _n "Other EXCLUDED industries - check this list:"
+        list, noobs sep(0)
+        export excel using "$OUT/Screening_check.xlsx", sheet("other_excluded") firstrow(variables) sheetmodify
+    }
+    else di as err "No industry matched SCR_EXWORDS - check the keywords."
+restore
+drop if _exf
+scrpost 4 "Less: printing, retail, utilities and auxiliary financial activities"
 postclose scr
 
 *------------------------------------------------------------------------------
@@ -362,7 +386,6 @@ order FirmCode Symbol Year Industry IndID HasData InSample Note AUDITED Age INF 
     INV IA PPE TA TD BV Sales COGS SGA OI FinExp CFO CFI CFF MV
 sort FirmCode Year
 compress
-export excel using "`XL'", sheet("Data") firstrow(variables) replace
 
 *------------------------------------------------------------------------------
 * Screening table: Panel A sample construction, Panel B data availability
@@ -381,6 +404,9 @@ preserve
     post tbl ("A") ("3") ("Less: banks, insurance, leasing, investment, holding, brokerage and fund companies") ///
         ("حذف شرکت‌های مالی: بانک، بیمه، لیزینگ، سرمایه‌گذاری، هلدینگ، کارگزاری، صندوق") ///
         (firms[3] - firms[2]) (firmyears[3] - firmyears[2])
+    post tbl ("A") ("4") ("Less: printing, retail, utilities (electricity, gas, steam, hot water) and auxiliary financial activities") ///
+        ("حذف صنایع چاپ، خرده‌فروشی، عرضه برق، گاز، بخار و آب گرم، و فعالیت‌های کمکی به نهادهای مالی واسط") ///
+        (firms[4] - firms[3]) (firmyears[4] - firmyears[3])
 restore
 egen byte _tf = tag(FirmCode)
 qui count if _tf
@@ -388,10 +414,10 @@ local F = r(N)
 post tbl ("A") ("") ("TSE non-financial firms: full panel (`F' firms x `NY' years)") ///
     ("شرکت‌های بورسی غیرمالی: پنل کامل (شرکت × ۲۴ سال)") (`F') (_N)
 qui count if !HasData
-post tbl ("A") ("4") ("Less: firm-years without financial statements (not yet listed, delisted or not reported)") ///
+post tbl ("A") ("5") ("Less: firm-years without financial statements (not yet listed, delisted or not reported)") ///
     ("حذف سال-شرکت‌هایی که صورت مالی ندارند (هنوز پذیرفته نشده، خارج‌شده یا گزارش‌نشده)") (.) (-r(N))
 qui count if HasData & BV <= 0
-post tbl ("A") ("5") ("Less: firm-years with zero or negative book equity") ///
+post tbl ("A") ("6") ("Less: firm-years with zero or negative book equity") ///
     ("حذف سال-شرکت‌هایی که حقوق صاحبان سهام صفر یا منفی دارند") (.) (-r(N))
 bys FirmCode: egen int _ny = total(InSample)
 egen byte _tfs = tag(FirmCode) if _ny > 0
@@ -428,11 +454,118 @@ post tbl ("B") ("") ("  Of these: missing years inside their period") ///
 postclose tbl
 drop _tf _tfs _ny _first _last _gap
 
-* data for the models: usable firm-years only (gaps are handled by the panel lags)
+*------------------------------------------------------------------------------
+* Final sample only: firm-years without statements or with book equity <= 0
+* are removed (no empty rows). Gaps are handled by the panel lags.
+*------------------------------------------------------------------------------
+keep if InSample
+drop HasData InSample Note
+
+*------------------------------------------------------------------------------
+* Industries with fewer than $SCR_MINFIRMS firms in the final sample are pooled
+* into one group "سایر صنایع" (Other industries), code 999
+*------------------------------------------------------------------------------
+gen double IndID_orig    = IndID
+gen        Industry_orig = Industry
+egen byte _tf = tag(FirmCode)
+bys IndID: egen int _nf = total(_tf)
+gen byte _pool = _nf < $SCR_MINFIRMS
 preserve
-    keep if InSample
-    drop HasData InSample Note
+    keep if _pool & _tf
+    if _N {
+        di as txt _n "Industries with fewer than $SCR_MINFIRMS firms (pooled into Other industries):"
+        list IndID Industry, noobs sep(0)
+    }
+    keep Industry
+    duplicates drop
+    local pooled ""
+    forvalues i = 1/`=_N' {
+        local pooled = cond("`pooled'" == "", Industry[`i'], "`pooled'; " + Industry[`i'])
+    }
+restore
+replace IndID    = 999 if _pool
+replace Industry = "سایر صنایع" if _pool
+drop _tf _nf _pool
+
+* industry names in English (keywords on the normalised Persian name)
+gen _k = ustrregexra(Industry, "[\x{200C}\x{200F}\s\-،,]", "")
+replace _k = ustrregexra(_k, "\x{064A}", "\x{06CC}")
+replace _k = ustrregexra(_k, "\x{0643}", "\x{06A9}")
+replace _k = ustrregexra(_k, "[\x{0622}\x{0623}\x{0625}]", "\x{0627}")
+gen Industry_EN = ""
+local R1  "سایرصنایع|Other industries"
+local R2  "غذایی|Food products and beverages"
+local R3  "قندوشکر|قند|Sugar"
+local R4  "دارو|Pharmaceuticals"
+local R5  "استخراجنفت|Oil and gas extraction services"
+local R6  "نفتی|پالایش|کک|Refined petroleum products and coke"
+local R7  "شیمیایی|Chemical products"
+local R8  "کانههایفلزی|کانهفلزی|Metal ore mining"
+local R9  "زغال|Coal mining"
+local R10 "معادن|Other mining"
+local R11 "فلزاتاساسی|Basic metals"
+local R12 "محصولاتفلزی|Fabricated metal products"
+local R13 "سیمان|Cement, lime and gypsum"
+local R14 "کاشی|سرامیک|Tiles and ceramics"
+local R15 "کانیغیرفلزی|Other non-metallic mineral products"
+local R16 "لاستیک|پلاستیک|Rubber and plastic products"
+local R17 "خودرو|Motor vehicles and parts"
+local R18 "تجهیزاتحملونقل|Other transport equipment"
+local R19 "برقی|Electrical machinery and apparatus"
+local R20 "ماشینالات|Machinery and equipment"
+local R21 "ارتباطی|Communication equipment"
+local R22 "پزشکی|اپتیکی|اندازهگیری|Medical, optical and measuring instruments"
+local R23 "منسوجات|نساجی|Textiles"
+local R24 "چرم|Leather products"
+local R25 "چوب|Wood products"
+local R26 "کاغذ|Paper products"
+local R27 "انبوهسازی|املاک|مستغلات|Real estate and construction"
+local R28 "پیمانکاری|Industrial contracting"
+local R29 "مخابرات|Telecommunications"
+local R30 "رایانه|اطلاعاتوارتباطات|Computer and information services"
+local R31 "حملونقل|انبارداری|Transport and storage"
+local R32 "مهندسی|Technical and engineering services"
+local R33 "هتل|رستوران|Hotels and restaurants"
+local R34 "زراعت|کشاورزی|دامپروری|Agriculture"
+local R35 "عمدهفروشی|بازرگانی|Wholesale trade"
+local R36 "اموزش|Education"
+local R37 "بهداشت|درمان|سلامت|Health services"
+forvalues i = 1/37 {
+    local en = ustrregexrf("`R`i''", "^.*\|", "")
+    local kw = ustrregexrf("`R`i''", "\|[^|]*$", "")
+    replace Industry_EN = "`en'" if Industry_EN == "" & ustrregexm(_k, "`kw'")
+}
+drop _k
+qui count if Industry_EN == ""
+if r(N) di as txt "Note: " r(N) " firm-years have an industry without an English name; add it in the Industries sheet."
+
+* data for the models
+preserve
+    drop Industry_EN IndID_orig Industry_orig
     save "$OUT/screened_data.dta", replace
+restore
+
+* Data sheet (final sample, sorted by firm and year)
+order FirmCode Symbol Year IndID Industry Industry_EN IndID_orig Industry_orig
+sort FirmCode Year
+export excel using "`XL'", sheet("Data") firstrow(variables) replace
+
+* Industries sheet: code, Persian and English name, firms and firm-years
+preserve
+    egen byte _tf = tag(FirmCode)
+    collapse (sum) firms = _tf (count) firmyears = Year, by(IndID Industry Industry_EN)
+    sort IndID
+    gen note = ""
+    replace note = "Pooled industries with fewer than $SCR_MINFIRMS firms: `pooled'" if IndID == 999
+    label variable IndID       "Industry code"
+    label variable Industry    "Industry (Persian)"
+    label variable Industry_EN "Industry (English)"
+    label variable firms       "Firms"
+    label variable firmyears   "Firm-years"
+    label variable note        "Note"
+    di as res _n "INDUSTRIES IN THE FINAL SAMPLE"
+    list, noobs sep(0) abbrev(15)
+    export excel using "`XL'", sheet("Industries") firstrow(varlabels) sheetmodify
 restore
 
 * Screening sheets: English and Persian
@@ -457,10 +590,10 @@ restore
 
 * Firms per year
 preserve
-    collapse (sum) firms = InSample (count) panel = InSample, by(Year)
+    egen byte _tf = tag(FirmCode Year)
+    collapse (sum) firms = _tf, by(Year)
     label variable Year  "Fiscal year"
-    label variable firms "Firms with usable data"
-    label variable panel "Firms in the panel"
+    label variable firms "Firms in the final sample"
     di as res _n "Firms per year in the final sample"
     list, noobs sep(0)
     export excel using "`XL'", sheet("Firms_per_year") firstrow(varlabels) sheetmodify
@@ -469,15 +602,14 @@ restore
 * Variables
 preserve
     clear
-    input str10 variable str90 definition str110 source
+    input str14 variable str90 definition str110 source
     "FirmCode" "Company code"                                     "Database company code (شرکت); 9000001+ = firm not in the 1380-1402 file"
     "Symbol"   "Ticker"                                           "نماد"
     "Year"     "Fiscal year (Esfand year-end)"                    "Year"
     "Industry" "Industry (general classification)"                "صنعت"
-    "IndID"    "Industry code (general)"                          "کدصنعتکلی"
-    "HasData"  "1 = financial statements exist for this firm-year" "جمعکلداراییها not empty"
-    "InSample" "1 = firm-year used in the analysis"               "HasData = 1 and book equity > 0"
-    "Note"     "Reason a firm-year is not used"                    "-"
+    "IndID"    "Industry code (999 = pooled other industries)"    "کدصنعتکلی"
+    "Industry_EN" "Industry (English)"                            "translated from صنعت"
+    "IndID_orig" "Industry code before pooling single-firm industries" "کدصنعتکلی"
     "AUDITED"  "1 = audited statements, 0 = unaudited"            "حسابرسیشده"
     "Age"      "Firm age in years"                                "Year - FoundYear (Firm_Age.xlsx)"
     "INF"      "Annual CPI inflation (%)"                         "Inflation.xlsx"
