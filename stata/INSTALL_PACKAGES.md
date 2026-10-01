@@ -1,64 +1,51 @@
-# نصب بسته‌های Stata (برای Stata 16 و 17)
+# نصب بسته‌های Stata بدون اینترنت و بدون Java
 
-اسکریپت به این بسته‌های غیررسمی نیاز دارد:
-`ftools`, `require`, `reghdfe`, `winsor2`, `estout`, `coefplot`, `xtabond2`, `boottest`
+## علت خطای `Java installation not found r(5004)`
 
-خطای `command reghdfe is unrecognized` یعنی `reghdfe` نصب نشده است.
+Stata 17 برای دانلود از اینترنت (دستورهای `ssc install` و `net install` با آدرس https) از Java داخلی خودش استفاده می‌کند. در نصب شما Java وجود ندارد یا خراب است، بنابراین هیچ دانلودی از داخل Stata انجام نمی‌شود. این مشکل به کد پروژه ربطی ندارد.
 
-## روش ۱: نصب آنلاین (اگر Stata به اینترنت دسترسی دارد)
+راه ساده این است که بسته‌ها را از یک پوشه محلی نصب کنید. همه بسته‌های لازم در پوشه `stata_pkgs` همین پروژه آماده‌اند.
 
-این دستورها را یک بار در پنجره Command اجرا کنید:
+## مراحل نصب (یک بار کافی است)
+
+1. فایل zip پروژه را باز کنید و پوشه `stata_pkgs` را در این مسیر کپی کنید:
+   `C:\Users\Rohi\Desktop\stata_pkgs`
+   داخل این پوشه باید زیرپوشه‌های `ftools`، `require`، `reghdfe`، `estout`، `xtabond2` و `boottest` باشند.
+
+2. فایل `01_master_CSD_MA_InvEff.do` را اجرا کنید. اسکریپت خودش بسته‌ها را از این پوشه نصب می‌کند و برای این کار به اینترنت نیاز ندارد.
+
+اگر پوشه را جای دیگری گذاشتید، در بخش 0 do-file این خط را اصلاح کنید:
+```stata
+global PKGDIR    "C:\Users\Rohi\Desktop\stata_pkgs"
+```
+
+## نصب دستی (اختیاری)
+
+اگر خواستید بسته‌ها را جدا از اسکریپت نصب کنید، این دستورها را در پنجره Command اجرا کنید:
 
 ```stata
 sysdir set PLUS "C:\Users\Rohi\Desktop\plus"
-ssc install ftools,  replace
-ssc install require, replace
-ssc install reghdfe, replace
-ssc install winsor2, replace
-ssc install estout,  replace
-ssc install coefplot, replace
-ssc install xtabond2, replace
-ssc install boottest, replace
+local D "C:\Users\Rohi\Desktop\stata_pkgs"
+foreach p in ftools require reghdfe estout xtabond2 boottest {
+    net install `p', from("`D'\\`p'") replace
+}
 ftools, compile
 reghdfe, compile
 ```
 
-اگر `ssc install` خطا داد، `ftools` و `reghdfe` را از GitHub نصب کنید:
-
-```stata
-net install ftools,  from("https://raw.githubusercontent.com/sergiocorreia/ftools/master/src/")  replace
-net install reghdfe, from("https://raw.githubusercontent.com/sergiocorreia/reghdfe/master/src/") replace
-ftools, compile
-reghdfe, compile
-```
-
-برای بررسی نصب، این را اجرا کنید. باید بدون خطا یک جدول رگرسیون نشان دهد:
+برای بررسی نصب، این را اجرا کنید. باید یک جدول رگرسیون نمایش داده شود:
 
 ```stata
 sysuse auto, clear
 reghdfe price weight, absorb(rep78)
 ```
 
-## روش ۲: نصب آفلاین (اگر اینترنت Stata فیلتر یا قطع است)
+## نکات
 
-1. روی یک کامپیوتر که اینترنت دارد، این دو مخزن را دانلود کنید: دکمه سبز **Code** و بعد **Download ZIP**.
-   - https://github.com/sergiocorreia/ftools
-   - https://github.com/sergiocorreia/reghdfe
-2. فایل‌ها را از حالت فشرده خارج کنید، مثلاً در `C:\Users\Rohi\Desktop\pkgs\`.
-3. در Stata این دستورها را اجرا کنید:
-
-```stata
-sysdir set PLUS "C:\Users\Rohi\Desktop\plus"
-net install ftools,  from("C:\Users\Rohi\Desktop\pkgs\ftools-master\src")  replace
-net install reghdfe, from("C:\Users\Rohi\Desktop\pkgs\reghdfe-master\src") replace
-ftools, compile
-reghdfe, compile
-```
-
-4. برای بسته‌های دیگر (`winsor2`، `estout`، `coefplot`، `xtabond2`، `boottest`، `require`):
-   1. فایل‌های `.ado`، `.sthlp` و `.mata` (اگر دارد) را از آرشیو SSC دانلود کنید. آدرس آرشیو این شکلی است: `http://fmwww.bc.edu/repec/bocode/w/` که حرف آخر آن، حرف اول نام بسته است.
-   2. فایل‌ها را مستقیماً در پوشه `C:\Users\Rohi\Desktop\plus` کپی کنید. اسکریپت این پوشه را با `adopath +` به مسیر جستجوی Stata اضافه می‌کند.
-
-## نکته
-
-اسکریپت اصلی حالا در ابتدا خودش نصب را امتحان می‌کند. اگر بسته‌ای هنوز نصب نشده باشد یا `reghdfe` اجرا نشود، با یک پیام واضح متوقف می‌شود. این بهتر از آن است که اجرا وسط کار با خطا قطع شود.
+- `winsor2` دیگر لازم نیست، چون do-file یک نسخه داخلی از آن دارد. `coefplot` هم استفاده نمی‌شود.
+- `xtabond2` و `boottest` اختیاری‌اند و فقط در بخش آزمون‌های استحکام به کار می‌روند. اگر نصب نشوند، همان بخش‌ها رد می‌شوند و بقیه اسکریپت اجرا می‌شود.
+- اگر بعداً خواستید Java را درست کنید تا `ssc install` کار کند، Java 11 یا 17 (مثلاً Eclipse Temurin) را نصب کنید. بعد در Stata دستور زیر را اجرا کنید (مسیر را با مسیر نصب خودتان جایگزین کنید). برای این پروژه لازم نیست.
+  ```stata
+  set java_home "C:\Program Files\Eclipse Adoptium\jdk-17...\"
+  ```
+- منابع بسته‌ها: reghdfe/ftools/require از Sergio Correia، estout از Ben Jann، xtabond2/boottest از David Roodman (نسخه‌های GitHub).

@@ -25,8 +25,9 @@
 * Optional columns (used automatically if present):
 *   Country (string) or CountryID (numeric), Capex, Div (cash dividends)
 *
-* Packages: reghdfe ftools winsor2 estout coefplot xtabond2 boottest
-*           (auto-installed from SSC below if missing). Stata 16+ (Mata
+* Packages: ftools require reghdfe estout (required); xtabond2 boottest
+*           (optional). Installed offline from the stata_pkgs folder (see
+*           INSTALL_PACKAGES.md). winsor2 is built in. Stata 16+ (Mata
 *           LinearProgram() is used for DEA, so the user-written -dea- is NOT
 *           needed).
 *==============================================================================
@@ -54,31 +55,37 @@ global CLUST     "FirmID"
 
 cap mkdir "$OUT"
 cd "$ROOT"
-* Install community packages INTO the plus folder above (so they are found
-* every session), from SSC first and GitHub as a fallback for ftools/reghdfe.
+
+* Community packages are installed from the LOCAL folder stata_pkgs (shipped
+* with this project) - no internet and no Java needed. Each package sits in
+* its own sub-folder, e.g. $PKGDIR\reghdfe\reghdfe.pkg. SSC is tried only if
+* the local folder is missing.
+global PKGDIR    "C:\Users\Rohi\Desktop\stata_pkgs"
 cap mkdir "$PLUS"
 sysdir set PLUS "$PLUS"
 adopath + "$PLUS"
-local PKGS "ftools require reghdfe winsor2 estout coefplot xtabond2 boottest"
-foreach p of local PKGS {
+local REQ "ftools require reghdfe estout"      // required
+local OPT "xtabond2 boottest"                   // optional (robustness only)
+foreach p in `REQ' `OPT' {
     cap which `p'
     if _rc {
-        di as txt "Installing `p' from SSC ..."
-        cap noi ssc install `p', replace
-        cap which `p'
-        if _rc & inlist("`p'", "ftools", "reghdfe") {
-            di as txt "SSC failed - trying GitHub for `p' ..."
-            cap noi net install `p', replace ///
-                from("https://raw.githubusercontent.com/sergiocorreia/`p'/master/src/")
+        cap confirm file "$PKGDIR\`p'\`p'.pkg"
+        if !_rc {
+            di as txt "Installing `p' from $PKGDIR ..."
+            cap noi net install `p', from("$PKGDIR\`p'") replace
+        }
+        else {
+            di as txt "Local copy of `p' not found - trying SSC ..."
+            cap noi ssc install `p', replace
         }
     }
 }
 cap noi ftools, compile
 cap noi reghdfe, compile
 
-* Stop early with a clear message if anything is still missing
+* Stop early with a clear message if anything required is still missing
 local MISSING ""
-foreach p of local PKGS {
+foreach p of local REQ {
     cap which `p'
     if _rc local MISSING "`MISSING' `p'"
 }
@@ -89,9 +96,29 @@ clear
 if "`MISSING'" != "" | !`RHDFE_OK' {
     di as err _n "Required packages are missing or not working:`MISSING'"
     if !`RHDFE_OK' di as err "reghdfe is installed but does not run (usually ftools/require missing)."
-    di as err "Install them manually (see stata/INSTALL_PACKAGES.md), then re-run."
+    di as err "Check that PKGDIR points to the unzipped stata_pkgs folder (see stata/INSTALL_PACKAGES.md)."
     exit 199
 }
+foreach p of local OPT {
+    cap which `p'
+    if _rc di as txt "Note: optional package `p' not installed - its robustness block will be skipped."
+}
+
+* Built-in winsorizer (replaces the SSC package winsor2; same syntax as used
+* here: winsor2 varlist, replace cuts(lo hi))
+cap program drop winsor2
+program define winsor2
+    syntax varlist(numeric), CUTS(numlist min=2 max=2) [REPLACE]
+    gettoken lo hi : cuts
+    foreach v of local varlist {
+        qui _pctile `v', percentiles(`lo' `hi')
+        local a = r(r1)
+        local b = r(r2)
+        if missing(`a', `b') continue
+        qui replace `v' = `a' if `v' < `a' & !missing(`v')
+        qui replace `v' = `b' if `v' > `b' & !missing(`v')
+    }
+end
 
 cap log close _all
 log using "$OUT\master_log.smcl", replace name(master)
