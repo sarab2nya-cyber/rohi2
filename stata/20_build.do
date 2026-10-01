@@ -12,7 +12,7 @@ cap program drop buildpanel
 program define buildpanel
     syntax [, CUTS(numlist min=2 max=2) TRIM MINCELL(integer 10) MINDEA(integer 15) ///
         RTS(string) EXPMODEL(string) INVDEF(string) LEVDEF(string) TARGET(string) ///
-        LCDEF(string) TAG(string) DEAFRONT(string) VERBOSE]
+        LCDEF(string) TAG(string) DEAFRONT(string) TIMING(string) VERBOSE]
     if "`cuts'"     == "" local cuts     "1 99"
     if "`rts'"      == "" local rts      "vrs"
     if "`expmodel'" == "" local expmodel "biddle"
@@ -23,6 +23,8 @@ program define buildpanel
     if "`lcdef'"    == "" local lcdef    "cons"
     if "`deafront'" == "" local deafront "ind"     // DEA frontier: ind (all years) | indyr
     if "`tag'"      == "" local tag      "main"
+    if "`timing'"   == "" local timing   "$TIMING"
+    if "`timing'"   == "" local timing   "lag"      // CSD and MA at t-1
     local trimopt = cond("`trim'" != "", "trim", "")
     local V = cond("`verbose'" != "", "noisily", "quietly")
     local W "cuts(`cuts') `trimopt' tag(`tag')"
@@ -59,7 +61,11 @@ program define buildpanel
     gen double PROFIT = OI / TA
     gen double FCF    = CFO / TA
     gen double lnAge  = ln(1 + Age)
-    wins Invest SalesGrowth TDA IOB COL LTA MTB PROFIT FCF, `W'
+    * additional Biddle et al. (2009) controls
+    gen double TANG   = PPE / TA              // tangibility
+    gen double SATA   = Sales / TA            // for sales volatility
+    gen byte   LOSS   = OI < 0 if !missing(OI)
+    wins Invest SalesGrowth TDA IOB COL LTA MTB PROFIT FCF TANG SATA, `W'
 
     * INDLEV: median TDA of the industry-year, excluding the firm itself
     egen long INDYR = group(IndID Year)
@@ -79,9 +85,22 @@ program define buildpanel
     drop `tv'
 
     sort FirmID Year
-    foreach v in IOB COL LTA MTB PROFIT FCF INDLEV INF {
+    foreach v in IOB COL LTA MTB PROFIT FCF INDLEV INF TANG LOSS {
         gen double L_`v' = L.`v'
     }
+    * volatility of CFO/TA and Sales/TA over t-3..t-1 (three observations)
+    foreach p in CFO:FCF SALES:SATA {
+        gettoken nm src : p, parse(":")
+        local src = substr("`src'", 2, .)
+        gen double _v1 = L.`src'
+        gen double _v2 = L2.`src'
+        gen double _v3 = L3.`src'
+        egen double L_SD`nm' = rowsd(_v1 _v2 _v3)
+        egen byte _nv = rownonmiss(_v1 _v2 _v3)
+        replace L_SD`nm' = . if _nv < 3
+        drop _v1 _v2 _v3 _nv
+    }
+    wins L_SDCFO L_SDSALES, `W'
 
     *--------------------------------------------------------------------------
     * 3.3 Target leverage, Eq. (2), and deviation, Eqs. (3)-(4)
@@ -231,6 +250,22 @@ program define buildpanel
     gen double MA_avg = (MA + L.MA) / 2
 
     *--------------------------------------------------------------------------
+    * Timing (Section 3.7): main = CSD and MA at t-1, i.e. the deviation and the
+    * ability observed at the start of the year in which the investment is
+    * made. CSDev itself stays at t (descriptives, Eq. 13); CSDX is the
+    * deviation entering the investment models.
+    *--------------------------------------------------------------------------
+    gen double CSDX = CSDev
+    if "`timing'" == "lag" {
+        sort FirmID Year
+        foreach v in CSDX CSDP CSDN OVERLEV UNDERLEV MA MA_rank MA_avg {
+            gen double _lv = L.`v'
+            replace `v' = _lv
+            drop _lv
+        }
+    }
+
+    *--------------------------------------------------------------------------
     * Dummies, interactions, estimation-sample flag
     *--------------------------------------------------------------------------
     tab Year, gen(yd_)
@@ -242,8 +277,10 @@ program define buildpanel
     drop ind_1
     buildint
     sort FirmID Year
-    gen byte EST = !missing(InvEff, L.InvEff, CSDP, CSDN, MA, STAGE_L, ///
-        L_LTA, L_MTB, L_PROFIT, L_FCF) & Year >= 1395
+    gen byte EST = !missing(InvEff, L.InvEff, CSDP, CSDN, MA, STAGE_L) & Year >= 1395
+    foreach v of global XCTRL {
+        replace EST = 0 if missing(`v')
+    }
     }
     xtset FirmID Year
 end
@@ -312,13 +349,15 @@ label var Invest  "Investment"
 label var SalesGrowth "Sales growth"
 label var TDA     "Total debt / total assets"
 label var TDAhat  "Target leverage (Eq. 2)"
-label var CSDev   "Capital structure deviation"
-label var CSDP    "CSD+ (over-leverage)"
-label var CSDN    "CSD- (under-leverage)"
-label var OVERLEV  "Over-leveraged (CSDev > 0)"
-label var UNDERLEV "Under-leveraged (CSDev < 0)"
+local TT = cond("$TIMING" == "lag", " (t-1)", "")
+label var CSDev   "Capital structure deviation (t)"
+label var CSDX    "Capital structure deviation`TT'"
+label var CSDP    "CSD+ (over-leverage)`TT'"
+label var CSDN    "CSD- (under-leverage)`TT'"
+label var OVERLEV  "Over-leveraged`TT'"
+label var UNDERLEV "Under-leveraged`TT'"
 label var FE      "DEA firm efficiency"
-label var MA      "Managerial ability (centered)"
+label var MA      "Managerial ability (centered)`TT'"
 label var LTA     "Size: ln(real total assets)"
 label var MTB     "Market-to-book"
 label var PROFIT  "Profitability"
@@ -327,6 +366,10 @@ label var L_LTA    "Size (t-1)"
 label var L_MTB    "Market-to-book (t-1)"
 label var L_PROFIT "Profitability (t-1)"
 label var L_FCF    "Operating cash flow / TA (t-1)"
+label var L_TANG   "Tangibility: PPE / TA (t-1)"
+label var L_LOSS   "Loss (t-1)"
+label var L_SDCFO  "Volatility of CFO / TA (t-3 to t-1)"
+label var L_SDSALES "Volatility of sales / TA (t-3 to t-1)"
 label var IOB     "Interest burden"
 label var COL     "Collateral"
 label var INDLEV  "Industry median leverage"

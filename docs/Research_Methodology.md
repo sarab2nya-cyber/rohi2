@@ -116,22 +116,28 @@ Following Biddle et al. (2009), the models control for firm characteristics that
 - **MTB**: growth opportunities not captured by past sales growth.
 - **PROFIT**: operating income / total assets. More profitable firms can fund investment internally.
 - **FCF**: operating cash flow / total assets, which captures internal funds available for investment (Jensen, 1986). Operating rather than post-investment free cash flow is used because investing cash flow is part of the dependent variable.
+- **TANG**: net PP&E / total assets. Asset tangibility determines the scope for collateralised financing and the share of investment that is lumpy and irreversible.
+- **LOSS**: 1 if operating income is negative, 0 otherwise. Loss firms face tighter financing constraints and are more likely to cut investment.
+- **σ(CFO)**: standard deviation of CFO / TA over t−3 to t−1. Volatile operating cash flows raise the cost of external finance and make investment harder to plan.
+- **σ(Sales)**: standard deviation of Sales / TA over t−3 to t−1. Volatile demand reduces the accuracy of the expectation model, Eq. (1), and therefore the size of the residual.
 
-All controls are measured at t−1, as in Biddle et al. (2009). Current-year size and profitability are mechanically affected by the investment being explained (new assets raise total assets in the same year), so contemporaneous controls would be endogenous. All models include year dummies (ν~t~) and industry dummies (λ~j~); Section 3.8 explains how each is identified. Firm age and inflation are not used as controls in the investment models. Inflation is constant across firms within a year and is perfectly collinear with the year dummies. Age increases by exactly one each year, so its first difference is collinear with the year dummies in the differenced GMM equation. Age enters only the levels equation of the GMM system (Section 3.8), and inflation enters the analysis through the target leverage model, Eq. (2). Appendix A defines every variable.
+The control set reproduces the firm-level controls of Biddle et al. (2009) that can be built from the data available for TSE firms; Z-score, dividend payout, slack and operating cycle are not included because the required items are not available. All controls are measured at t−1, as in Biddle et al. (2009); the volatility measures use the three years ending at t−1. Current-year size and profitability are mechanically affected by the investment being explained (new assets raise total assets in the same year), so contemporaneous controls would be endogenous. All models include year dummies (ν~t~) and industry dummies (λ~j~); Section 3.8 explains how each is identified. Firm age and inflation are not used as controls in the investment models. Inflation is constant across firms within a year and is perfectly collinear with the year dummies. Age increases by exactly one each year, so its first difference is collinear with the year dummies in the differenced GMM equation. Age enters only the levels equation of the GMM system (Section 3.8), and inflation enters the analysis through the target leverage model, Eq. (2). Appendix A defines every variable.
 
 ## 3.7 Empirical Models
 
-Each hypothesis is tested with its own dynamic panel model, and each prediction is stated as a sign restriction on a named coefficient. Because InvEff is signed, a negative coefficient indicates a shift toward under-investment and a positive coefficient a shift toward over-investment. In all equations, X is the vector of controls (LTA, MTB, PROFIT, FCF) measured at t−1, η~i~ is the unobserved firm effect, ν~t~ are year dummies, λ~j~ are industry dummies and ε is the idiosyncratic error.
+Each hypothesis is tested with its own dynamic panel model, and each prediction is stated as a sign restriction on a named coefficient. Because InvEff is signed, a negative coefficient indicates a shift toward under-investment and a positive coefficient a shift toward over-investment. In all equations, X is the vector of controls (LTA, MTB, PROFIT, FCF, TANG, LOSS, σ(CFO), σ(Sales)) measured at t−1, η~i~ is the unobserved firm effect, ν~t~ are year dummies, λ~j~ are industry dummies and ε is the idiosyncratic error.
+
+**Timing.** Capital structure deviation and managerial ability enter every model at t−1, the start of the year in which the investment is made. The hypotheses concern the effect of a firm's position relative to its target on the investment decisions that follow: debt overhang (Myers, 1977) constrains the investment of a firm that is already over-leveraged, and free cash flow (Jensen, 1986) is available to the managers of a firm that is already under-leveraged. Measured in year t, the deviation would partly reflect the financing of the investment being explained: investment financed with new debt raises TDA~t~ and therefore CSD⁺~t~ in the same year, which creates a positive mechanical relation that works against H1a. The same argument applies to MA, whose DEA inputs and output (cost of goods sold, SG&A and sales) move with current-year investment. Measuring both at t−1 matches the timing of the life-cycle stage (Section 3.4) and of the controls (Section 3.6), so every explanatory variable is observed before the investment year begins. The contemporaneous specification is reported as robustness test R4.
 
 ### 3.7.1 Direct effects of capital structure deviation (H1a, H1b)
 
 Each direct-effect hypothesis is tested in its own model. H1a is tested with:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \phi\, UNDER_{i,t} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6a)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t-1} + \phi\, UNDER_{i,t-1} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6a)$$
 
 H1b is tested with:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_2 CSD^{-}_{i,t} + \phi\, OVER_{i,t} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6b)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_2 CSD^{-}_{i,t-1} + \phi\, OVER_{i,t-1} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6b)$$
 
 UNDER (OVER) equals 1 for under-leveraged (over-leveraged) firm-years. The indicator absorbs the mean investment of firms on the other side of the target, so the slope on CSD⁺ in Eq. (6a) is identified only from over-leveraged firms, and the slope on CSD⁻ in Eq. (6b) only from under-leveraged firms. Because CSD⁺ is zero for every firm with UNDER = 1 and CSD⁻ is zero for every firm with UNDER = 0, omitting the other side's slope does not bias the tested coefficient.
 
@@ -139,7 +145,7 @@ H1a predicts β₁ < 0: the further a firm lies above its target, the further it
 
 Asymmetry, the central claim of the study, compares the two slopes and therefore requires both in one equation:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t-1} + \beta_2 CSD^{-}_{i,t-1} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6)$$
 
 Asymmetry is tested with a Wald test of β₁ + β₂ = 0 in Eq. (6).
 
@@ -147,13 +153,13 @@ Asymmetry is tested with a Wald test of β₁ + β₂ = 0 in Eq. (6).
 
 H2a is tested with maturity as the reference stage:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \phi_1 GROW_{i,t-1} + \phi_2 DEC_{i,t-1} + \beta_3\, CSD^{+}_{i,t} \times GROW_{i,t-1} + \beta_4\, CSD^{+}_{i,t} \times DEC_{i,t-1} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (7)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t-1} + \beta_2 CSD^{-}_{i,t-1} + \phi_1 GROW_{i,t-1} + \phi_2 DEC_{i,t-1} + \beta_3\, CSD^{+}_{i,t-1} \times GROW_{i,t-1} + \beta_4\, CSD^{+}_{i,t-1} \times DEC_{i,t-1} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (7)$$
 
 Here β₁ is the effect of over-leverage in maturity. H2a predicts β₃ < 0 and β₄ < 0, so that the effect is more negative in growth (β₁ + β₃) and in decline (β₁ + β₄) than in maturity. A joint Wald test of β₃ = β₄ = 0 is also reported.
 
 H2b is tested with growth and decline together as the reference:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \phi_1 MAT_{i,t-1} + \beta_5\, CSD^{-}_{i,t} \times MAT_{i,t-1} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (8)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t-1} + \beta_2 CSD^{-}_{i,t-1} + \phi_1 MAT_{i,t-1} + \beta_5\, CSD^{-}_{i,t-1} \times MAT_{i,t-1} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (8)$$
 
 H2b predicts β₅ > 0: the over-investment effect of under-leverage is stronger in maturity (β₂ + β₅) than in growth and decline (β₂).
 
@@ -161,7 +167,7 @@ H2b predicts β₅ > 0: the over-investment effect of under-leverage is stronger
 
 H3a is tested first with a two-way interaction:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \beta_3 MA_{i,t} + \beta_4\, CSD^{+}_{i,t} \times MA_{i,t} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (9)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t-1} + \beta_2 CSD^{-}_{i,t-1} + \beta_3 MA_{i,t-1} + \beta_4\, CSD^{+}_{i,t-1} \times MA_{i,t-1} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (9)$$
 
 The marginal effect of over-leverage is β₁ + β₄·MA. H3a predicts β₄ > 0: higher ability makes the negative effect smaller. To test "especially in growth and decline", GD (= 1 for growth or decline at t−1, 0 for maturity) is added with all lower-order terms:
 
@@ -171,7 +177,7 @@ H3a predicts β₇ > 0: mitigation is stronger in growth and decline (β₄ + β
 
 H3b is tested in the same way for under-leverage:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \beta_3 MA_{i,t} + \beta_8\, CSD^{-}_{i,t} \times MA_{i,t} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (11)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t-1} + \beta_2 CSD^{-}_{i,t-1} + \beta_3 MA_{i,t-1} + \beta_8\, CSD^{-}_{i,t-1} \times MA_{i,t-1} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (11)$$
 
 $$InvEff_{i,t} = \ldots + \beta_8\, CSD^{-} \times MA + \phi\, MAT + \beta_9\, CSD^{-} \times MAT + \beta_{10}\, MA \times MAT + \beta_{11}\, CSD^{-} \times MA \times MAT + \ldots \qquad (12)$$
 
@@ -198,24 +204,28 @@ Stage differences are inferred only from the interaction terms above. As a descr
 Three sources of endogeneity make static panel estimators inconsistent in this setting (Wintoki, Linck & Netter, 2012):
 
 1. **Dynamic dependence.** Investment distortions persist, so InvEff~t−1~ belongs in the model. With a firm effect η~i~, pooled OLS biases γ₁ upward and the within estimator biases it downward; the within bias is of order 1/T (Nickell, 1981) and is not negligible with about nine effective years.
-2. **Simultaneity.** Investment financed with new debt raises leverage in the same year, so CSD⁺ and CSD⁻ are jointly determined with InvEff. This mechanical link works against H1a and H1b.
-3. **Unobserved heterogeneity and measurement error.** MA is constructed from same-year sales efficiency, and both MA and CSDev are estimated regressors.
+2. **Simultaneity.** Investment financed with new debt raises leverage in the same year, so contemporaneous CSD⁺ and CSD⁻ would be jointly determined with InvEff. Measuring the deviation at t−1 removes this mechanical link (Section 3.7), but lagged deviation can still respond to past investment shocks, so it is not treated as exogenous.
+3. **Unobserved heterogeneity and measurement error.** MA is constructed from sales efficiency, which shares shocks with investment, and both MA and CSDev are estimated regressors.
 
 ### 3.8.2 Two-step System GMM
 
-Eqs. (6)–(12) are estimated with the two-step System GMM estimator (Arellano & Bover, 1995; Blundell & Bond, 1998), implemented with xtabond2 (Roodman, 2009b). Standard errors use the Windmeijer (2005) finite-sample correction. System GMM stacks the first-differenced equation, which removes η~i~ and is instrumented with lagged levels, and the levels equation, instrumented with lagged first differences. The levels equation is valid if changes in the instruments are uncorrelated with the firm effect. It adds information that is valuable when the series are persistent and the panel is short, in which case lagged levels are weak instruments for first differences (Blundell & Bond, 1998).
+Eqs. (6)–(12) are estimated with the two-step System GMM estimator (Arellano & Bover, 1995; Blundell & Bond, 1998), implemented with xtabond2 (Roodman, 2009b). Standard errors use the Windmeijer (2005) finite-sample correction. System GMM stacks a transformed equation, which removes η~i~ and is instrumented with lagged levels, and the levels equation, instrumented with lagged first differences. The transformation is the forward orthogonal deviation (Arellano & Bover, 1995): each observation is expressed as its deviation from the mean of all future observations of the same firm. The panel has gaps, because firm-years with non-positive book equity are excluded (Section 3.1). First-differencing loses two observations at every gap, while the forward orthogonal deviation loses only one and uses all available future information (Roodman, 2009b). First differences are reported as sensitivity test S9a. The levels equation is valid if changes in the instruments are uncorrelated with the firm effect. It adds information that is valuable when the series are persistent and the panel is short, in which case lagged levels are weak instruments for first differences (Blundell & Bond, 1998).
 
-| Regressor | Assumption | Differenced equation: GMM-style instruments | Levels equation: instruments |
+Lags in the table refer to the regressor as it enters the model; for example, the instruments of CSD⁺~t−1~ are its own values two and three periods earlier.
+
+| Regressor | Assumption | Transformed equation: GMM-style instruments | Levels equation: instruments |
 |---|---|---|---|
-| InvEff~t−1~ | Endogenous | Levels at t−2 and t−3 | Δ at t−1 |
-| CSD⁺, CSD⁻, UNDER, OVER, MA | Endogenous | Levels at t−2 and t−3 | Δ at t−1 |
-| Products with CSD⁺, CSD⁻ or MA | Endogenous; instrumented by lags of the product itself | Levels at t−2 and t−3 | Δ at t−1 |
-| Stage indicators (t−1) | Predetermined | Levels at t−1 and t−2 | Δ at t |
-| LTA, MTB, PROFIT, FCF (at t−1) | Endogenous | Levels at t−2 and t−3 | Δ at t−1 |
+| InvEff~t−1~ | Endogenous | Lags 2 and 3 | Δ, lag 1 |
+| CSD⁺, CSD⁻, UNDER, OVER, MA (at t−1) | Endogenous | Lags 2 and 3 | Δ, lag 1 |
+| Products with CSD⁺, CSD⁻ or MA | Endogenous; instrumented by lags of the product itself | Lags 2 and 3 | Δ, lag 1 |
+| Stage indicators (t−1) | Predetermined | Lags 1 and 2 | Δ, current |
+| Controls (at t−1) | Endogenous | Lags 2 and 3 | Δ, lag 1 |
 | Year dummies | Strictly exogenous | IV-style | IV-style |
 | Industry dummies, ln(Age) | Time-invariant / deterministic trend | Not used | IV-style, levels only |
 
 The controls are treated as endogenous rather than predetermined. Size, growth opportunities, profitability and cash flow respond to past investment shocks, so even their lagged values may be correlated with the error (Wintoki, Linck & Netter, 2012); in this sample the Hansen test also rejected the weaker predetermined assumption. The instrument matrix is collapsed and lag depth is restricted to two, so that the instrument count stays below the 299 cross-sectional units. Instrument proliferation overfits the endogenous regressors and weakens the Hansen test (Roodman, 2009a). The instrument count is reported for every model.
+
+Restricting lag depth keeps the instrument count low but can leave the instruments weak, and weak instruments make GMM estimates imprecise and biased toward OLS (Bun & Windmeijer, 2010). Instrument strength is therefore checked before any hypothesis model is estimated. For each main regressor (CSD⁺, CSD⁻, MA), the cluster-robust first-stage F statistic of its collapsed lag instruments is computed for the transformed and levels equations. The lag window is fixed by a rule set in advance: lags 2–3 are kept unless the weakest first-stage F is below 10 (Staiger & Stock, 1997) and the window of lags 2–4 gives stronger instruments, in which case lags 2–4 are used. The F statistics and the window selected are reported in the Online Appendix (OA10). The rule depends only on the first stages, never on the hypothesis tests.
 
 ### 3.8.3 Year and industry effects
 
@@ -229,7 +239,7 @@ Year and industry effects enter every equation in which they are identified:
 | Tobit, Eq. (5) | Year dummies | Industry dummies |
 | GMM models, Eqs. (6)–(12) | Year dummies in both equations | Industry dummies in the levels equation only |
 
-In the GMM models, year dummies absorb shocks common to all TSE firms, such as currency devaluations, sanctions and policy-rate changes. Without them, these shocks enter the error term as cross-sectional correlation, which invalidates the autocorrelation tests (Roodman, 2009b). Industry dummies are time-invariant: first-differencing removes them, so they enter only the levels equation. Industry × year dummies are not used because they would add more than a hundred instruments. Industries with fewer than five firms are pooled into one category for the industry dummies, because a dummy for a single-firm industry is not identified in the levels equation.
+In the GMM models, year dummies absorb shocks common to all TSE firms, such as currency devaluations, sanctions and policy-rate changes. Without them, these shocks enter the error term as cross-sectional correlation, which invalidates the autocorrelation tests (Roodman, 2009b). Industry dummies are time-invariant: the forward orthogonal deviation removes them, so they enter only the levels equation. Industry × year dummies are not used because they would add more than a hundred instruments. Industries with fewer than five firms are pooled into one category for the industry dummies, because a dummy for a single-firm industry is not identified in the levels equation.
 
 ### 3.8.4 Specification tests
 
@@ -239,6 +249,7 @@ Every GMM model reports the following:
 |---|---|
 | Arellano–Bond AR(1) in first differences | Rejected (expected by construction) |
 | Arellano–Bond AR(2) in first differences | Not rejected (p > 0.10) |
+| Instrument strength (first-stage F of the main regressors) | Reported; lag window chosen by the rule in Section 3.8.2 |
 | Hansen J test of over-identifying restrictions | Not rejected (p > 0.10) and not implausibly close to 1 |
 | Difference-in-Hansen test of the levels-equation instruments | Not rejected |
 | Instrument count | Below the number of firms |
@@ -317,7 +328,7 @@ The robustness tests replace one element of the design at a time with an accepte
 | R1 | Target leverage | Eq. (2) without IOB, because financial expense is approximately the interest rate times debt and may mechanically absorb part of actual leverage |
 | R2 | Leverage definition | Market leverage, TD / (TD + MV) |
 | R3 | Target-leverage estimator | Eq. (2) with firm fixed effects, isolating transitory deviation from a firm-specific target |
-| R4 | Timing of deviation | CSD⁺ and CSD⁻ measured at t−1 |
+| R4 | Timing of deviation and ability | CSD⁺, CSD⁻ and MA measured at t (contemporaneous) instead of t−1 |
 | R5 | Expectation model | Chen et al. (2011), with an asymmetric response to sales declines |
 | R6 | Investment measure | Accrual investment, [(PPE + IA)~t~ − (PPE + IA)~t−1~] / TA~t−1~, which includes asset revaluations |
 | R7 | Managerial ability | Industry-year percentile rank of MA; two-year average of MA to reduce measurement error |
@@ -332,11 +343,12 @@ The robustness tests replace one element of the design at a time with an accepte
 | S1 | Winsorization | 1/99 (main); 2.5/97.5; 5/95; trimming at 1/99 |
 | S2 | Minimum industry-year cell in Eq. (1) | 8, 10 (main), 15 |
 | S3 | DEA specification | VRS (main) vs CRS; industry-year frontiers (at least 15 or 20 firms) instead of industry frontiers |
-| S4 | GMM instrument depth | Lags 2–3 (main), 2–4, 3–4; collapsed vs uncollapsed where the count allows |
+| S4 | GMM instrument depth | Window selected by the instrument-strength rule (main) against the other of lags 2–3 and 2–4; lags 3–4; collapsed vs uncollapsed where the count allows |
 | S5 | Near-target firms | Exclude firm-years with \|CSDev\| < 0.25 SD, whose direction is mostly estimation noise |
 | S6 | Crisis years | Exclude 1397–1398 (sanctions and currency crisis) and 1399 (COVID-19) |
 | S7 | Industry composition | Re-estimate excluding one industry at a time |
 | S8 | Sample composition | Unbalanced panel that adds firms dropped by the continuity filter, to assess survivorship bias |
+| S9 | Elements of the original design | S9a: first differences instead of forward orthogonal deviations; S9b: original four controls (LTA, MTB, PROFIT, FCF); S9c: original specification as a whole (CSD and MA at t, first differences, four controls, lags 2–3) |
 
 ### 3.11.3 Additional identification checks
 
@@ -353,10 +365,11 @@ The robustness tests replace one element of the design at a time with an accepte
 | OA3 | Frequency of Dickinson's five stages and stage transitions |
 | OA4 | Static fixed-effects estimates of Eqs. (6)–(12), with F and Hausman tests |
 | OA5 | Full estimates for R1–R10 |
-| OA6 | Full estimates for S1–S8 |
+| OA6 | Full estimates for S1–S9 |
 | OA7 | Reverse-causality model, Eq. (13) |
 | OA8 | Oster bounds, placebo distribution and bootstrap standard errors |
 | OA9 | Within-stage estimates of Eqs. (6), (9) and (11) |
+| OA10 | Instrument strength: first-stage F statistics of the GMM instruments and the lag window selected |
 
 ## Appendix A. Variable Definitions
 
@@ -377,14 +390,18 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 | INF | Annual consumer-price inflation rate | INF |
 | CSDev | TDA minus fitted target leverage from Eq. (2) | — |
 | CSD⁺ | max(CSDev, 0) | — |
-| CSD⁻ | max(−CSDev, 0) | — |
+| CSD⁻ | max(−CSDev, 0); CSD⁺ and CSD⁻ enter Eqs. (6)–(12) at t−1 | — |
 | GROW, MAT, DEC | Life-cycle indicators at t−1 (Section 3.4) | CFO, CFI, CFF |
 | GD | 1 if GROW or DEC at t−1, 0 if MAT | CFO, CFI, CFF |
 | FE | DEA efficiency score; output Sales; inputs COGS, SGA, PPE~t−1~, IA~t−1~ | Sales, COGS, SGA, PPE, IA |
 | MktShare | Sales / total industry-year sales | Sales, IndID |
 | FCF⁺ | 1 if (CFO + CFI) > 0, else 0 | CFO, CFI |
-| MA | Residual of the Tobit model, Eq. (5), mean-centered | — |
+| MA | Residual of the Tobit model, Eq. (5), mean-centered; enters Eqs. (9)–(12) at t−1 | — |
 | FCF | CFO / TA | CFO, TA |
+| TANG | PPE / TA | PPE, TA |
+| LOSS | 1 if OI < 0, else 0 | OI |
+| σ(CFO) | Standard deviation of CFO / TA over t−3 to t−1 | CFO, TA |
+| σ(Sales) | Standard deviation of Sales / TA over t−3 to t−1 | Sales, TA |
 | Age | ln(1 + firm age in years) | Age |
 | CPI | Price index built from INF, base year 1392 = 1 | INF |
 
@@ -398,6 +415,7 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 - Blundell, R., & Bond, S. (1998). Initial conditions and moment restrictions in dynamic panel data models. *Journal of Econometrics, 87*(1), 115–143.
 - Bond, S. R. (2002). Dynamic panel data models: A guide to micro data methods and practice. *Portuguese Economic Journal, 1*(2), 141–162.
 - Brambor, T., Clark, W. R., & Golder, M. (2006). Understanding interaction models: Improving empirical analyses. *Political Analysis, 14*(1), 63–82.
+- Bun, M. J. G., & Windmeijer, F. (2010). The weak instrument problem of the system GMM estimator in dynamic panel data models. *Econometrics Journal, 13*(1), 95–126.
 - Chen, F., Hope, O.-K., Li, Q., & Wang, X. (2011). Financial reporting quality and investment efficiency of private firms in emerging markets. *The Accounting Review, 86*(4), 1255–1288.
 - Cooper, W. W., Seiford, L. M., & Tone, K. (2007). *Data envelopment analysis: A comprehensive text with models, applications, references and DEA-Solver software* (2nd ed.). Springer.
 - Demerjian, P., Lev, B., & McVay, S. (2012). Quantifying managerial ability: A new measure and validity tests. *Management Science, 58*(7), 1229–1248.
@@ -416,6 +434,7 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 - Petersen, M. A. (2009). Estimating standard errors in finance panel data sets: Comparing approaches. *Review of Financial Studies, 22*(1), 435–480.
 - Roodman, D. (2009a). A note on the theme of too many instruments. *Oxford Bulletin of Economics and Statistics, 71*(1), 135–158.
 - Roodman, D. (2009b). How to do xtabond2: An introduction to difference and system GMM in Stata. *Stata Journal, 9*(1), 86–136.
+- Staiger, D., & Stock, J. H. (1997). Instrumental variables regression with weak instruments. *Econometrica, 65*(3), 557–586.
 - Synn, C., & Williams, C. (2015). [Complete title, journal, volume and pages from your source.]
 - Windmeijer, F. (2005). A finite sample correction for the variance of linear efficient two-step GMM estimators. *Journal of Econometrics, 126*(1), 25–51.
 - Wintoki, M. B., Linck, J. S., & Netter, J. M. (2012). Endogeneity and the dynamics of internal corporate governance. *Journal of Financial Economics, 105*(3), 581–606.
@@ -426,6 +445,7 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 - Fill in the [n] counts in the sample-construction table in 3.1 from your screening records, including the firm-years removed for non-positive book equity (reported in the Stata log). Update 299 firms / 3,588 records if the equity filter changes them.
 - Complete the Synn and Williams (2015) reference, and check every reference against the published version before submission.
 - The firm-year counts in the effective-window table assume the panel stays balanced after lags; update them with the actual estimation N.
+- The design changes of this version (CSD and MA at t−1, forward orthogonal deviations, extended controls) were fixed before the final estimation; the earlier specification is reported in S9c. State this in the cover letter if a reviewer asks how the specification was chosen.
 - Sales and total assets for 1391, if available, would extend InvEff to 1393 and the GMM sample to 1394.
 - Report the frequency of Dickinson's five original stages to support the consolidation in 3.4.
 - Check the number of industries and firms per industry-year. This determines how many industry-years use the pooled fallback in Eq. (1) and in the DEA.

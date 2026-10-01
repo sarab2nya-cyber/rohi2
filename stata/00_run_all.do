@@ -41,7 +41,18 @@ global PLACEBO_REPS  500    // placebo permutations (static FE, fast)
 global BOOT_REPS     0      // full-procedure bootstrap replications (slow; e.g. 199)
 
 * controls and model definitions (Section 3.7)
-global XCTRL  "L_LTA L_MTB L_PROFIT L_FCF"   // controls at t-1 (Biddle et al. 2009)
+* Final specification (locked before estimation; Section 3.7-3.8):
+*  (i)   CSD and MA measured at t-1 (beginning of the investment year)
+*  (ii)  System GMM with forward orthogonal deviations (panel has gaps)
+*  (iii) Biddle et al. (2009) control set, all at t-1
+* The previous specification (t, first differences, four controls) is
+* re-estimated in sensitivity tests S9a-S9c.
+global XCTRL  "L_LTA L_MTB L_PROFIT L_FCF L_TANG L_LOSS L_SDCFO L_SDSALES"
+global XCTRL4 "L_LTA L_MTB L_PROFIT L_FCF"   // previous control set (S9b, S9c)
+global TIMING "lag"       // "lag" = CSD and MA at t-1 (main); "cont" = at t (R4, S9c)
+global ORTHO  1           // 1 = forward orthogonal deviations (main); 0 = first differences
+global LAGE_MAIN "2 3"    // GMM lag window for endogenous variables; set by the
+                          // instrument-strength rule at the start of 40_main_models.do
 global MODELS    "6a 6b 6 7 8 9 10 11 12"   // 6a = H1a, 6b = H1b, 6 = asymmetry test
 global KEYMODELS "6a 6b 7 8 9 10 11 12"     // models with a hypothesis coefficient
 global INVDEF_MAIN "cash" // main investment measure: "cash" = -CFI / TA(t-1) (unaffected by

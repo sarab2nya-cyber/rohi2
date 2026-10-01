@@ -24,16 +24,11 @@ runkey, test("R2 Market leverage")
 rebuild, target(firmfe) tag(R3)
 runkey, test("R3 Firm-FE target")
 
-* R4 deviation measured at t-1
-rebuild
-sort FirmID Year
-foreach v in CSDP CSDN {
-    qui gen double _l = L.`v'
-    qui replace `v' = _l
-    drop _l
-}
-buildint
-runkey, test("R4 CSD at t-1")
+* R4 the other timing of CSD and MA (main: t-1, set by $TIMING)
+local alttim = cond("$TIMING" == "lag", "cont", "lag")
+local timlab = cond("`alttim'" == "cont", "R4 CSD and MA at t", "R4 CSD and MA at t-1")
+rebuild, timing(`alttim') tag(R4)
+runkey, test("`timlab'")
 
 * R5 Chen et al. (2011) expectation model
 rebuild, expmodel(chen) tag(R5)

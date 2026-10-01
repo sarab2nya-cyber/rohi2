@@ -31,17 +31,33 @@ runkey, test("S3c DEA ind-year, min 20")
 
 * S4 GMM instrument depth (main data)
 rebuild
-runkey, test("S4a Lags 2-4") lage(2 4)
+local altl = cond("$LAGE_MAIN" == "2 3", "2 4", "2 3")
+runkey, test("S4a Lags `altl'") lage(`altl')
 runkey, test("S4b Lags 3-4") lage(3 4)
 runkey, test("S4c Uncollapsed") nocollapse
 
-* S5 exclude near-target firm-years (|CSDev| < 0.25 SD)
-qui su CSDev if EST
+* S5 exclude near-target firm-years (|deviation| < 0.25 SD)
+qui su CSDX if EST
 local thr = 0.25 * r(sd)
-runkey, test("S5 Exclude near-target") cond(abs(CSDev) >= `thr')
+runkey, test("S5 Exclude near-target") cond(abs(CSDX) >= `thr')
 
 * S6 exclude crisis years 1397-1398 (sanctions, currency) and 1399 (COVID-19)
 runkey, test("S6 Exclude 1397-1399") cond(!inlist(Year, 1397, 1398, 1399))
+
+* S9 elements of the previous main specification
+local ORTHO0 "$ORTHO"
+local XCTRL0 "$XCTRL"
+global ORTHO 0
+runkey, test("S9a First differences")
+global ORTHO `ORTHO0'
+global XCTRL "$XCTRL4"
+runkey, test("S9b Original 4 controls")
+rebuild, timing(cont) tag(S9c)
+global ORTHO 0
+runkey, test("S9c Previous main spec") lage(2 3)
+global ORTHO `ORTHO0'
+global XCTRL "`XCTRL0'"
+rebuild                                   // back to the main specification
 
 postclose keyres
 di as res _n "T8. Sensitivity: key coefficients (two-sided p: * 0.10 ** 0.05 *** 0.01)"
@@ -114,10 +130,10 @@ set seed 20261001
 cap postclose plc
 postfile plc int rep double(b1 b2) using "$OUT/placebo.dta", replace
 tempvar tv
-gen byte `tv' = !missing(CSDev, INDYR)
+gen byte `tv' = !missing(CSDX, INDYR)
 gen double CSDev_pl = .
 forvalues r = 1/$PLACEBO_REPS {
-    mata: permute_within("CSDev", "INDYR", "CSDev_pl", "`tv'")
+    mata: permute_within("CSDX", "INDYR", "CSDev_pl", "`tv'")
     qui replace CSDP = max( CSDev_pl, 0) if !missing(CSDev_pl)
     qui replace CSDN = max(-CSDev_pl, 0) if !missing(CSDev_pl)
     qui reghdfe InvEff CSDP CSDN $XCTRL if EST, absorb(FirmID Year) vce(cluster FirmID)

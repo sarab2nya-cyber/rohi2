@@ -11,6 +11,31 @@ xtset FirmID Year
 eststo clear
 
 *------------------------------------------------------------------------------
+* A0. Instrument strength and lag window (Section 3.8.2), fixed BEFORE any
+*     hypothesis model is estimated: first-stage F of the collapsed lag-level
+*     instruments for the main regressors (CSD+, CSD-, MA). Rule: keep lags
+*     t-2..t-3 unless the weakest F < 10 and the window t-2..t-4 is stronger.
+*------------------------------------------------------------------------------
+cap postclose ivs
+postfile ivs str12 variable str6 lags double(F_transformed F_levels) ///
+    using "$OUT/OA_instrument_strength.dta", replace
+ivstrength CSDP CSDN MA, lags(2 3) post(ivs)
+local F23 = r(minF)
+ivstrength CSDP CSDN MA, lags(2 4) post(ivs)
+local F24 = r(minF)
+postclose ivs
+global LAGE_MAIN "2 3"
+if `F23' < 10 & `F24' > `F23' global LAGE_MAIN "2 4"
+di as res _n "Instrument strength: weakest first-stage F, lags 2-3 = " %7.2f `F23' ///
+    ", lags 2-4 = " %7.2f `F24' "  ->  lag window used: $LAGE_MAIN"
+preserve
+    use "$OUT/OA_instrument_strength.dta", clear
+    format F_* %9.2f
+    list, noobs sep(0)
+    export excel using "$OUT/Tables.xlsx", sheet("OA_IV_strength", replace) firstrow(variables)
+restore
+
+*------------------------------------------------------------------------------
 * A. GMM estimation of Eqs. (6)-(12)
 *------------------------------------------------------------------------------
 foreach m of global MODELS {
@@ -187,7 +212,8 @@ esttab G6a G6b G6 G7 G8 G9 G10 G11 G12 using "$OUT/T5_main_GMM.rtf", replace lab
     stats(`STATS', labels(`SLAB') fmt(%9.0f %9.0f %9.0f %9.3f)) ///
     title("Table 5. Capital structure deviation, life cycle, managerial ability and investment inefficiency: two-step System GMM") ///
     addnotes("Dependent variable: InvEff (signed residual of Eq. 1). Windmeijer-corrected SE in parentheses." ///
-             "Year dummies (both equations) and industry dummies (levels equation) included. Hypothesis p-values are one-sided.")
+             "Year dummies (both equations) and industry dummies (levels equation) included. Hypothesis p-values are one-sided." ///
+             "CSD and MA at t-1; controls at t-1. Forward orthogonal deviations; collapsed instruments, lags $LAGE_MAIN.")
 esttab G6a G6b G6 G7 G8 G9 G10 G11 G12 using "$OUT/T5_main_GMM.csv", replace ///
     b(%9.5f) se(%9.5f) star(* 0.10 ** 0.05 *** 0.01) keep(`KEEP') order(`KEEP') stats(`STATS')
 
@@ -334,9 +360,9 @@ esttab W6_1 W6_2 W6_3 W9_1 W9_2 W9_3 W11_1 W11_2 W11_3 using "$OUT/OA9_within_st
 *------------------------------------------------------------------------------
 di as res _n "{hline 78}" _n "Eq. (13): reverse causality (CSDev on lagged InvEff)" _n "{hline 78}"
 xtabond2 CSDev L.CSDev L.InvEff $XCTRL yd_* ind_*, ///
-    gmm(CSDev, lag(2 3) collapse) gmm(L.InvEff, lag(1 2) collapse) ///
-    gmm($XCTRL, lag(1 2) collapse) iv(yd_*) iv(ind_*, eq(level)) iv(lnAge, eq(level)) ///
-    twostep robust small artests(2)
+    gmm(CSDev, lag($LAGE_MAIN) collapse) gmm(L.InvEff, lag(1 2) collapse) ///
+    gmm($XCTRL, lag($LAGE_MAIN) collapse) iv(yd_*) iv(ind_*, eq(level)) iv(lnAge, eq(level)) ///
+    twostep robust small artests(2) `=cond("$ORTHO" == "1", "orthogonal", "")'
 gmmstats, name(G13)
 test L.InvEff
 qui estadd scalar p_theta = r(p)

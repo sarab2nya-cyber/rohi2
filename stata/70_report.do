@@ -143,8 +143,8 @@ rpt_mat W, title("Table 0. Winsorization of ratios and generated measures at the
 use "$OUT/analysis_panel.dta", clear
 xtset FirmID Year
 
-qui tabstat InvEff Invest SalesGrowth TDA TDAhat CSDev CSDP CSDN FE MA ///
-    L_LTA L_MTB L_PROFIT L_FCF IOB COL INDLEV INF Age if EST, ///
+qui tabstat InvEff Invest SalesGrowth TDA TDAhat CSDev CSDX CSDP CSDN FE MA ///
+    $XCTRL IOB COL INDLEV INF Age if EST, ///
     stat(n mean sd min p25 p50 p75 max skewness kurtosis) save
 matrix D = r(StatTotal)'
 rpt_mat D, title("Table 1. Descriptive statistics (estimation sample)") fmt(%9.3f)
@@ -155,7 +155,7 @@ cap matrix rownames DIR = Under_investment Over_investment
 cap matrix colnames DIR = Under_leveraged Over_leveraged
 rpt_mat DIR, title("Table 1b. Direction of investment and leverage deviations (firm-years)") fmt(%9.0f)
 
-local CV "InvEff CSDP CSDN MA L_LTA L_MTB L_PROFIT L_FCF GROW MAT DEC"
+local CV "InvEff CSDP CSDN MA $XCTRL GROW MAT DEC"
 qui corr `CV' if EST
 matrix P = r(C)
 local n = r(N)
@@ -197,6 +197,10 @@ rpt_mat VIF, title("Table 5. Variance inflation factors (static main-effects mod
 sheet2mat, sheet("T4b_assumptions") matrix(AS) cols(B C) cnames(Statistic p_value)
 rpt_mat AS, title("Table 6. Specification and classical-assumption tests (static benchmark of Eq. 6)") ///
     note("Decision column and H0 of each test: Tables.xlsx, sheet T4b_assumptions.")
+dta2mat using "$OUT/OA_instrument_strength.dta", matrix(IVS) rowvars(variable lags) ///
+    keepvars(F_transformed F_levels)
+rpt_mat IVS, title("Table 6b. Instrument strength: first-stage F of the collapsed GMM instruments") fmt(%9.2f) ///
+    note("Rule fixed before estimation: lags t-2..t-3 unless the weakest F < 10 and t-2..t-4 is stronger. Window used: $LAGE_MAIN.")
 
 *==============================================================================
 * 3. HYPOTHESIS DECISIONS
@@ -260,7 +264,7 @@ rpt_mat EC, title("Table 9. Simple slopes and economic magnitude") ///
 *==============================================================================
 * (analysis data are no longer needed from here on)
 foreach f in R S {
-    local lab = cond("`f'" == "R", "Robustness R1-R10", "Sensitivity S1-S6")
+    local lab = cond("`f'" == "R", "Robustness R1-R10", "Sensitivity S1-S9")
     local tn  = cond("`f'" == "R", "10", "11")
     cap use "$OUT/`f'_keyresults.dta", clear
     if _rc continue

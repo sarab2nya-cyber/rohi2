@@ -140,8 +140,8 @@ end
 
 *------------------------------------------------------------------------------
 * rungmm: two-step System GMM exactly as in Section 3.8.2
-*   endogenous (incl. lagged DV and products): levels t-2, t-3 / diff t-1
-*   predetermined (stage indicators, controls): levels t-1, t-2 / diff t
+*   endogenous (incl. lagged DV and products): levels $LAGE_MAIN (default t-2, t-3)
+*   controls: endogenous ($CTRL_TYPE); forward orthogonal deviations if $ORTHO == 1
 *   year dummies IV-style (both equations); industry dummies and ln(1+Age)
 *   IV-style in the levels equation only; collapsed instruments; Windmeijer SE
 *------------------------------------------------------------------------------
@@ -149,10 +149,12 @@ cap program drop rungmm
 program define rungmm
     syntax , DEP(varname) ENDOG(string) [PRED(string) LAGE(string) LAGP(string) ///
         NOCOLLAPSE NOLEVEL COND(string) QUIET]
+    if "`lage'" == "" local lage "$LAGE_MAIN"
     if "`lage'" == "" local lage "2 3"
     if "`lagp'" == "" local lagp "1 2"
     if `"`cond'"' == "" local cond "1"
     local coll = cond("`nocollapse'" == "", "collapse", "")
+    local fod  = cond("$ORTHO" == "1", "orthogonal", "")
     local ctrl "$XCTRL"
     local lagc = cond("$CTRL_TYPE" == "endog", "`lage'", "`lagp'")
     if "`nolevel'" == "" {
@@ -170,7 +172,38 @@ program define rungmm
     `q' xtabond2 `dep' `rhs' if `cond', ///
         gmm(`dep', lag(`lage') `coll') gmm(`endog', lag(`lage') `coll') ///
         gmm(`ctrl', lag(`lagc') `coll') `predgmm' iv(yd_*) `levopt' ///
-        twostep robust small artests(2) `nl'
+        twostep robust small artests(2) `fod' `nl'
+end
+
+*------------------------------------------------------------------------------
+* ivstrength: first-stage strength of the collapsed GMM instruments
+*   (Bun & Windmeijer 2010 type check, one regressor at a time)
+*   transformed equation: D.x on x(t-a) ... x(t-b), year dummies
+*   levels equation:      x on D.x(t-a+1), year dummies
+*   cluster-robust F; returns r(minF) = weakest transformed-equation F
+*------------------------------------------------------------------------------
+cap program drop ivstrength
+program define ivstrength, rclass
+    syntax varlist, LAGS(numlist min=2 max=2 integer) [POST(name)]
+    local a : word 1 of `lags'
+    local b : word 2 of `lags'
+    local al = `a' - 1
+    local minF = .
+    foreach x of local varlist {
+        local ins ""
+        forvalues l = `a'/`b' {
+            local ins "`ins' L`l'.`x'"
+        }
+        qui reg D.`x' `ins' yd_* if EST, vce(cluster FirmID)
+        qui test `ins'
+        local Fd = r(F)
+        qui reg `x' L`al'D.`x' yd_* if EST, vce(cluster FirmID)
+        qui test L`al'D.`x'
+        local Fl = r(F)
+        if "`post'" != "" post `post' ("`x'") ("`a'-`b'") (`Fd') (`Fl')
+        local minF = min(`minF', `Fd')
+    }
+    return scalar minF = `minF'
 end
 
 *------------------------------------------------------------------------------
