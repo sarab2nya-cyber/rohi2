@@ -288,7 +288,43 @@ end
 *==============================================================================
 * Import and prepare the raw panel (once)
 *==============================================================================
-if "$RUN_SCREEN" == "1" use "$OUT/screened_data.dta", clear   // from 05_screening.do
+if "$RUN_SCREEN" == "1" {
+    use "$OUT/screened_data.dta", clear       // from 05_screening.do
+    * firm age and inflation are added here (not part of the screening)
+    foreach f in AGEFILE INFFILE {
+        cap confirm file "$ROOT/${`f'}"
+        if _rc {
+            di as err "${`f'} not found in $ROOT. Required for the models:"
+            di as err "  $AGEFILE : columns Symbol (ticker) | FoundYear (Persian founding year)"
+            di as err "  $INFFILE : columns Year | INF (annual inflation, %)"
+            exit 601
+        }
+    }
+    preserve
+        import excel "$ROOT/$AGEFILE", firstrow clear
+        keep Symbol FoundYear
+        cap confirm string variable Symbol
+        if _rc tostring Symbol, replace
+        replace Symbol = ustrtrim(Symbol)
+        destring FoundYear, replace force
+        duplicates drop Symbol, force
+        tempfile age
+        save `age'
+        import excel "$ROOT/$INFFILE", firstrow clear
+        keep Year INF
+        destring Year INF, replace force
+        tempfile inf
+        save `inf'
+    restore
+    merge m:1 Symbol using `age', keep(master match) nogen
+    gen double Age = Year - FoundYear if Year >= FoundYear
+    drop FoundYear
+    qui count if missing(Age)
+    if r(N) di as err "Note: Age missing for " r(N) " firm-years (ticker not in $AGEFILE)."
+    merge m:1 Year using `inf', keep(master match) nogen
+    qui count if missing(INF)
+    if r(N) di as err "Note: INF missing for " r(N) " firm-years (year not in $INFFILE)."
+}
 else import excel "$ROOT/$DATA", firstrow clear
 
 * string identifiers are kept; everything else must be numeric

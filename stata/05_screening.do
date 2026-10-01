@@ -4,9 +4,6 @@
 *
 * Input  $ROOT/$RAWDATA   raw export (.dta or .xlsx), one row per firm-year,
 *                         column names as exported (Persian, no spaces)
-*        $ROOT/$AGEFILE   Excel, two columns:  Symbol | FoundYear
-*                         (ticker as in column «نماد», Persian founding year)
-*        $ROOT/$INFFILE   Excel, two columns:  Year | INF   (CPI inflation, %)
 * Output $OUT/screened_data.dta              read by 20_build.do
 *        $ROOT/Research_Data_${SCR_Y0}_${SCR_Y1}.xlsx  sheets Data, Screening,
 *                                            Firms_per_year, Variables
@@ -330,48 +327,6 @@ foreach v in TA TD BV PPE IA INV Sales COGS SGA OI FinExp CFO CFI CFF MV {
 drop _gap _r
 
 *------------------------------------------------------------------------------
-* Age and inflation
-*------------------------------------------------------------------------------
-cap confirm file "$ROOT/$AGEFILE"
-if !_rc {
-    preserve
-        import excel "$ROOT/$AGEFILE", firstrow clear
-        keep Symbol FoundYear
-        cap confirm string variable Symbol
-        if _rc tostring Symbol, replace
-        replace Symbol = ustrtrim(Symbol)
-        destring FoundYear, replace force
-        duplicates drop Symbol, force
-        tempfile age
-        save `age'
-    restore
-    merge m:1 Symbol using `age', keep(master match) nogen
-    gen double Age = Year - FoundYear if Year >= FoundYear
-    qui count if missing(Age)
-    di as txt "Age missing for " r(N) " firm-years (ticker not in $AGEFILE)"
-    drop FoundYear
-}
-else {
-    di as err "$AGEFILE not found: Age is left empty. Add the file (Symbol | FoundYear) before running the models."
-    gen double Age = .
-}
-cap confirm file "$ROOT/$INFFILE"
-if !_rc {
-    preserve
-        import excel "$ROOT/$INFFILE", firstrow clear
-        keep Year INF
-        destring Year INF, replace force
-        tempfile inf
-        save `inf'
-    restore
-    merge m:1 Year using `inf', keep(master match) nogen
-}
-else {
-    di as err "$INFFILE not found: INF is left empty. Add the file (Year | INF) before running the models."
-    gen double INF = .
-}
-
-*------------------------------------------------------------------------------
 * Save: one workbook  $ROOT/Research_Data_${SCR_Y0}_${SCR_Y1}.xlsx
 *   Data            research variables, sorted by firm and year
 *   Screening       sample-construction table (English)
@@ -380,9 +335,9 @@ else {
 *------------------------------------------------------------------------------
 local XL "$ROOT/Research_Data_${SCR_Y0}_${SCR_Y1}.xlsx"
 cap erase "`XL'"
-keep FirmCode Symbol Year Industry IndID HasData InSample Note AUDITED Age INF ///
+keep FirmCode Symbol Year Industry IndID HasData InSample Note AUDITED ///
     INV IA PPE TA TD BV Sales COGS SGA OI FinExp CFO CFI CFF MV
-order FirmCode Symbol Year Industry IndID HasData InSample Note AUDITED Age INF ///
+order FirmCode Symbol Year Industry IndID HasData InSample Note AUDITED ///
     INV IA PPE TA TD BV Sales COGS SGA OI FinExp CFO CFI CFF MV
 sort FirmCode Year
 compress
@@ -469,19 +424,22 @@ gen double IndID_orig    = IndID
 gen        Industry_orig = Industry
 egen byte _tf = tag(FirmCode)
 bys IndID: egen int _nf = total(_tf)
-gen byte _pool = _nf < $SCR_MINFIRMS
+gen byte _pool = _nf < $SCR_MINFIRMS | missing(IndID)
+qui count if missing(IndID)
+if r(N) di as txt "Note: " r(N) " firm-years have no industry code; they join Other industries (999)."
+local pooled ""
 preserve
-    keep if _pool & _tf
+    keep if _pool & _tf & !missing(IndID)
     if _N {
         di as txt _n "Industries with fewer than $SCR_MINFIRMS firms (pooled into Other industries):"
         list IndID Industry, noobs sep(0)
+        keep Industry
+        duplicates drop
+        forvalues i = 1/`=_N' {
+            local pooled = cond(`"`pooled'"' == "", Industry[`i'], `"`pooled'; "' + Industry[`i'])
+        }
     }
-    keep Industry
-    duplicates drop
-    local pooled ""
-    forvalues i = 1/`=_N' {
-        local pooled = cond("`pooled'" == "", Industry[`i'], "`pooled'; " + Industry[`i'])
-    }
+    else di as txt "No industry has fewer than $SCR_MINFIRMS firms; nothing is pooled."
 restore
 replace IndID    = 999 if _pool
 replace Industry = "سایر صنایع" if _pool
@@ -556,7 +514,7 @@ preserve
     collapse (sum) firms = _tf (count) firmyears = Year, by(IndID Industry Industry_EN)
     sort IndID
     gen note = ""
-    replace note = "Pooled industries with fewer than $SCR_MINFIRMS firms: `pooled'" if IndID == 999
+    replace note = `"Pooled: industries with fewer than $SCR_MINFIRMS firms (`pooled') and firms without an industry code"' if IndID == 999
     label variable IndID       "Industry code"
     label variable Industry    "Industry (Persian)"
     label variable Industry_EN "Industry (English)"
@@ -611,8 +569,6 @@ preserve
     "Industry_EN" "Industry (English)"                            "translated from صنعت"
     "IndID_orig" "Industry code before pooling single-firm industries" "کدصنعتکلی"
     "AUDITED"  "1 = audited statements, 0 = unaudited"            "حسابرسیشده"
-    "Age"      "Firm age in years"                                "Year - FoundYear (Firm_Age.xlsx)"
-    "INF"      "Annual CPI inflation (%)"                         "Inflation.xlsx"
     "INV"      "Inventories"                                      "موجودیموادوکالا"
     "IA"       "Intangible assets"                                "داراییهاینامشهود"
     "PPE"      "Net property, plant and equipment"                "خالصداراییهایثابت"
@@ -636,9 +592,4 @@ preserve
 restore
 di as res _n "Research workbook: `XL'  (sheets Data, Screening, Firms_per_year, Variables)"
 
-qui count if missing(Age) | missing(INF)
-if r(N) == _N & "$SCREEN_ONLY" != "1" {
-    di as err _n "Age and/or INF are empty: the research file is saved, but the models cannot be"
-    di as err "estimated until $AGEFILE and $INFFILE are added. Stopping here."
-    exit 459
-}
+
