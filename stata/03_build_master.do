@@ -329,7 +329,9 @@ export excel using "$ROOT/Master_1380_1403.xlsx", sheet("Persian") firstrow(vari
 foreach v of varlist _all {
     label variable `v' ""
 }
-do "$CODE/03_labels_en.do"
+cap confirm file "$CODE/03_labels_en.do"
+if !_rc do "$CODE/03_labels_en.do"
+else di as err "03_labels_en.do not found in $CODE - English sheet will show Persian names."
 foreach v of varlist _all {
     local l : variable label `v'
     if "`l'" == "" {
