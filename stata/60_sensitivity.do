@@ -4,7 +4,7 @@
 *   placebo test; firm-level cluster bootstrap of the full procedure.
 *==============================================================================
 cap postclose keyres
-postfile keyres str24 test byte model str16 term double(b se p ar2p hansenp ninst N) ///
+postfile keyres str24 test str4 model str16 term double(b se p ar2p hansenp ninst N) ///
     using "$OUT/S_keyresults.dta", replace
 
 * S1 winsorization

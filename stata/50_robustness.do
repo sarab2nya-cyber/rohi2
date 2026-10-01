@@ -5,7 +5,7 @@
 *   Summary: sheet "T7_robustness" of Tables.xlsx; full log in master log.
 *==============================================================================
 cap postclose keyres
-postfile keyres str24 test byte model str16 term double(b se p ar2p hansenp ninst N) ///
+postfile keyres str24 test str4 model str16 term double(b se p ar2p hansenp ninst N) ///
     using "$OUT/R_keyresults.dta", replace
 
 * Main specification (reference row)

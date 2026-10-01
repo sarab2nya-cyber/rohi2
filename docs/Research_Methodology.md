@@ -115,21 +115,21 @@ Following Biddle et al. (2009), the models control for firm characteristics that
 - **PROFIT**: operating income / total assets. More profitable firms can fund investment internally.
 - **FCF**: operating cash flow / total assets, which captures internal funds available for investment (Jensen, 1986). Operating rather than post-investment free cash flow is used because investing cash flow is part of the dependent variable.
 
-All models include year dummies (ν~t~) and industry dummies (λ~j~); Section 3.8 explains how each is identified. Firm age and inflation are not used as controls in the investment models. Inflation is constant across firms within a year and is perfectly collinear with the year dummies. Age increases by exactly one each year, so its first difference is collinear with the year dummies in the differenced GMM equation. Age enters only the levels equation of the GMM system (Section 3.8), and inflation enters the analysis through the target leverage model, Eq. (2). Appendix A defines every variable.
+All controls are measured at t−1, as in Biddle et al. (2009). Current-year size and profitability are mechanically affected by the investment being explained (new assets raise total assets in the same year), so contemporaneous controls would be endogenous. All models include year dummies (ν~t~) and industry dummies (λ~j~); Section 3.8 explains how each is identified. Firm age and inflation are not used as controls in the investment models. Inflation is constant across firms within a year and is perfectly collinear with the year dummies. Age increases by exactly one each year, so its first difference is collinear with the year dummies in the differenced GMM equation. Age enters only the levels equation of the GMM system (Section 3.8), and inflation enters the analysis through the target leverage model, Eq. (2). Appendix A defines every variable.
 
 ## 3.7 Empirical Models
 
-Each hypothesis is tested with its own dynamic panel model, and each prediction is stated as a sign restriction on a named coefficient. Because InvEff is signed, a negative coefficient indicates a shift toward under-investment and a positive coefficient a shift toward over-investment. In all equations, X is the vector of controls (LTA, MTB, PROFIT, FCF), η~i~ is the unobserved firm effect, ν~t~ are year dummies, λ~j~ are industry dummies and ε is the idiosyncratic error.
+Each hypothesis is tested with its own dynamic panel model, and each prediction is stated as a sign restriction on a named coefficient. Because InvEff is signed, a negative coefficient indicates a shift toward under-investment and a positive coefficient a shift toward over-investment. In all equations, X is the vector of controls (LTA, MTB, PROFIT, FCF) measured at t−1, η~i~ is the unobserved firm effect, ν~t~ are year dummies, λ~j~ are industry dummies and ε is the idiosyncratic error.
 
 ### 3.7.1 Direct effects of capital structure deviation (H1a, H1b)
 
 Each direct-effect hypothesis is tested in its own model. H1a is tested with:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \phi\, UNDER_{i,t} + \delta' X_{i,t} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6a)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \phi\, UNDER_{i,t} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6a)$$
 
 H1b is tested with:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_2 CSD^{-}_{i,t} + \phi\, OVER_{i,t} + \delta' X_{i,t} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6b)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_2 CSD^{-}_{i,t} + \phi\, OVER_{i,t} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6b)$$
 
 UNDER (OVER) equals 1 for under-leveraged (over-leveraged) firm-years. The indicator absorbs the mean investment of firms on the other side of the target, so the slope on CSD⁺ in Eq. (6a) is identified only from over-leveraged firms, and the slope on CSD⁻ in Eq. (6b) only from under-leveraged firms. Because CSD⁺ is zero for every firm with UNDER = 1 and CSD⁻ is zero for every firm with UNDER = 0, omitting the other side's slope does not bias the tested coefficient.
 
@@ -137,7 +137,7 @@ H1a predicts β₁ < 0: the further a firm lies above its target, the further it
 
 Asymmetry, the central claim of the study, compares the two slopes and therefore requires both in one equation:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \delta' X_{i,t} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (6)$$
 
 Asymmetry is tested with a Wald test of β₁ + β₂ = 0 in Eq. (6).
 
@@ -145,13 +145,13 @@ Asymmetry is tested with a Wald test of β₁ + β₂ = 0 in Eq. (6).
 
 H2a is tested with maturity as the reference stage:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \phi_1 GROW_{i,t-1} + \phi_2 DEC_{i,t-1} + \beta_3\, CSD^{+}_{i,t} \times GROW_{i,t-1} + \beta_4\, CSD^{+}_{i,t} \times DEC_{i,t-1} + \delta' X_{i,t} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (7)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \phi_1 GROW_{i,t-1} + \phi_2 DEC_{i,t-1} + \beta_3\, CSD^{+}_{i,t} \times GROW_{i,t-1} + \beta_4\, CSD^{+}_{i,t} \times DEC_{i,t-1} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (7)$$
 
 Here β₁ is the effect of over-leverage in maturity. H2a predicts β₃ < 0 and β₄ < 0, so that the effect is more negative in growth (β₁ + β₃) and in decline (β₁ + β₄) than in maturity. A joint Wald test of β₃ = β₄ = 0 is also reported.
 
 H2b is tested with growth and decline together as the reference:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \phi_1 MAT_{i,t-1} + \beta_5\, CSD^{-}_{i,t} \times MAT_{i,t-1} + \delta' X_{i,t} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (8)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \phi_1 MAT_{i,t-1} + \beta_5\, CSD^{-}_{i,t} \times MAT_{i,t-1} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (8)$$
 
 H2b predicts β₅ > 0: the over-investment effect of under-leverage is stronger in maturity (β₂ + β₅) than in growth and decline (β₂).
 
@@ -159,7 +159,7 @@ H2b predicts β₅ > 0: the over-investment effect of under-leverage is stronger
 
 H3a is tested first with a two-way interaction:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \beta_3 MA_{i,t} + \beta_4\, CSD^{+}_{i,t} \times MA_{i,t} + \delta' X_{i,t} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (9)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \beta_3 MA_{i,t} + \beta_4\, CSD^{+}_{i,t} \times MA_{i,t} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (9)$$
 
 The marginal effect of over-leverage is β₁ + β₄·MA. H3a predicts β₄ > 0: higher ability makes the negative effect smaller. To test "especially in growth and decline", GD (= 1 for growth or decline at t−1, 0 for maturity) is added with all lower-order terms:
 
@@ -169,7 +169,7 @@ H3a predicts β₇ > 0: mitigation is stronger in growth and decline (β₄ + β
 
 H3b is tested in the same way for under-leverage:
 
-$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \beta_3 MA_{i,t} + \beta_8\, CSD^{-}_{i,t} \times MA_{i,t} + \delta' X_{i,t} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (11)$$
+$$InvEff_{i,t} = \gamma_0 + \gamma_1 InvEff_{i,t-1} + \beta_1 CSD^{+}_{i,t} + \beta_2 CSD^{-}_{i,t} + \beta_3 MA_{i,t} + \beta_8\, CSD^{-}_{i,t} \times MA_{i,t} + \delta' X_{i,t-1} + \eta_i + \nu_t + \lambda_j + \varepsilon_{i,t} \qquad (11)$$
 
 $$InvEff_{i,t} = \ldots + \beta_8\, CSD^{-} \times MA + \phi\, MAT + \beta_9\, CSD^{-} \times MAT + \beta_{10}\, MA \times MAT + \beta_{11}\, CSD^{-} \times MA \times MAT + \ldots \qquad (12)$$
 
@@ -209,7 +209,7 @@ Eqs. (6)–(12) are estimated with the two-step System GMM estimator (Arellano &
 | CSD⁺, CSD⁻, UNDER, OVER, MA | Endogenous | Levels at t−2 and t−3 | Δ at t−1 |
 | Products with CSD⁺, CSD⁻ or MA | Endogenous; instrumented by lags of the product itself | Levels at t−2 and t−3 | Δ at t−1 |
 | Stage indicators (t−1) | Predetermined | Levels at t−1 and t−2 | Δ at t |
-| LTA, MTB, PROFIT, FCF | Predetermined | Levels at t−1 and t−2 | Δ at t |
+| LTA, MTB, PROFIT, FCF (at t−1) | Predetermined | Levels at t−1 and t−2 | Δ at t |
 | Year dummies | Strictly exogenous | IV-style | IV-style |
 | Industry dummies, ln(Age) | Time-invariant / deterministic trend | Not used | IV-style, levels only |
 
@@ -227,7 +227,7 @@ Year and industry effects enter every equation in which they are identified:
 | Tobit, Eq. (5) | Year dummies | Industry dummies |
 | GMM models, Eqs. (6)–(12) | Year dummies in both equations | Industry dummies in the levels equation only |
 
-In the GMM models, year dummies absorb shocks common to all TSE firms, such as currency devaluations, sanctions and policy-rate changes. Without them, these shocks enter the error term as cross-sectional correlation, which invalidates the autocorrelation tests (Roodman, 2009b). Industry dummies are time-invariant: first-differencing removes them, so they enter only the levels equation. Industry × year dummies are not used because they would add more than a hundred instruments.
+In the GMM models, year dummies absorb shocks common to all TSE firms, such as currency devaluations, sanctions and policy-rate changes. Without them, these shocks enter the error term as cross-sectional correlation, which invalidates the autocorrelation tests (Roodman, 2009b). Industry dummies are time-invariant: first-differencing removes them, so they enter only the levels equation. Industry × year dummies are not used because they would add more than a hundred instruments. Industries with fewer than five firms are pooled into one category for the industry dummies, because a dummy for a single-firm industry is not identified in the levels equation.
 
 ### 3.8.4 Specification tests
 
@@ -249,7 +249,7 @@ Static two-way fixed-effects estimates of every model, with firm-clustered stand
 
 If investment distortions move leverage away from target, rather than the reverse, the estimated β₁ and β₂ could reflect reverse causality. This is tested directly by reversing the roles of the two constructs:
 
-$$CSDev_{i,t} = \rho_0 + \rho_1 CSDev_{i,t-1} + \theta\, InvEff_{i,t-1} + \delta' X_{i,t} + \eta_i + \nu_t + \varepsilon_{i,t} \qquad (13)$$
+$$CSDev_{i,t} = \rho_0 + \rho_1 CSDev_{i,t-1} + \theta\, InvEff_{i,t-1} + \delta' X_{i,t-1} + \eta_i + \nu_t + \varepsilon_{i,t} \qquad (13)$$
 
 Eq. (13) is estimated with the same System GMM design. A significant θ indicates feedback from investment to leverage deviation. In that case the GMM treatment of CSD⁺ and CSD⁻ as endogenous in Eqs. (6)–(12) is necessary, and Granger-type evidence on the direction of the relation (Eq. 6 versus Eq. 13) is reported.
 

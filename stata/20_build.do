@@ -68,7 +68,7 @@ program define buildpanel
     drop `tv'
 
     sort FirmID Year
-    foreach v in IOB COL LTA MTB PROFIT INDLEV INF {
+    foreach v in IOB COL LTA MTB PROFIT FCF INDLEV INF {
         gen double L_`v' = L.`v'
     }
 
@@ -216,12 +216,19 @@ program define buildpanel
     *--------------------------------------------------------------------------
     tab Year, gen(yd_)
     drop yd_1
-    tab IndID, gen(ind_)
+    * industry dummies: industries with fewer than 5 firms are pooled into one
+    * category (single-firm industry dummies are not identified in GMM)
+    egen byte _tf = tag(IndID FirmID)
+    bys IndID: egen _nf = total(_tf)
+    gen long IND_D = cond(_nf >= 5, IndID, 9999)
+    drop _tf _nf
+    sort FirmID Year
+    tab IND_D, gen(ind_)
     drop ind_1
     buildint
     sort FirmID Year
     gen byte EST = !missing(InvEff, L.InvEff, CSDP, CSDN, MA, STAGE_L, ///
-        LTA, MTB, PROFIT, FCF) & Year >= 1395
+        L_LTA, L_MTB, L_PROFIT, L_FCF) & Year >= 1395
     }
     xtset FirmID Year
 end
@@ -296,6 +303,10 @@ label var LTA     "Size: ln(real total assets)"
 label var MTB     "Market-to-book"
 label var PROFIT  "Profitability"
 label var FCF     "Operating cash flow / TA"
+label var L_LTA    "Size (t-1)"
+label var L_MTB    "Market-to-book (t-1)"
+label var L_PROFIT "Profitability (t-1)"
+label var L_FCF    "Operating cash flow / TA (t-1)"
 label var IOB     "Interest burden"
 label var COL     "Collateral"
 label var INDLEV  "Industry median leverage"

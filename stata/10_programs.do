@@ -517,7 +517,7 @@ program define runkey
             local ar2 = cond("`static'" == "", e(ar2p), .)
             local hp  = cond("`static'" == "", e(hansenp), .)
             local nj  = cond("`static'" == "", e(j), .)
-            post keyres ("`test'") (`m') ("`k'") (`b') (`se') (`p') (`ar2') (`hp') (`nj') (e(N))
+            post keyres ("`test'") ("`m'") ("`k'") (`b') (`se') (`p') (`ar2') (`hp') (`nj') (e(N))
         }
     }
     di as txt "  done: `test'"

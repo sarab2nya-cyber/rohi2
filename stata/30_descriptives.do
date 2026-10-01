@@ -7,8 +7,8 @@
 use "$OUT/analysis_panel.dta", clear
 xtset FirmID Year
 
-local DV   "InvEff Invest SalesGrowth TDA TDAhat CSDev CSDP CSDN FE MA LTA MTB PROFIT FCF IOB COL INDLEV INF Age"
-local CV   "InvEff CSDP CSDN MA LTA MTB PROFIT FCF GROW MAT DEC"
+local DV   "InvEff Invest SalesGrowth TDA TDAhat CSDev CSDP CSDN FE MA L_LTA L_MTB L_PROFIT L_FCF IOB COL INDLEV INF Age"
+local CV   "InvEff CSDP CSDN MA L_LTA L_MTB L_PROFIT L_FCF GROW MAT DEC"
 
 *------------------------------------------------------------------------------
 * OA1 Sample by year and industry (estimation sample)
