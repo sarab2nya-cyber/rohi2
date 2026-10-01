@@ -10,7 +10,7 @@ The empirical analysis uses an unbalanced panel of non-financial firms listed on
 The sample is constructed in the following steps:
 
 1. Start from all firm-years in the database for 1380–1403, on both the TSE and Farabourse.
-2. Exclude Farabourse firms and firms whose market is not recorded, so that the sample consists of firms traded on the main exchange.
+2. Exclude Farabourse firms and firms whose market is not recorded, so that the sample consists of firms traded on the main exchange. The database records each firm's current market; firms that traded on the TSE during 1392–1403 and later moved to Farabourse are identified from the TSE listings of those years and retained.
 3. Exclude banks, credit institutions, insurance, leasing, investment, holding, brokerage and fund companies. Their leverage reflects regulatory capital requirements and intermediation activity rather than financing choices, and their asset structure is not comparable (Fama & French, 1992).
 4. Exclude printing, retail, utilities (electricity, gas, steam and hot water) and activities auxiliary to financial intermediation, whose regulated pricing or business model makes investment and leverage not comparable with manufacturing and mining firms.
 5. Exclude firm-years without financial statements in the database (before listing, after delisting, or not reported).
@@ -23,27 +23,27 @@ All firms have a fiscal year ending in Esfand (March), so every firm-year shares
 
 | Step | Panel A. Screening criterion | Firms | Firm-years |
 |---|---|---|---|
-| 1 | All firm-years in the database (TSE and Farabourse), 1380–1403 | 1,286 | 9,434 |
-| 2 | Less: Farabourse firms and firms with no market in the database | −916 | −3,819 |
+| 1 | All firm-years in the database (TSE and Farabourse), 1380–1403 | 1,162 | 9,304 |
+| 2 | Less: Farabourse firms and firms with no market in the database | −693 | −1,924 |
 | 3 | Less: banks, insurance, leasing, investment, holding, brokerage and fund companies | −28 | −58 |
-| 4 | Less: printing, retail, utilities and auxiliary financial activities | −10 | −30 |
-| | TSE non-financial firms: full panel (332 firms × 24 years) | 332 | 7,968 |
-| 5 | Less: firm-years without financial statements (not yet listed, delisted or not reported) | — | −3,062 |
-| 6 | Less: firm-years with zero or negative book equity | — | −214 |
-| 7 | Less: firms with fewer than six consecutive years of usable data | [−n] | [−n] |
-| = | Final sample (unbalanced panel, including base year 1380) | [n] | [n] |
+| 4 | Less: printing, retail, utilities and auxiliary financial activities | −11 | −43 |
+| | TSE non-financial firms: full panel (430 firms × 24 years) | 430 | 10,320 |
+| 5 | Less: firm-years without financial statements (not yet listed, delisted or not reported) | — | −3,916 |
+| 6 | Less: firm-years with zero or negative book equity | — | −359 |
+| 7 | Less: firms with fewer than six consecutive years of usable data | −97 | −422 |
+| = | Final sample (unbalanced panel, including base year 1380) | 320 | 5,623 |
 | | **Panel B. Data availability of the firms after step 6** | | |
-| | Firms with data in all 24 years | 23 | 552 |
-| | Firms with data for part of the period | 274 | 4,118 |
+| | Firms with data in all 24 years | 24 | 576 |
+| | Firms with data for part of the period | 371 | 5,447 |
 | | Firms with data in only one year | 22 | 22 |
-| | Of all firms: first year with data after 1380 (listed later) | 120 | |
-| | Of all firms: last year with data before 1403 (delisted or not reported) | 109 | |
-| | Of all firms: one or more missing years inside their period | 196 | |
-| | Firms with data in every year 1393–1403 (balanced subsample, test S8) | 82 | 1,726 |
+| | Of all firms: first year with data after 1380 (listed later) | 199 | |
+| | Of all firms: last year with data before 1403 (delisted or not reported) | 126 | |
+| | Of all firms: one or more missing years inside their period | 263 | |
+| | Firms with data in every year 1393–1403 (balanced subsample, test S8) | 120 | 2,323 |
 
-After step 6, only 23 firms report in all 24 years, while 120 firms entered the exchange after 1380 and 109 left it, or stopped reporting, before 1403. The final sample is an unbalanced panel of [n] firms and [n] firm-years. The only length requirement is step 7, which is set by the data needs of the estimator (six consecutive years), not by a preference for long-lived firms; firms with gaps keep all their usable years, and each year enters an estimation when the lags it requires exist.
+After step 6, only 24 firms report in all 24 years, while 199 firms entered the exchange after 1380 and 126 left it, or stopped reporting, before 1403. The final sample is an unbalanced panel of 320 firms and 5,623 firm-years, an average of 17.6 years per firm. The only length requirement is step 7, which is set by the data needs of the estimator (six consecutive years), not by a preference for long-lived firms; firms with gaps keep all their usable years, and each year enters an estimation when the lags it requires exist.
 
-An unbalanced panel is used for three reasons. First, requiring every firm to report in all 24 years would keep 23 firms, too few for System GMM, whose instrument count must stay below the number of cross-sectional units. Second, such a sample would retain only survivors. Over-leveraged firms that fell into distress or left the exchange, the firms at the centre of H1a, would be removed, and so would every firm listed after 1380, including the wave of listings that followed the privatisations of the late 1380s; the estimates would be subject to survivorship bias. Third, the forward orthogonal deviation used in the GMM estimator (Section 3.8.2) is designed for panels with gaps. To show that entry and exit do not drive the results, all models are re-estimated on the balanced subsample of 82 firms with usable data in every year 1393–1403 (sensitivity test S8).
+An unbalanced panel is used for three reasons. First, requiring every firm to report in all 24 years would keep 24 firms, too few for System GMM, whose instrument count must stay below the number of cross-sectional units. Second, such a sample would retain only survivors. Over-leveraged firms that fell into distress or left the exchange, the firms at the centre of H1a, would be removed, and so would every firm listed after 1380, including the wave of listings that followed the privatisations of the late 1380s; the estimates would be subject to survivorship bias. Third, the forward orthogonal deviation used in the GMM estimator (Section 3.8.2) is designed for panels with gaps. To show that entry and exit do not drive the results, all models are re-estimated on the balanced subsample of 120 firms with usable data in every year 1393–1403 (sensitivity test S8).
 
 **Industries.** Industries are defined by the industry name in the database. The database also reports a broad group code (eleven groups, each combining several industries), which is too coarse to serve as an industry classification and is not used. Industries with a single firm in the final sample are pooled into one category ("other industries"). In the estimations that use industry cells (industry leverage in Eq. 2, the DEA frontier and the industry dummies), industries with fewer than five firms are pooled into one group, so that no cell rests on one or two firms.
 
@@ -221,7 +221,7 @@ Stage differences are inferred only from the interaction terms above. As a descr
 
 Three sources of endogeneity make static panel estimators inconsistent in this setting (Wintoki, Linck & Netter, 2012):
 
-1. **Dynamic dependence.** Investment distortions persist, so InvEff~t−1~ belongs in the model. With a firm effect η~i~, pooled OLS biases γ₁ upward and the within estimator biases it downward; the within bias is of order 1/T (Nickell, 1981); with an average of about 15 years per firm it is smaller than in short panels but not negligible.
+1. **Dynamic dependence.** Investment distortions persist, so InvEff~t−1~ belongs in the model. With a firm effect η~i~, pooled OLS biases γ₁ upward and the within estimator biases it downward; the within bias is of order 1/T (Nickell, 1981); with an average of about 18 years per firm it is smaller than in short panels but not negligible.
 2. **Simultaneity.** Investment financed with new debt raises leverage in the same year, so contemporaneous CSD⁺ and CSD⁻ would be jointly determined with InvEff. Measuring the deviation at t−1 removes this mechanical link (Section 3.7), but lagged deviation can still respond to past investment shocks, so it is not treated as exogenous.
 3. **Unobserved heterogeneity and measurement error.** MA is constructed from sales efficiency, which shares shocks with investment, and both MA and CSDev are estimated regressors.
 
@@ -241,7 +241,7 @@ Lags in the table refer to the regressor as it enters the model; for example, th
 | Year dummies | Strictly exogenous | IV-style | IV-style |
 | Industry dummies, ln(Age) | Time-invariant / deterministic trend | Not used | IV-style, levels only |
 
-The controls are treated as endogenous rather than predetermined. Size, growth opportunities, profitability and cash flow respond to past investment shocks, so even their lagged values may be correlated with the error (Wintoki, Linck & Netter, 2012); in this sample the Hansen test also rejected the weaker predetermined assumption. The instrument matrix is collapsed and lag depth is restricted to two, so that the instrument count stays below the 319 cross-sectional units. Because the instruments are collapsed, their number does not grow with the length of the panel, which matters with up to 24 years per firm. Instrument proliferation overfits the endogenous regressors and weakens the Hansen test (Roodman, 2009a). The instrument count is reported for every model.
+The controls are treated as endogenous rather than predetermined. Size, growth opportunities, profitability and cash flow respond to past investment shocks, so even their lagged values may be correlated with the error (Wintoki, Linck & Netter, 2012); in this sample the Hansen test also rejected the weaker predetermined assumption. The instrument matrix is collapsed and lag depth is restricted to two, so that the instrument count stays below the 320 cross-sectional units. Because the instruments are collapsed, their number does not grow with the length of the panel, which matters with up to 24 years per firm. Instrument proliferation overfits the endogenous regressors and weakens the Hansen test (Roodman, 2009a). The instrument count is reported for every model.
 
 Restricting lag depth keeps the instrument count low but can leave the instruments weak, and weak instruments make GMM estimates imprecise and biased toward OLS (Bun & Windmeijer, 2010). Instrument strength is therefore checked before any hypothesis model is estimated. For each main regressor (CSD⁺, CSD⁻, MA), the cluster-robust first-stage F statistic of its collapsed lag instruments is computed for the transformed and levels equations. The lag window is fixed by a rule set in advance: lags 2–3 are kept unless the weakest first-stage F is below 10 (Staiger & Stock, 1997) and the window of lags 2–4 gives stronger instruments, in which case lags 2–4 are used. The F statistics and the window selected are reported in the Online Appendix (OA10). The rule depends only on the first stages, never on the hypothesis tests.
 
@@ -324,7 +324,7 @@ GMM does not require normally distributed or homoskedastic errors. Its validity 
 | Instrument exogeneity | Hansen J; Difference-in-Hansen | Revise the instrument set or the assumed timing of regressors |
 | Heteroskedasticity and within-firm correlation | Not required | Two-step robust covariance with Windmeijer correction |
 | Cross-sectional dependence | Pesaran (2015) CD test on residuals | Year dummies absorb common shocks |
-| Stationarity | With N = 319 and up to 24 years per firm, Fisher-type panel unit-root tests (which allow unbalanced panels) on InvEff and CSDev are reported | Year dummies; variables are ratios or residuals |
+| Stationarity | With N = 320 and up to 24 years per firm, Fisher-type panel unit-root tests (which allow unbalanced panels) on InvEff and CSDev are reported | Year dummies; variables are ratios or residuals |
 | Influential observations | Distribution checks | 1/99 winsorization; trimming in sensitivity tests |
 
 ### 3.10.3 Static benchmarks
@@ -365,7 +365,7 @@ The robustness tests replace one element of the design at a time with an accepte
 | S5 | Near-target firms | Exclude firm-years with \|CSDev\| < 0.25 SD, whose direction is mostly estimation noise |
 | S6 | Crisis years | Exclude 1397–1398 (sanctions and currency crisis) and 1399 (COVID-19) |
 | S7 | Industry composition | Re-estimate excluding one industry at a time |
-| S8 | Sample composition | Balanced subsample: the 82 firms with usable data in every year 1393–1403, to assess survivorship effects |
+| S8 | Sample composition | Balanced subsample: the 120 firms with usable data in every year 1393–1403, to assess survivorship effects |
 | S10 | Study period | Original study period 1395–1403 (data from 1392), to check that the extension to 1380 does not drive the results |
 | S9 | Elements of the original design | S9a: first differences instead of forward orthogonal deviations; S9b: original four controls (LTA, MTB, PROFIT, FCF); S9c: original specification as a whole (CSD and MA at t, first differences, four controls, lags 2–3) |
 
@@ -461,7 +461,7 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 
 ## Notes for the Author (remove before submission)
 
-- Table 1 uses the counts of the Screening sheet of Research_Data_1380_1403.xlsx. Check steps 1-2 before submission: 1,286 firms in step 1 is more than twice the number of firms in the 1380-1402 file (551). If 1403 rows were not matched to their firm (Merge_report), they appear as separate firms and inflate steps 1 and 2; fix the merge and re-run before reporting.
+- Table 1 uses the counts of the Screening sheet of Research_Data_1380_1403.xlsx (final run after the 1403 merge and the market correction).
 - State the source and type of the inflation series you use (CBI or Statistical Centre; annual average or Esfand-to-Esfand).
 - Complete the Synn and Williams (2015) reference, and check every reference against the published version before submission.
 - The design changes of this version (CSD and MA at t−1, forward orthogonal deviations, extended controls) were fixed before the final estimation; the earlier specification is reported in S9c. State this in the cover letter if a reviewer asks how the specification was chosen.
