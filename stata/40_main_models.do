@@ -345,3 +345,25 @@ esttab G13 using "$OUT/OA7_reverse_causality.rtf", replace b(%9.4f) se(%9.4f) //
     "Instruments" "AR(1) p" "AR(2) p" "Hansen p" "Diff-in-Hansen (levels) p" "p (theta = 0)")) ///
     title("Table OA7. Reverse causality: Eq. (13)") ///
     addnotes("Dependent variable: CSDev. Two-step System GMM, Windmeijer-corrected SE.")
+
+*------------------------------------------------------------------------------
+* I. Save all estimates to disk (used by 70_report.do if run on its own)
+*------------------------------------------------------------------------------
+foreach m of global MODELS {
+    qui est restore G`m'
+    qui estimates save "$OUT/est_G`m'", replace
+    qui est restore S`m'
+    qui estimates save "$OUT/est_S`m'", replace
+}
+qui est restore G13
+qui estimates save "$OUT/est_G13", replace
+foreach s in 1 2 3 {
+    foreach w in W6 W9 W11 {
+        qui est restore `w'_`s'
+        qui estimates save "$OUT/est_`w'_`s'", replace
+    }
+}
+foreach e in TGT_main TOB_main {
+    cap qui est restore `e'
+    if !_rc qui estimates save "$OUT/est_`e'", replace
+}

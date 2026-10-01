@@ -162,6 +162,10 @@ do "$CODE/30_descriptives.do"
 do "$CODE/40_main_models.do"
 if $RUN_ROBUST do "$CODE/50_robustness.do"
 if $RUN_SENS   do "$CODE/60_sensitivity.do"
+do "$CODE/70_report.do"            // all tables and figures in one Word file
 
 log close master
-translate "$OUT/master_log.smcl" "$OUT/master_log.pdf", replace
+* printed copies of the complete Stata output
+cap translate "$OUT/master_log.smcl" "$OUT/Stata_Output_Log.pdf", replace
+cap translate "$OUT/master_log.smcl" "$OUT/Stata_Output_Log.txt", replace translator(smcl2log)
+di as res "Done. See $OUT: Results_Report.docx, Tables.xlsx, Stata_Output_Log.pdf / .txt, figures."
