@@ -449,6 +449,29 @@ postclose tbl
 drop _tf _tfs _ny _first _last _gap
 
 *------------------------------------------------------------------------------
+* Gaps by year (check of the database): for every year, firms whose first and
+* last year with statements bracket that year, and why the year is unusable
+*------------------------------------------------------------------------------
+preserve
+    bys FirmCode: egen int _f0 = min(cond(HasData, Year, .))
+    bys FirmCode: egen int _l0 = max(cond(HasData, Year, .))
+    gen byte inrange_ = inrange(Year, _f0, _l0)
+    gen byte usable   = InSample
+    gen byte nostat   = inrange_ & !HasData
+    gen byte bvneg    = HasData & BV <= 0
+    collapse (sum) firms_active = inrange_ firms_usable = usable ///
+        gap_no_statements = nostat gap_book_equity = bvneg, by(Year)
+    label variable Year              "Fiscal year"
+    label variable firms_active      "Firms between their first and last year with statements"
+    label variable firms_usable      "Firm-years usable (after steps 5-6)"
+    label variable gap_no_statements "Inside-period years without statements"
+    label variable gap_book_equity   "Years with book equity <= 0"
+    di as res _n "GAPS BY YEAR (inside each firm's own period)"
+    list, noobs sep(0) abbrev(20)
+    export excel using "$OUT/Screening_check.xlsx", sheet("gaps_by_year") firstrow(varlabels) sheetmodify
+restore
+
+*------------------------------------------------------------------------------
 * Final sample only: firm-years without statements or with book equity <= 0
 * are removed (no empty rows). Gaps are handled by the panel lags.
 *------------------------------------------------------------------------------
