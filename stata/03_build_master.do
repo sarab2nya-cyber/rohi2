@@ -62,7 +62,9 @@ program define loadraw
     exit 601
 end
 
-* prepfile: Year, company code, numeric/text types, empty columns, duplicates
+* prepfile: Year, identifiers, numeric/text types, empty columns
+*   identifiers: company code (شرکت), ticker (نماد) and company label (Symbol);
+*   the 1403 files may carry only one of them
 cap program drop prepfile
 program define prepfile
     args ydef fname
@@ -71,13 +73,32 @@ program define prepfile
     if _rc gen int Year = `ydef'
     cap confirm string variable Year
     if !_rc destring Year, replace force ignore(", ")
-    if "`ydef'" != "." replace Year = `ydef' if missing(Year)
+    if "`ydef'" != "." qui replace Year = `ydef' if missing(Year)
+    * which identifiers does this file have?
+    local hasid = 0
+    foreach v in $FIRMKEY $TICKER Symbol {
+        cap confirm variable `v'
+        if !_rc local hasid = 1
+    }
+    if !`hasid' {
+        di as err _n "`fname' has none of the identifier columns $FIRMKEY, $TICKER or Symbol."
+        di as err "Its first columns are:"
+        local i = 0
+        foreach v of varlist _all {
+            local ++i
+            if `i' <= 25 di as err "   `i'. `v'"
+        }
+        di as err "Rename the column that identifies the company to $TICKER (ticker) or $FIRMKEY (code) in this file and run again."
+        exit 111
+    }
     cap confirm variable $FIRMKEY
     if _rc gen double $FIRMKEY = .
     cap confirm string variable $FIRMKEY
     if !_rc destring $FIRMKEY, replace force ignore(", ")
-    cap confirm variable $TICKER
-    if _rc gen str1 $TICKER = ""
+    foreach v in $TICKER Symbol {
+        cap confirm variable `v'
+        if _rc gen str1 `v' = ""
+    }
     local T "$TEXTVARS"
     foreach v of varlist _all {
         local istext : list v in T
@@ -88,7 +109,7 @@ program define prepfile
             qui replace `v' = "" if `v' == "."
         }
         else if !`istext' & `isstr' & !inlist("`v'", "$FIRMKEY", "Year") {
-            * numbers stored as text: convert only if every value is numeric
+            * numbers stored as text: converted only if every value is numeric
             cap destring `v', replace ignore(", ")
         }
         cap confirm string variable `v'
@@ -97,22 +118,17 @@ program define prepfile
             qui count if `v' != ""
         }
         else qui count if !missing(`v')
-        if r(N) == 0 & !inlist("`v'", "$FIRMKEY", "Year", "$TICKER") drop `v'
+        if r(N) == 0 & !inlist("`v'", "$FIRMKEY", "Year", "$TICKER", "Symbol") drop `v'
     }
-    * ticker spelling: Arabic yeh/kaf -> Persian, no spaces or half-spaces
-    qui replace $TICKER = ustrregexra($TICKER, "[\x{200C}\s]", "")
-    qui replace $TICKER = ustrregexra($TICKER, "\x{064A}", "\x{06CC}")
-    qui replace $TICKER = ustrregexra($TICKER, "\x{0643}", "\x{06A9}")
-    qui drop if missing($FIRMKEY) & $TICKER == ""
-    * one row per company-year: keep the row with most information
-    tempvar nm dup
-    qui egen int `nm' = rownonmiss(_all), strok
-    qui duplicates tag $FIRMKEY $TICKER Year, gen(`dup')
-    qui count if `dup'
-    local nd = r(N)
-    qui bys $FIRMKEY $TICKER Year (`nm'): keep if _n == _N
-    post mrep ("`fname'") ("rows after cleaning") (_N) (`nd')
-    drop `nm' `dup'
+    * matching keys: Arabic yeh/kaf -> Persian, no spaces, half-spaces or dashes
+    foreach v in $TICKER Symbol {
+        local k = cond("`v'" == "Symbol", "_ksy", "_ktk")
+        qui gen `k' = ustrregexra(`v', "[\x{200C}\x{200F}\s\-_]", "")
+        qui replace `k' = ustrregexra(`k', "\x{064A}", "\x{06CC}")
+        qui replace `k' = ustrregexra(`k', "\x{0643}", "\x{06A9}")
+    }
+    qui drop if missing($FIRMKEY) & _ktk == "" & _ksy == ""
+    post mrep ("`fname'") ("rows with an identifier") (_N) (.)
 end
 
 * harmonise: make column types of the file in memory match the master file
@@ -132,57 +148,111 @@ program define harmon
     }
 end
 
+* one row per company-year: keep the row with most information
+cap program drop onerow
+program define onerow
+    args fname
+    tempvar nm dup
+    qui egen int `nm' = rownonmiss(_all), strok
+    qui duplicates tag $FIRMKEY Year, gen(`dup')
+    qui count if `dup'
+    if r(N) post mrep ("`fname'") ("company-years reported twice (row with most data kept)") (r(N)) (.)
+    qui bys $FIRMKEY Year (`nm'): keep if _n == _N
+    drop `nm' `dup'
+end
+
 cap postclose mrep
 postfile mrep str40 file str60 step double(rows extra) using "$ROOT/_merge_report.dta", replace
 
 *------------------------------------------------------------------------------
-* 1. Main file 1380-1402
+* 1. Read and clean the seven files (0 = main file 1380-1402)
 *------------------------------------------------------------------------------
-loadraw $MAIN
-local nraw = _N
-post mrep ("$MAIN") ("rows read") (`nraw') (.)
-prepfile . "$MAIN"
-* ticker -> company code lookup (for 1403 rows without a company code)
-preserve
-    keep $TICKER $FIRMKEY
-    drop if $TICKER == "" | missing($FIRMKEY)
-    bys $TICKER ($FIRMKEY): keep if _n == _N
-    rename $FIRMKEY _code_main
-    tempfile tick
-    save `tick'
-restore
-tempfile main
-save `main'
-
-*------------------------------------------------------------------------------
-* 2. The six 1403 files
-*------------------------------------------------------------------------------
-local k = 0
-foreach f of global F1403 {
+local files "$MAIN $F1403"
+local k = -1
+foreach f of local files {
     local ++k
     loadraw `f'
     post mrep ("`f'") ("rows read") (_N) (.)
-    prepfile 1403 "`f'"
-    qui count if Year != 1403
-    if r(N) di as err "Note: `f' has " r(N) " rows with a year other than 1403 (kept as they are)."
-    * company code from ticker where missing
-    merge m:1 $TICKER using `tick', keep(master match) nogen
-    qui count if missing($FIRMKEY) & !missing(_code_main)
-    post mrep ("`f'") ("company code taken from ticker") (r(N)) (.)
-    replace $FIRMKEY = _code_main if missing($FIRMKEY)
-    drop _code_main
-    qui count if missing($FIRMKEY)
-    if r(N) {
-        di as err "Note: " r(N) " rows of `f' have no company code (ticker not in the main file); kept with their ticker."
-        post mrep ("`f'") ("rows without company code") (r(N)) (.)
+    local yd = cond(`k' == 0, ".", "1403")
+    prepfile `yd' "`f'"
+    if `k' > 0 {
+        qui count if Year != 1403
+        if r(N) di as err "Note: `f' has " r(N) " rows with a year other than 1403 (kept as they are)."
     }
     tempfile p`k'
     save `p`k''
 }
+local K = `k'
 
-* combine the 1403 files
-use `p1', clear
-forvalues j = 2/`k' {
+*------------------------------------------------------------------------------
+* 2. Company code for every row
+*    from the main file: ticker -> code and company label -> code;
+*    companies not in the main file get a new code 9000001, 9000002, ...
+*------------------------------------------------------------------------------
+use `p0', clear
+foreach key in _ktk _ksy {
+    preserve
+        keep `key' $FIRMKEY
+        drop if `key' == "" | missing($FIRMKEY)
+        bys `key' ($FIRMKEY): keep if _n == _N
+        rename $FIRMKEY _c`key'
+        tempfile L`key'
+        save `L`key''
+    restore
+}
+forvalues j = 0/`K' {
+    use `p`j'', clear
+    local f : word `=`j' + 1' of `files'
+    qui count if !missing($FIRMKEY)
+    local n0 = r(N)
+    foreach key in _ktk _ksy {
+        qui merge m:1 `key' using `L`key'', keep(master match) nogen
+        qui replace $FIRMKEY = _c`key' if missing($FIRMKEY)
+        drop _c`key'
+    }
+    qui count if !missing($FIRMKEY)
+    post mrep ("`f'") ("company code found from ticker or name") (r(N) - `n0') (.)
+    save `p`j'', replace
+}
+* registry of companies that are not in the main file
+clear
+gen str1 _kname = ""
+forvalues j = 0/`K' {
+    preserve
+        use `p`j'', clear
+        keep if missing($FIRMKEY)
+        gen _kname = cond(_ktk != "", _ktk, _ksy)
+        keep _kname
+        tempfile u
+        save `u'
+    restore
+    append using `u'
+}
+duplicates drop _kname, force
+drop if _kname == ""
+sort _kname
+gen double _cnew = 9000000 + _n
+post mrep ("All") ("companies not in the 1380-1402 file (new codes 9000001+)") (_N) (.)
+tempfile reg
+save `reg'
+forvalues j = 0/`K' {
+    use `p`j'', clear
+    local f : word `=`j' + 1' of `files'
+    gen _kname = cond(_ktk != "", _ktk, _ksy)
+    qui merge m:1 _kname using `reg', keep(master match) nogen
+    qui replace $FIRMKEY = _cnew if missing($FIRMKEY)
+    drop _cnew _kname
+    onerow "`f'"
+    save `p`j'', replace
+}
+
+*------------------------------------------------------------------------------
+* 3. Merge: main file, then each 1403 file, on company code and year.
+*    Same columns for other firms -> rows added; other columns for the same
+*    firms -> joined side by side; the first non-missing value is kept.
+*------------------------------------------------------------------------------
+use `p0', clear
+forvalues j = 1/`K' {
     qui ds, has(type string)
     local mstr `r(varlist)'
     qui ds, has(type numeric)
@@ -192,55 +262,20 @@ forvalues j = 2/`k' {
         harmon "`mstr'" "`mnum'"
         save `p`j'', replace
     restore
-    merge 1:1 $FIRMKEY $TICKER Year using `p`j'', update
+    qui merge 1:1 $FIRMKEY Year using `p`j'', update
+    local fj : word `=`j' + 1' of `files'
     qui count if _merge == 2
-    local add = r(N)
+    post mrep ("`fj'") ("rows added (company-years not yet present)") (r(N)) (.)
     qui count if inlist(_merge, 3, 4)
-    local mat = r(N)
+    post mrep ("`fj'") ("rows joined (same company-year, more columns)") (r(N)) (.)
     qui count if _merge == 5
-    local con = r(N)
-    local fj : word `j' of $F1403
-    post mrep ("`fj'") ("1403: rows added (other firms)") (`add') (.)
-    post mrep ("`fj'") ("1403: rows joined (same firms, more columns)") (`mat') (.)
-    post mrep ("`fj'") ("1403: rows with conflicting values (first kept)") (`con') (.)
+    post mrep ("`fj'") ("cells with conflicting values (first file kept)") (r(N)) (.)
     drop _merge
 }
-tempfile y1403
-save `y1403'
-
-*------------------------------------------------------------------------------
-* 3. 1380-1402 + 1403
-*------------------------------------------------------------------------------
-use `main', clear
-qui count if Year == 1403
-if r(N) di as err "Note: the main file already has " r(N) " rows for 1403; the 1403 files fill their gaps."
-qui ds, has(type string)
-local mstr `r(varlist)'
-qui ds, has(type numeric)
-local mnum `r(varlist)'
-preserve
-    use `y1403', clear
-    harmon "`mstr'" "`mnum'"
-    save `y1403', replace
-restore
-merge 1:1 $FIRMKEY $TICKER Year using `y1403', update
-qui count if _merge == 2
-post mrep ("All") ("1403 rows added") (r(N)) (.)
-qui count if _merge == 5
-post mrep ("All") ("rows with conflicting values (main file kept)") (r(N)) (.)
-drop _merge
-
-* one row per company-year (a firm whose ticker differs between files)
-tempvar nm dd
-qui egen int `nm' = rownonmiss(_all), strok
-qui duplicates tag $FIRMKEY Year if !missing($FIRMKEY), gen(`dd')
-qui count if `dd' > 0 & !missing(`dd')
-post mrep ("All") ("company-years reported twice (row with most data kept)") (r(N)) (.)
-qui bys $FIRMKEY Year (`nm'): drop if _n < _N & !missing($FIRMKEY)
-drop `nm' `dd'
+drop _ktk _ksy
 
 * identifiers that are fixed within a firm: fill gaps from the firm's other years
-foreach v in Symbol صنعت طبقه بازار {
+foreach v in $TICKER Symbol صنعت طبقه بازار {
     cap confirm string variable `v'
     if _rc continue
     bys $FIRMKEY (Year): replace `v' = `v'[_n-1] if `v' == "" & _n > 1 & !missing($FIRMKEY)
@@ -273,9 +308,9 @@ foreach v in $FIRMKEY $TICKER Symbol Year کدصنعتکلی کدصنعتجزئ�
     if !_rc local ids "`ids' `v'"
 }
 order `ids'
-sort $FIRMKEY $TICKER Year
+sort $FIRMKEY Year
 compress
-egen byte _tf = tag($FIRMKEY $TICKER)
+egen byte _tf = tag($FIRMKEY)
 qui count if _tf
 post mrep ("Master") ("companies") (r(N)) (.)
 post mrep ("Master") ("company-years, 1380-1403") (_N) (.)
