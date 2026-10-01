@@ -156,11 +156,13 @@ posthyp "H2b" "(8)" "CSD- x Maturity"       "+" pos CSDN_MAT 1
 qui est restore G9
 posthyp "H3a" "(9)" "CSD+ x MA"             "+" pos CSDP_MA 1
 qui est restore G10
-posthyp "H3a-GD" "(10)" "CSD+ x MA x GD"    "+" pos CSDP_MA_GD 1
+posthyp "H3a-GD" "(10)" "CSD+ x MA in G/D"  "+" pos CSDP_MA 1 CSDP_MA_GD 1
+posthyp "H3a-3w" "(10)" "CSD+ x MA x GD"    "+" pos CSDP_MA_GD 1
 qui est restore G11
 posthyp "H3b" "(11)" "CSD- x MA"            "-" neg CSDN_MA 1
 qui est restore G12
-posthyp "H3b-MAT" "(12)" "CSD- x MA x MAT"  "-" neg CSDN_MA_MAT 1
+posthyp "H3b-MAT" "(12)" "CSD- x MA in MAT" "-" neg CSDN_MA 1 CSDN_MA_MAT 1
+posthyp "H3b-3w" "(12)" "CSD- x MA x MAT"  "-" neg CSDN_MA_MAT 1
 postclose hyp
 preserve
     use "$OUT/T5_hypothesis_summary.dta", clear
