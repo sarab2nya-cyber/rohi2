@@ -16,6 +16,7 @@ program define buildpanel
     if "`cuts'"     == "" local cuts     "1 99"
     if "`rts'"      == "" local rts      "vrs"
     if "`expmodel'" == "" local expmodel "biddle"
+    if "`invdef'"   == "" local invdef   "$INVDEF_MAIN"
     if "`invdef'"   == "" local invdef   "net"
     if "`levdef'"   == "" local levdef   "book"
     if "`target'"   == "" local target   "base"

@@ -44,6 +44,8 @@ global BOOT_REPS     0      // full-procedure bootstrap replications (slow; e.g.
 global XCTRL  "L_LTA L_MTB L_PROFIT L_FCF"   // controls at t-1 (Biddle et al. 2009)
 global MODELS    "6a 6b 6 7 8 9 10 11 12"   // 6a = H1a, 6b = H1b, 6 = asymmetry test
 global KEYMODELS "6a 6b 7 8 9 10 11 12"     // models with a hypothesis coefficient
+global INVDEF_MAIN "cash" // main investment measure: "cash" = -CFI / TA(t-1) (unaffected by
+                          // asset revaluations); "net" = increase in PPE + IA / TA(t-1)
 global CTRL_TYPE "pred"   // controls: "pred" (lags t-1,t-2, main) or "endog" (lags t-2,t-3)
 * endogenous regressors (lags t-2, t-3)          * predetermined (lags t-1, t-2)
 global E6a "CSDP UNDERLEV"

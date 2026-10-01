@@ -40,8 +40,11 @@ rebuild, expmodel(chen) tag(R5)
 runkey, test("R5 Chen et al. (2011)")
 
 * R6 cash-based investment
-rebuild, invdef(cash) tag(R6)
-runkey, test("R6 Cash investment (-CFI)")
+* R6 the other investment measure (main measure is set by $INVDEF_MAIN)
+local altinv = cond("$INVDEF_MAIN" == "cash", "net", "cash")
+local altlab = cond("`altinv'" == "net", "R6 Accrual investment (dPPE+dIA)", "R6 Cash investment (-CFI)")
+rebuild, invdef(`altinv') tag(R6)
+runkey, test("`altlab'")
 
 * R7 alternative managerial-ability measures
 rebuild
