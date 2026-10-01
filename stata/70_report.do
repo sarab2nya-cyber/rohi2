@@ -1,72 +1,88 @@
 *==============================================================================
-* 70_report.do  -  collects ALL results into one Word file:
-*                  $OUT/Results_Report.docx  (built-in putdocx, Stata 15+)
-*   1 Data: winsorization, sample, descriptives, correlations, life cycle, DEA
-*   2 Assumption and specification tests
-*   3 Hypothesis decisions
-*   4 One table per hypothesis (GMM next to static FE) + reverse causality
-*   5 Simple slopes and economic magnitude
-*   6 Robustness, sensitivity, identification
-*   7 First-stage models, within-stage estimates
-*   8 All figures
+* 70_report.do  -  collects ALL results into ONE report that opens in Word:
+*                  $OUT/Results_Report.rtf   (Word: File > Save As > .docx)
+*   Built with esttab (estout), not putdocx: putdocx fails to load on some
+*   Stata 17 installations ("wrong number of arguments for _docx_append()").
+*   1 Data  2 Assumptions  3 Hypothesis decisions  4 One table per hypothesis
+*   5 Economic magnitude  6 Robustness / sensitivity / identification
+*   7 First stages and within-stage estimates  8 Figures (linked pictures)
 *==============================================================================
+global RPT     "$OUT/Results_Report.rtf"
+global RPTMODE "replace"
 
 *------------------------------------------------------------------------------
 * helpers
 *------------------------------------------------------------------------------
-global TBL = 0
-
-cap program drop doc_h
-program define doc_h
-    args level text
-    putdocx paragraph, style(Heading`level')
-    putdocx text ("`text'")
-end
-
-cap program drop doc_p
-program define doc_p
-    args text
-    putdocx paragraph
-    putdocx text ("`text'"), font("Times New Roman", 9) italic
-end
-
-* matrix -> Word table
-cap program drop doc_mat
-program define doc_mat
-    args M fmt
+* matrix -> table in the report
+cap program drop rpt_mat
+program define rpt_mat
+    syntax namelist(max=1), TITLE(string) [NOTE(string) FMT(string)]
+    local M `namelist'
     if "`fmt'" == "" local fmt "%9.4f"
-    global TBL = $TBL + 1
-    putdocx table t$TBL = matrix(`M'), rownames colnames nformat(`fmt') ///
-        font("Times New Roman", 8) border(all, single)
+    cap confirm matrix `M'
+    if _rc exit
+    qui esttab matrix(`M', fmt(`fmt')) using "$RPT", $RPTMODE nomtitles ///
+        title("`title'") addnotes("`note'")
+    global RPTMODE "append"
 end
 
-* data in memory -> Word table
-cap program drop doc_data
-program define doc_data
-    syntax [varlist]
-    if "`varlist'" == "" unab varlist : _all
-    foreach v of local varlist {
-        cap confirm numeric variable `v'
-        if !_rc format `v' %10.4f
-    }
-    global TBL = $TBL + 1
-    putdocx table t$TBL = data(`varlist'), varnames font("Times New Roman", 8) border(all, single)
-end
-
-* sheet of Tables.xlsx -> Word table
-cap program drop doc_sheet
-program define doc_sheet
-    syntax , SHEET(string) [CELLRANGE(string) NOFIRSTROW]
+* .dta file -> matrix (numeric variables), row names from string variables
+cap program drop dta2mat
+program define dta2mat
+    syntax using/, Matrix(name) ROWvars(string) KEEPvars(string) [COND(string)]
     preserve
-    local fr = cond("`nofirstrow'" == "", "firstrow", "")
-    local cr = cond("`cellrange'" == "", "", "cellrange(`cellrange')")
-    cap import excel using "$OUT/Tables.xlsx", sheet("`sheet'") `fr' `cr' clear
-    if _rc | _N == 0 {
+    cap use "`using'", clear
+    if _rc {
         restore
-        doc_p "(sheet `sheet' not available)"
         exit
     }
-    doc_data
+    if "`cond'" != "" qui keep if `cond'
+    if _N == 0 {
+        restore
+        exit
+    }
+    qui gen str200 _rn = ""
+    foreach r of local rowvars {
+        cap confirm string variable `r'
+        if _rc qui replace _rn = _rn + "_" + string(`r')
+        else   qui replace _rn = _rn + "_" + `r'
+    }
+    qui replace _rn = strtoname(substr(_rn, 2, .))
+    mkmat `keepvars', matrix(`matrix') rownames(_rn)
+    restore
+end
+
+* sheet of Tables.xlsx -> matrix: column A = labels, numeric columns kept
+cap program drop sheet2mat
+program define sheet2mat
+    syntax , SHEET(string) Matrix(name) [COLS(string) CNAMES(string)]
+    if "`cols'" == "" local cols "B C"
+    preserve
+    cap import excel using "$OUT/Tables.xlsx", sheet("`sheet'") allstring clear
+    if _rc {
+        restore
+        exit
+    }
+    local keep ""
+    foreach c of local cols {
+        cap confirm variable `c'
+        if _rc continue
+        qui destring `c', replace force
+        local keep "`keep' `c'"
+    }
+    if "`keep'" == "" {
+        restore
+        exit
+    }
+    qui egen _nn = rownonmiss(`keep')
+    qui keep if _nn > 0 & A != ""
+    if _N == 0 {
+        restore
+        exit
+    }
+    qui gen str200 _rn = strtoname(A)
+    mkmat `keep', matrix(`matrix') rownames(_rn)
+    if "`cnames'" != "" matrix colnames `matrix' = `cnames'
     restore
 end
 
@@ -103,48 +119,41 @@ program define coefmat
     matrix colnames `M' = b se p
 end
 
-*------------------------------------------------------------------------------
-putdocx clear
-putdocx begin, landscape font("Times New Roman", 10)
-putdocx paragraph, style(Title)
-putdocx text ("Empirical Results")
-putdocx paragraph
-putdocx text ("The Asymmetric Impact of Managerial Ability on Investment Efficiency under Capital Structure Deviation: Evidence from Emerging Markets"), italic
-putdocx paragraph
-putdocx text ("Generated by 70_report.do on `c(current_date)' `c(current_time)'. Two-step System GMM; p-values of hypotheses are one-sided in the predicted direction.")
+
+* load stored estimates from memory or disk
+cap program drop getest
+program define getest
+    args e
+    cap qui est restore `e'
+    if _rc {
+        cap qui estimates use "$OUT/est_`e'"
+        if !_rc qui est store `e'
+    }
+end
 
 *==============================================================================
 * 1. DATA
 *==============================================================================
-doc_h 1 "1. Data and descriptive statistics"
-
-doc_h 2 "Table 0. Winsorization at the 1st and 99th percentiles"
-preserve
-    use "$OUT/log_winsorization.dta", clear
-    keep if tag == "main"
-    gen double pct_changed = 100 * (n_low + n_high) / N
-    drop tag
-    doc_data
-restore
+dta2mat using "$OUT/log_winsorization.dta", matrix(W) rowvars(variable) ///
+    keepvars(N p_low p_high n_low n_high) cond(tag == "main")
+rpt_mat W, title("Table 0. Winsorization of ratios and generated measures at the 1st and 99th percentiles") ///
+    note("p_low/p_high: cut-offs; n_low/n_high: values replaced.")
 
 use "$OUT/analysis_panel.dta", clear
 xtset FirmID Year
 
-doc_h 2 "Table 1. Descriptive statistics (estimation sample)"
 qui tabstat InvEff Invest SalesGrowth TDA TDAhat CSDev CSDP CSDN FE MA ///
     L_LTA L_MTB L_PROFIT L_FCF IOB COL INDLEV INF Age if EST, ///
     stat(n mean sd min p25 p50 p75 max skewness kurtosis) save
 matrix D = r(StatTotal)'
-doc_mat D "%9.3f"
+rpt_mat D, title("Table 1. Descriptive statistics (estimation sample)") fmt(%9.3f)
 
-doc_h 2 "Table 1b. Direction of investment and leverage deviations (counts)"
 gen byte OVERINV = InvEff > 0 if !missing(InvEff)
 qui tab OVERINV OVERLEV if EST, matcell(DIR)
-cap matrix rownames DIR = Under-investment Over-investment
-cap matrix colnames DIR = Under-leveraged Over-leveraged
-doc_mat DIR "%9.0f"
+cap matrix rownames DIR = Under_investment Over_investment
+cap matrix colnames DIR = Under_leveraged Over_leveraged
+rpt_mat DIR, title("Table 1b. Direction of investment and leverage deviations (firm-years)") fmt(%9.0f)
 
-doc_h 2 "Table 2. Correlations: Pearson (lower) and Spearman (upper triangle)"
 local CV "InvEff CSDP CSDN MA L_LTA L_MTB L_PROFIT L_FCF GROW MAT DEC"
 qui corr `CV' if EST
 matrix P = r(C)
@@ -158,65 +167,56 @@ forvalues i = 1/`k' {
         if `j' > `i' matrix C[`i', `j'] = S[`i', `j']
     }
 }
-doc_mat C "%6.3f"
-local crit = invttail(`n' - 2, 0.025)
+local crit  = invttail(`n' - 2, 0.025)
 local rcrit = `crit' / sqrt(`n' - 2 + `crit'^2)
-doc_p "N = `n'. Correlations with |r| > `: di %5.3f `rcrit'' are significant at 5%. Stars are reported in Tables.xlsx, sheet T3_correlations."
+rpt_mat C, title("Table 2. Correlations: Pearson (lower triangle) and Spearman (upper triangle)") fmt(%6.3f) ///
+    note("N = `n'. |r| > `: di %5.3f `rcrit'' is significant at 5%. Stars: Tables.xlsx, sheet T3_correlations.")
 
-doc_h 2 "Table 3. Life-cycle stages"
 qui tab LC5 if Year >= 1393, matcell(F5)
-cap matrix rownames F5 = Introduction Growth Mature Shake-out Decline
-cap matrix colnames F5 = Firm-years
-doc_mat F5 "%9.0f"
+cap matrix rownames F5 = Introduction Growth Mature Shake_out Decline
+cap matrix colnames F5 = Firm_years
+rpt_mat F5, title("Table 3a. Dickinson (2011) life-cycle stages, 1393-1403") fmt(%9.0f)
 qui tab STAGE_L OVERLEV if EST, matcell(SC)
 cap matrix rownames SC = Growth Maturity Decline
-cap matrix colnames SC = Under-leveraged Over-leveraged
-doc_p "Stage at t-1 by leverage direction (cells identifying the interaction terms):"
-doc_mat SC "%9.0f"
+cap matrix colnames SC = Under_leveraged Over_leveraged
+rpt_mat SC, title("Table 3b. Consolidated stage (t-1) by leverage direction") fmt(%9.0f)
 qui tab STAGE_L STAGE if Year >= 1394, matcell(TR)
 cap matrix rownames TR = Growth_t1 Maturity_t1 Decline_t1
 cap matrix colnames TR = Growth_t Maturity_t Decline_t
-doc_p "Stage transitions (counts):"
-doc_mat TR "%9.0f"
+rpt_mat TR, title("Table 3c. Stage transitions (counts)") fmt(%9.0f)
 
-doc_h 2 "Table 4. Data envelopment analysis (stage 1 of managerial ability)"
-doc_sheet, sheet("OA2b_DEA") nofirstrow
-doc_h 2 "Sample by year and industry"
-doc_sheet, sheet("OA1_sample") nofirstrow
+sheet2mat, sheet("OA2b_DEA") matrix(DEA) cols(B) cnames(Value)
+rpt_mat DEA, title("Table 4. Data envelopment analysis (stage 1 of managerial ability)")
 
 *==============================================================================
 * 2. ASSUMPTIONS
 *==============================================================================
-doc_h 1 "2. Multicollinearity, classical assumptions and specification tests"
-doc_h 2 "Table 5. Variance inflation factors (static main-effects model)"
-doc_sheet, sheet("T4_VIF") nofirstrow
-doc_h 2 "Table 6. Specification and assumption tests (static benchmark of Eq. 6)"
-doc_sheet, sheet("T4b_assumptions")
+sheet2mat, sheet("T4_VIF") matrix(VIF) cols(B) cnames(VIF)
+rpt_mat VIF, title("Table 5. Variance inflation factors (static main-effects model)") fmt(%9.2f)
+sheet2mat, sheet("T4b_assumptions") matrix(AS) cols(B C) cnames(Statistic p_value)
+rpt_mat AS, title("Table 6. Specification and classical-assumption tests (static benchmark of Eq. 6)") ///
+    note("Decision column and H0 of each test: Tables.xlsx, sheet T4b_assumptions.")
 
 *==============================================================================
 * 3. HYPOTHESIS DECISIONS
 *==============================================================================
-doc_h 1 "3. Hypothesis tests: summary of decisions"
-preserve
-    cap use "$OUT/T5_hypothesis_summary.dta", clear
-    if !_rc doc_data
-restore
-doc_p "Decisions use one-sided p-values in the predicted direction. A decision is valid only if AR(2) p > 0.10 and Hansen p > 0.10 for that model."
+dta2mat using "$OUT/T5_hypothesis_summary.dta", matrix(HY) rowvars(hypothesis eq) ///
+    keepvars(estimate se p ar2p hansenp)
+rpt_mat HY, title("Table 7. Hypothesis tests: estimate, one-sided p-value, AR(2) and Hansen p of the model") ///
+    note("Supported if p < 0.05 (0.10 = weak) AND AR(2) p > 0.10 AND Hansen p > 0.10. Decision text: Tables.xlsx, sheet T5_hypotheses.")
 
 *==============================================================================
-* 4. ONE TABLE PER HYPOTHESIS
+* 4. ONE TABLE PER HYPOTHESIS (GMM next to static FE)
 *==============================================================================
-* (estimates come from memory, or from $OUT/est_*.ster saved by 40_main_models.do)
-doc_h 1 "4. Results by hypothesis: two-step System GMM and static FE benchmark"
-local T6a "H1a: over-leverage (CSD+) and investment inefficiency, Eq. (6a)"
-local T6b "H1b: under-leverage (CSD-) and investment inefficiency, Eq. (6b)"
-local T6  "Asymmetry of the two effects, Eq. (6)"
-local T7  "H2a: over-leverage x life cycle (reference = maturity), Eq. (7)"
-local T8  "H2b: under-leverage x maturity (reference = growth/decline), Eq. (8)"
-local T9  "H3a: over-leverage x managerial ability, Eq. (9)"
-local T10 "H3a: over-leverage x managerial ability x growth/decline, Eq. (10)"
-local T11 "H3b: under-leverage x managerial ability, Eq. (11)"
-local T12 "H3b: under-leverage x managerial ability x maturity, Eq. (12)"
+local T6a "Table 8.1 - H1a: over-leverage (CSD+), Eq. (6a)"
+local T6b "Table 8.2 - H1b: under-leverage (CSD-), Eq. (6b)"
+local T6  "Table 8.3 - Asymmetry of the two effects, Eq. (6)"
+local T7  "Table 8.4 - H2a: over-leverage x life cycle (reference = maturity), Eq. (7)"
+local T8  "Table 8.5 - H2b: under-leverage x maturity, Eq. (8)"
+local T9  "Table 8.6 - H3a: over-leverage x managerial ability, Eq. (9)"
+local T10 "Table 8.7 - H3a: over-leverage x MA x growth/decline, Eq. (10)"
+local T11 "Table 8.8 - H3b: under-leverage x managerial ability, Eq. (11)"
+local T12 "Table 8.9 - H3b: under-leverage x MA x maturity, Eq. (12)"
 local H6a "p_H1a"
 local H6b "p_H1b"
 local H6  "p_asym"
@@ -226,128 +226,114 @@ local H9  "p_H3a"
 local H10 "p_H3aM p_H3aGD p_H3a3"
 local H11 "p_H3b"
 local H12 "p_H3bGD p_H3bM p_H3b3"
-local q = 0
 foreach m of global MODELS {
-    local ++q
+    getest G`m'
+    getest S`m'
     cap est restore G`m'
-    if _rc {
-        cap estimates use "$OUT/est_G`m'"
-        if _rc continue
-        est store G`m'
-    }
-    doc_h 2 "Table 7.`q'. `T`m''"
-    local coefs "L.InvEff ${E`m'} ${P`m'} $XCTRL"
-    coefmat G`m' A "`coefs'"
-    coefmat S`m' B "`coefs'"
-    matrix colnames A = GMM_b GMM_se GMM_p
-    matrix colnames B = FE_b FE_se FE_p
-    matrix R = A, B
-    doc_mat R "%9.4f"
-    * diagnostics and hypothesis p-values
-    qui est restore G`m'
-    local stats "N N_g j ar1p ar2p hansenp dhansenp `H`m''"
-    local ns : word count `stats'
-    matrix Z = J(`ns', 1, .)
-    local i = 0
-    foreach s of local stats {
-        local ++i
-        cap matrix Z[`i', 1] = e(`s')
-    }
-    matrix rownames Z = `stats'
-    matrix colnames Z = GMM
-    doc_p "Model diagnostics (N = observations, N_g = firms, j = instruments) and hypothesis p-values:"
-    doc_mat Z "%9.4f"
+    if _rc continue
+    qui esttab G`m' S`m' using "$RPT", append label b(%9.4f) se(%9.4f) ///
+        star(* 0.10 ** 0.05 *** 0.01) keep(L.InvEff ${E`m'} ${P`m'} $XCTRL) ///
+        order(L.InvEff ${E`m'} ${P`m'}) mtitles("Two-step System GMM" "Static two-way FE") ///
+        stats(N N_g j ar1p ar2p hansenp dhansenp `H`m'', fmt(%9.0f %9.0f %9.0f %9.3f) ///
+        labels("Observations" "Firms" "Instruments" "AR(1) p" "AR(2) p" "Hansen p" "Diff-in-Hansen p")) ///
+        title("`T`m''") addnotes("Dependent variable: InvEff. GMM: Windmeijer-corrected SE; FE: SE clustered by firm. p_H...: one-sided.")
 }
-
-doc_h 2 "Reverse causality, Eq. (13): dependent variable CSDev"
-cap est restore G13
-if _rc {
-    cap estimates use "$OUT/est_G13"
-    if !_rc est store G13
-}
+getest G13
 cap est restore G13
 if !_rc {
-    coefmat G13 A "L.CSDev L.InvEff $XCTRL"
-    doc_mat A "%9.4f"
-    local stats "N N_g j ar1p ar2p hansenp dhansenp p_theta"
-    local ns : word count `stats'
-    matrix Z = J(`ns', 1, .)
-    local i = 0
-    foreach s of local stats {
-        local ++i
-        cap matrix Z[`i', 1] = e(`s')
-    }
-    matrix rownames Z = `stats'
-    doc_mat Z "%9.4f"
+    qui esttab G13 using "$RPT", append label b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
+        keep(L.CSDev L.InvEff $XCTRL) stats(N N_g j ar1p ar2p hansenp dhansenp p_theta, fmt(%9.0f %9.0f %9.0f %9.3f)) ///
+        title("Table 8.10 - Reverse causality, Eq. (13): dependent variable CSDev")
 }
 
 *==============================================================================
 * 5. ECONOMIC MAGNITUDE
 *==============================================================================
-doc_h 1 "5. Simple slopes and economic magnitude"
-preserve
-    cap use "$OUT/T6_economic.dta", clear
-    if !_rc doc_data
-restore
-doc_p "effect_1sd: change in InvEff for a one-standard-deviation increase in CSD+ or CSD-; pct: in percent of the mean absolute InvEff. Low/high MA = mean -/+ 1 SD."
+dta2mat using "$OUT/T6_economic.dta", matrix(EC) rowvars(eq condition) ///
+    keepvars(slope se p effect_1sd pct_mean_absInvEff)
+rpt_mat EC, title("Table 9. Simple slopes and economic magnitude") ///
+    note("effect_1sd: change in InvEff for a 1-SD increase in CSD+ / CSD-; pct: % of mean |InvEff|. Low/high MA = mean -/+ 1 SD.")
 
 *==============================================================================
 * 6. ROBUSTNESS, SENSITIVITY, IDENTIFICATION
 *==============================================================================
-doc_h 1 "6. Robustness, sensitivity and identification"
-doc_h 2 "Robustness R1-R10: key coefficients (se); * p<0.10 ** p<0.05 *** p<0.01"
-doc_sheet, sheet("T7_robustness")
-doc_h 2 "Sensitivity S1-S6: key coefficients (se)"
-doc_sheet, sheet("T8_sensitivity")
-doc_h 2 "Sensitivity S7: leave one industry out (Eqs. 6a and 6b)"
-doc_sheet, sheet("T8b_leave_industry_out")
-doc_h 2 "Oster (2019) bounds and placebo test"
-doc_sheet, sheet("T9_identification") nofirstrow
-doc_h 2 "Bootstrap of the full procedure (if run)"
-doc_sheet, sheet("T9b_bootstrap")
+* (analysis data are no longer needed from here on)
+foreach f in R S {
+    local lab = cond("`f'" == "R", "Robustness R1-R10", "Sensitivity S1-S6")
+    local tn  = cond("`f'" == "R", "10", "11")
+    cap use "$OUT/`f'_keyresults.dta", clear
+    if _rc continue
+    if _N == 0 continue
+    qui gen str32 col = strtoname(term)
+    qui gen int ord = _n
+    qui bys test: egen int o = min(ord)
+    tempfile base
+    qui save `base'
+    foreach s in b p {
+        qui use `base', clear
+        keep test o col `s'
+        qui reshape wide `s', i(test o) j(col) string
+        sort o
+        qui gen str32 _rn = strtoname(test)
+        qui ds `s'?*
+        mkmat `r(varlist)', matrix(K`s') rownames(_rn)
+    }
+    rpt_mat Kb, title("Table `tn'a. `lab': key coefficients")
+    rpt_mat Kp, title("Table `tn'b. `lab': two-sided p-values of the key coefficients") fmt(%6.3f)
+}
+dta2mat using "$OUT/S7_leave_industry_out.dta", matrix(LO) rowvars(industry) keepvars(b1 p1 b2 p2)
+rpt_mat LO, title("Table 12. Leave one industry out: Eq. (6a) beta1 and Eq. (6b) beta2")
+sheet2mat, sheet("T9_identification") matrix(ID) cols(B C D)
+rpt_mat ID, title("Table 13. Oster (2019) delta and placebo test") ///
+    note("Oster rows: delta (|delta| > 1 = robust); R2 row: short / full / max. Placebo rows: actual estimate and permutation p.")
 
 *==============================================================================
 * 7. FIRST STAGES AND WITHIN-STAGE ESTIMATES
 *==============================================================================
-doc_h 1 "7. First-stage models and within-stage estimates"
-doc_h 2 "Target leverage model, Eq. (2)"
-cap {
-    coefmat TGT_main A "L_IOB L_COL L_LTA L_MTB L_PROFIT L_INDLEV L_INF _cons"
-    doc_mat A "%9.4f"
-}
-doc_h 2 "Tobit model of DEA efficiency, Eq. (5)"
-cap {
-    coefmat TOB_main A "LTA MktShare FCFpos lnAge _cons"
-    doc_mat A "%9.4f"
-}
-doc_h 2 "Within-stage estimates (static FE; descriptive only)"
+getest TGT_main
+cap coefmat TGT_main A "L_IOB L_COL L_LTA L_MTB L_PROFIT L_INDLEV L_INF _cons"
+rpt_mat A, title("Table 14. Target leverage model, Eq. (2)")
+getest TOB_main
+cap coefmat TOB_main B "LTA MktShare FCFpos lnAge _cons"
+rpt_mat B, title("Table 15. Tobit model of DEA efficiency, Eq. (5)")
 foreach s in 1 2 3 {
     local sn = cond(`s' == 1, "Growth", cond(`s' == 2, "Maturity", "Decline"))
-    cap {
-        coefmat W6_`s' A "CSDP CSDN $XCTRL"
-        coefmat W9_`s' B "CSDP CSDN MA CSDP_MA $XCTRL"
-        coefmat W11_`s' C2 "CSDP CSDN MA CSDN_MA $XCTRL"
-        doc_p "`sn' stage (t-1): Eq. (6)"
-        doc_mat A "%9.4f"
-        doc_p "`sn' stage (t-1): Eq. (9)"
-        doc_mat B "%9.4f"
-        doc_p "`sn' stage (t-1): Eq. (11)"
-        doc_mat C2 "%9.4f"
+    foreach w in W6 W9 W11 {
+        getest `w'_`s'
+        cap est restore `w'_`s'
     }
+    cap qui esttab W6_`s' W9_`s' W11_`s' using "$RPT", append b(%9.4f) se(%9.4f) ///
+        star(* 0.10 ** 0.05 *** 0.01) keep(CSDP CSDN MA CSDP_MA CSDN_MA) ///
+        mtitles("Eq. (6)" "Eq. (9)" "Eq. (11)") stats(N r2_within) ///
+        title("Table 16. Within-stage estimates, `sn' stage (static FE; descriptive)")
 }
 
 *==============================================================================
-* 8. FIGURES
+* 8. FIGURES: linked pictures appended before the closing brace of the RTF
 *==============================================================================
-putdocx pagebreak
-doc_h 1 "8. Figures"
 local figs : dir "$OUT" files "Fig*.png"
 local figs : list sort figs
-foreach f of local figs {
-    putdocx paragraph, halign(center)
-    putdocx image "$OUT/`f'", width(8)
-    doc_p "`f'"
+tempname fin fout
+file open `fin' using "$RPT", read text
+file open `fout' using "$OUT/_rpt_tmp.rtf", write text replace
+file read `fin' line
+local first = 1
+while r(eof) == 0 {
+    if !`first' file write `fout' `"`macval(prev)'"' _n
+    local prev `"`macval(line)'"'
+    local first = 0
+    file read `fin' line
 }
+file write `fout' "{\pard\par\b Figures\b0\par}" _n
+foreach f of local figs {
+    file write `fout' `"{\pard\qc {\field{\*\fldinst INCLUDEPICTURE "$OUT/`f'"}{\fldrslt }}\par `f'\par}"' _n
+}
+file write `fout' `"`macval(prev)'"' _n
+file close `fin'
+file close `fout'
+copy "$OUT/_rpt_tmp.rtf" "$RPT", replace
+erase "$OUT/_rpt_tmp.rtf"
 
-putdocx save "$OUT/Results_Report.docx", replace
-di as res _n "Word report saved: $OUT/Results_Report.docx"
+di as res _n "Report saved: $RPT"
+di as txt "Open it in Word and use File > Save As > Word Document (.docx)."
+di as txt "If the figures are not visible, press Ctrl+A and then F9 in Word."

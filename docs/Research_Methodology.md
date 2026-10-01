@@ -13,6 +13,7 @@ The sample is constructed in the following steps:
 2. Exclude banks, credit institutions, insurance companies, investment companies, holding companies and leasing companies. Their leverage reflects regulatory capital requirements and intermediation activity rather than financing choices, and their asset structure is not comparable (Fama & French, 1992).
 3. Retain firms whose fiscal year ends in Esfand (March) and that did not change their fiscal year during the period, so that every firm-year shares the same macroeconomic window.
 4. Retain firms that are continuously listed and have the accounting and market data needed to construct every variable.
+5. Exclude firm-years with zero or negative book equity. Leverage above one and a negative market-to-book ratio make a target capital structure undefined for these firm-years, and their investment reflects financial distress rather than financing choices.
 
 | Screening step | Firms | Firm-years |
 |---|---|---|
@@ -20,6 +21,7 @@ The sample is constructed in the following steps:
 | Less: financial, investment, holding and leasing firms | [−n] | [−n] |
 | Less: fiscal year not ending in Esfand, or changed during the period | [−n] | [−n] |
 | Less: not continuously listed or missing data | [−n] | [−n] |
+| Less: firm-years with book equity ≤ 0 | — | [−n] |
 | Final sample, including base year 1392 | 299 | 3,588 |
 | Firm-years in the study period 1393–1403 | 299 | 3,289 |
 
@@ -64,7 +66,7 @@ TDA is total debt divided by total assets. The determinants are measured at t−
 - **LTA**: natural logarithm of total assets in 1392 prices (size). Deflation is necessary because nominal assets grow mechanically with inflation of 30–40% a year.
 - **MTB**: market value / book value of equity (growth opportunities).
 - **PROFIT**: operating income / total assets (profitability).
-- **INDLEV**: median TDA of the firm's industry, excluding the firm itself (industry leverage norm).
+- **INDLEV**: median TDA of the firm's industry in the same year, excluding the firm itself (industry leverage norm). Industries with fewer than five firms are pooled into one group, so that the median never rests on one or two peers.
 - **INF**: annual consumer-price inflation rate.
 - **λ~j~**: industry dummies.
 
@@ -98,7 +100,7 @@ Stage is measured at **t−1**. Dickinson's classification uses the sign of CFI,
 
 Managerial ability is measured with the two-stage approach of Demerjian, Lev and McVay (2012). The approach separates the efficiency with which a firm converts resources into revenue into a part attributable to the firm and a part attributable to its managers.
 
-**Stage 1: firm efficiency.** Data envelopment analysis (DEA) estimates the efficiency with which each firm converts inputs into sales, relative to the efficient frontier of its peers. The model is input-oriented with variable returns to scale. The output is sales. The inputs are cost of goods sold, selling, general and administrative expenses, net PP&E at t−1 and intangible assets at t−1. Lagged capital stocks are used because they are the resources available to managers during the year. The frontier is estimated separately for each industry-year with at least 15 firms, which is three times the number of inputs and outputs (Cooper, Seiford & Tone, 2007). Smaller industry-years are pooled within the industry across years, with monetary values deflated to 1392 prices with the consumer price index, because nominal values are not comparable across years under high inflation. The efficiency score FE lies in (0, 1].
+**Stage 1: firm efficiency.** Data envelopment analysis (DEA) estimates the efficiency with which each firm converts inputs into sales, relative to the efficient frontier of its peers. The model is input-oriented with variable returns to scale. The output is sales. The inputs are cost of goods sold, selling, general and administrative expenses, net PP&E at t−1 and intangible assets at t−1. Lagged capital stocks are used because they are the resources available to managers during the year. The frontier is estimated for each industry over all sample years, with monetary values deflated to 1392 prices with the consumer price index; industries with fewer than five firms are pooled into one group. Industry-year frontiers are too small in this sample: with four inputs and few firms per industry-year, more than half of the firm-years lie on the frontier, so efficiency does not discriminate between firms. The industry frontier provides many more units than the rule of thumb of three times the number of inputs and outputs (Cooper, Seiford & Tone, 2007). Deflation makes values comparable across years under high inflation. Industry-year frontiers are reported as a sensitivity test. The efficiency score FE lies in (0, 1].
 
 **Stage 2: removing firm-level drivers.** Firm efficiency is regressed on characteristics that make efficiency easier or harder to achieve regardless of who manages the firm:
 
@@ -209,11 +211,11 @@ Eqs. (6)–(12) are estimated with the two-step System GMM estimator (Arellano &
 | CSD⁺, CSD⁻, UNDER, OVER, MA | Endogenous | Levels at t−2 and t−3 | Δ at t−1 |
 | Products with CSD⁺, CSD⁻ or MA | Endogenous; instrumented by lags of the product itself | Levels at t−2 and t−3 | Δ at t−1 |
 | Stage indicators (t−1) | Predetermined | Levels at t−1 and t−2 | Δ at t |
-| LTA, MTB, PROFIT, FCF (at t−1) | Predetermined | Levels at t−1 and t−2 | Δ at t |
+| LTA, MTB, PROFIT, FCF (at t−1) | Endogenous | Levels at t−2 and t−3 | Δ at t−1 |
 | Year dummies | Strictly exogenous | IV-style | IV-style |
 | Industry dummies, ln(Age) | Time-invariant / deterministic trend | Not used | IV-style, levels only |
 
-The instrument matrix is collapsed and lag depth is restricted to two, so that the instrument count stays below the 299 cross-sectional units. Instrument proliferation overfits the endogenous regressors and weakens the Hansen test (Roodman, 2009a). The instrument count is reported for every model.
+The controls are treated as endogenous rather than predetermined. Size, growth opportunities, profitability and cash flow respond to past investment shocks, so even their lagged values may be correlated with the error (Wintoki, Linck & Netter, 2012); in this sample the Hansen test also rejected the weaker predetermined assumption. The instrument matrix is collapsed and lag depth is restricted to two, so that the instrument count stays below the 299 cross-sectional units. Instrument proliferation overfits the endogenous regressors and weakens the Hansen test (Roodman, 2009a). The instrument count is reported for every model.
 
 ### 3.8.3 Year and industry effects
 
@@ -329,7 +331,7 @@ The robustness tests replace one element of the design at a time with an accepte
 |---|---|---|
 | S1 | Winsorization | 1/99 (main); 2.5/97.5; 5/95; trimming at 1/99 |
 | S2 | Minimum industry-year cell in Eq. (1) | 8, 10 (main), 15 |
-| S3 | DEA specification | VRS (main) vs CRS; minimum frontier size 10, 15 (main), 20 |
+| S3 | DEA specification | VRS (main) vs CRS; industry-year frontiers (at least 15 or 20 firms) instead of industry frontiers |
 | S4 | GMM instrument depth | Lags 2–3 (main), 2–4, 3–4; collapsed vs uncollapsed where the count allows |
 | S5 | Near-target firms | Exclude firm-years with \|CSDev\| < 0.25 SD, whose direction is mostly estimation noise |
 | S6 | Crisis years | Exclude 1397–1398 (sanctions and currency crisis) and 1399 (COVID-19) |
@@ -421,7 +423,7 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 
 ## Notes for the Author (remove before submission)
 
-- Fill in the [n] counts in the sample-construction table in 3.1 from your screening records.
+- Fill in the [n] counts in the sample-construction table in 3.1 from your screening records, including the firm-years removed for non-positive book equity (reported in the Stata log). Update 299 firms / 3,588 records if the equity filter changes them.
 - Complete the Synn and Williams (2015) reference, and check every reference against the published version before submission.
 - The firm-year counts in the effective-window table assume the panel stays balanced after lags; update them with the actual estimation N.
 - Sales and total assets for 1391, if available, would extend InvEff to 1393 and the GMM sample to 1394.

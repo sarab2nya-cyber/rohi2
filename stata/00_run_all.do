@@ -46,7 +46,7 @@ global MODELS    "6a 6b 6 7 8 9 10 11 12"   // 6a = H1a, 6b = H1b, 6 = asymmetry
 global KEYMODELS "6a 6b 7 8 9 10 11 12"     // models with a hypothesis coefficient
 global INVDEF_MAIN "cash" // main investment measure: "cash" = -CFI / TA(t-1) (unaffected by
                           // asset revaluations); "net" = increase in PPE + IA / TA(t-1)
-global CTRL_TYPE "pred"   // controls: "pred" (lags t-1,t-2, main) or "endog" (lags t-2,t-3)
+global CTRL_TYPE "endog"  // controls: "pred" (lags t-1,t-2, main) or "endog" (lags t-2,t-3)
 * endogenous regressors (lags t-2, t-3)          * predetermined (lags t-1, t-2)
 global E6a "CSDP UNDERLEV"
 global P6a ""
@@ -164,10 +164,10 @@ do "$CODE/30_descriptives.do"
 do "$CODE/40_main_models.do"
 if $RUN_ROBUST do "$CODE/50_robustness.do"
 if $RUN_SENS   do "$CODE/60_sensitivity.do"
-do "$CODE/70_report.do"            // all tables and figures in one Word file
+do "$CODE/70_report.do"            // all tables and figures in one report (RTF, opens in Word)
 
 log close master
 * printed copies of the complete Stata output
 cap translate "$OUT/master_log.smcl" "$OUT/Stata_Output_Log.pdf", replace
 cap translate "$OUT/master_log.smcl" "$OUT/Stata_Output_Log.txt", replace translator(smcl2log)
-di as res "Done. See $OUT: Results_Report.docx, Tables.xlsx, Stata_Output_Log.pdf / .txt, figures."
+di as res "Done. See $OUT: Results_Report.rtf, Tables.xlsx, Stata_Output_Log.pdf / .txt, figures."
