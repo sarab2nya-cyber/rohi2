@@ -368,51 +368,63 @@ export excel using "`XL'", sheet("Data") firstrow(variables) replace
 * Screening table: Panel A sample construction, Panel B data availability
 *------------------------------------------------------------------------------
 cap postclose tbl
-postfile tbl str8 panel str110 criterion double(firms firmyears) using "$OUT/screening_table.dta", replace
+postfile tbl str8 panel str4 step str110 criterion str244 criterion_fa double(firms firmyears) ///
+    using "$OUT/screening_table.dta", replace
 preserve
     use "$OUT/screening_log.dta", clear
     sort step
-    post tbl ("A") ("All firm-years in the database (TSE and Farabourse), ${SCR_Y0}-${SCR_Y1}") (firms[1]) (firmyears[1])
-    post tbl ("A") ("Less: Farabourse firms and firms with no market in the database") (firms[2] - firms[1]) (firmyears[2] - firmyears[1])
-    post tbl ("A") ("Less: banks, insurance, leasing, investment, holding and other financial firms") (firms[3] - firms[2]) (firmyears[3] - firmyears[2])
+    post tbl ("A") ("1") ("All firm-years in the database (TSE and Farabourse), ${SCR_Y0}-${SCR_Y1}") ///
+        ("همه‌ی سال-شرکت‌های ۱۳۸۰ تا ۱۴۰۳ در پایگاه داده") (firms[1]) (firmyears[1])
+    post tbl ("A") ("2") ("Less: Farabourse firms and firms with no market in the database") ///
+        ("حذف شرکت‌های فرابورس و شرکت‌هایی که بازارشان در پایگاه داده مشخص نیست") ///
+        (firms[2] - firms[1]) (firmyears[2] - firmyears[1])
+    post tbl ("A") ("3") ("Less: banks, insurance, leasing, investment, holding, brokerage and fund companies") ///
+        ("حذف شرکت‌های مالی: بانک، بیمه، لیزینگ، سرمایه‌گذاری، هلدینگ، کارگزاری، صندوق") ///
+        (firms[3] - firms[2]) (firmyears[3] - firmyears[2])
 restore
 egen byte _tf = tag(FirmCode)
 qui count if _tf
 local F = r(N)
-post tbl ("A") ("TSE non-financial firms: full panel, `F' firms x `NY' years") (`F') (_N)
+post tbl ("A") ("") ("TSE non-financial firms: full panel (`F' firms x `NY' years)") ///
+    ("شرکت‌های بورسی غیرمالی: پنل کامل (شرکت × ۲۴ سال)") (`F') (_N)
 qui count if !HasData
-post tbl ("A") ("Less: firm-years with no financial statements (not yet listed, delisted or not reported)") (.) (-r(N))
+post tbl ("A") ("4") ("Less: firm-years without financial statements (not yet listed, delisted or not reported)") ///
+    ("حذف سال-شرکت‌هایی که صورت مالی ندارند (هنوز پذیرفته نشده، خارج‌شده یا گزارش‌نشده)") (.) (-r(N))
 qui count if HasData & BV <= 0
-post tbl ("A") ("Less: firm-years with book equity <= 0") (.) (-r(N))
+post tbl ("A") ("5") ("Less: firm-years with zero or negative book equity") ///
+    ("حذف سال-شرکت‌هایی که حقوق صاحبان سهام صفر یا منفی دارند") (.) (-r(N))
 bys FirmCode: egen int _ny = total(InSample)
 egen byte _tfs = tag(FirmCode) if _ny > 0
 qui count if _tfs == 1
 local FS = r(N)
 qui count if InSample
 local NS = r(N)
-post tbl ("A") ("Firm-years available for the analysis") (`FS') (`NS')
-* Panel B: data availability of the `FS' firms
+post tbl ("A") ("=") ("Final sample") ("نمونه‌ی نهایی") (`FS') (`NS')
+* Panel B: data availability of the firms in the final sample
 bys FirmCode: egen int _first = min(cond(InSample, Year, .))
 bys FirmCode: egen int _last  = max(cond(InSample, Year, .))
 gen byte _gap = _ny > 0 & (_last - _first + 1) > _ny
 qui count if _tfs == 1 & _ny == `NY'
 local fa = r(N)
 qui count if InSample & _ny == `NY'
-post tbl ("B") ("Firms with data in all `NY' years") (`fa') (r(N))
+post tbl ("B") ("") ("Firms with data in all `NY' years") ("شرکت‌هایی که داده‌ی هر ۲۴ سال را دارند") (`fa') (r(N))
 qui count if _tfs == 1 & inrange(_ny, 2, `NY' - 1)
 local fp = r(N)
 qui count if InSample & inrange(_ny, 2, `NY' - 1)
-post tbl ("B") ("Firms with data in part of the period (2 to `=`NY' - 1' years)") (`fp') (r(N))
+post tbl ("B") ("") ("Firms with data for part of the period") ("شرکت‌هایی که داده‌ی بخشی از دوره را دارند") (`fp') (r(N))
 qui count if _tfs == 1 & _ny == 1
 local f1 = r(N)
 qui count if InSample & _ny == 1
-post tbl ("B") ("Firms with data in only one year") (`f1') (r(N))
+post tbl ("B") ("") ("Firms with data in only one year") ("شرکت‌هایی که فقط یک سال داده دارند") (`f1') (r(N))
 qui count if _tfs == 1 & _first > $SCR_Y0
-post tbl ("B") ("  Of all firms: first year with data after ${SCR_Y0} (listed later)") (r(N)) (.)
+post tbl ("B") ("") ("  Of these: first year with data after ${SCR_Y0} (listed later)") ///
+    ("از این میان: اولین داده بعد از ۱۳۸۰ (پذیرش دیرتر)") (r(N)) (.)
 qui count if _tfs == 1 & _last < $SCR_Y1
-post tbl ("B") ("  Of all firms: last year with data before ${SCR_Y1} (delisted or not reported)") (r(N)) (.)
+post tbl ("B") ("") ("  Of these: last year with data before ${SCR_Y1} (delisted or not reported)") ///
+    ("از این میان: آخرین داده قبل از ۱۴۰۳ (خروج یا عدم گزارش)") (r(N)) (.)
 qui count if _tfs == 1 & _gap
-post tbl ("B") ("  Of all firms: one or more missing years inside their period") (r(N)) (.)
+post tbl ("B") ("") ("  Of these: missing years inside their period") ///
+    ("از این میان: سال‌های خالی در میانه‌ی دوره") (r(N)) (.)
 postclose tbl
 drop _tf _tfs _ny _first _last _gap
 
@@ -423,17 +435,24 @@ preserve
     save "$OUT/screened_data.dta", replace
 restore
 
-* Screening sheet
+* Screening sheets: English and Persian
 preserve
     use "$OUT/screening_table.dta", clear
+    di as res _n "SAMPLE SCREENING TABLE (Panel A: sample construction; Panel B: data availability)"
+    list panel step criterion firms firmyears, noobs sep(0) abbrev(20)
     label variable panel     "Panel"
+    label variable step      "Step"
     label variable criterion "Criterion"
     label variable firms     "Firms"
     label variable firmyears "Firm-years"
-    di as res _n "SAMPLE SCREENING TABLE (Panel A: construction; Panel B: data availability)"
-    list, noobs sep(0) abbrev(20)
-    export excel using "`XL'", sheet("Screening") firstrow(varlabels) sheetmodify
-    export excel using "$OUT/Screening_Table.xlsx", sheet("Screening") firstrow(varlabels) replace
+    export excel panel step criterion firms firmyears using "`XL'", sheet("Screening") firstrow(varlabels) sheetmodify
+    export excel panel step criterion firms firmyears using "$OUT/Screening_Table.xlsx", sheet("Screening") firstrow(varlabels) replace
+    label variable panel        "بخش"
+    label variable step         "مرحله"
+    label variable criterion_fa "معیار"
+    label variable firms        "شرکت"
+    label variable firmyears    "سال-شرکت"
+    export excel panel step criterion_fa firms firmyears using "`XL'", sheet("Screening_FA") firstrow(varlabels) sheetmodify
 restore
 
 * Firms per year
