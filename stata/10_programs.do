@@ -151,7 +151,7 @@ program define rungmm
         NOCOLLAPSE NOLEVEL COND(string) QUIET]
     if "`lage'" == "" local lage "2 3"
     if "`lagp'" == "" local lagp "1 2"
-    if "`cond'" == "" local cond "1"
+    if `"`cond'"' == "" local cond "1"
     local coll = cond("`nocollapse'" == "", "collapse", "")
     local ctrl "$XCTRL"
     local lagc = cond("$CTRL_TYPE" == "endog", "`lage'", "`lagp'")
@@ -497,7 +497,7 @@ program define runkey
     local K10 "CSDP_MA_GD"
     local K11 "CSDN_MA"
     local K12 "CSDN_MA_MAT"
-    if "`cond'" == "" local cond "1"
+    if `"`cond'"' == "" local cond "1"
     foreach m of global KEYMODELS {
         if "`static'" != "" {
             cap qui reghdfe InvEff ${E`m'} ${P`m'} $XCTRL if EST & (`cond'), ///

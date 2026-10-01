@@ -22,7 +22,7 @@ program define rpt_mat
     cap confirm matrix `M'
     if _rc exit
     qui esttab matrix(`M', fmt(`fmt')) using "$RPT", $RPTMODE nomtitles ///
-        title("`title'") addnotes("`note'")
+        title(`"`title'"') addnotes(`"`note'"')
     global RPTMODE "append"
 end
 
@@ -36,7 +36,7 @@ program define dta2mat
         restore
         exit
     }
-    if "`cond'" != "" qui keep if `cond'
+    if `"`cond'"' != "" qui keep if `cond'
     if _N == 0 {
         restore
         exit
