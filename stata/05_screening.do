@@ -18,6 +18,7 @@
 *   4  less printing, retail, utilities, auxiliary financial activities
 *   5  less firm-years without financial statements
 *   6  less firm-years with book equity <= 0
+*   7  less firms without usable data in every year (balanced panel; SCR_BALANCED)
 *   Industries with fewer than $SCR_MINFIRMS firms are pooled into code 999.
 * All firms have an Esfand year-end (sample characteristic, no step). No
 * minimum number of years: a firm-year enters estimation when its lags exist.
@@ -60,6 +61,7 @@ if "$ROOT" == "" {
     global SCR_FINCODES ""
     global SCR_EXWORDS "چاپ|خردهفروشی|عرضهبرق|کمکیبهنهادهایمالی"
     global SCR_MINFIRMS 2
+    global SCR_BALANCED 1
     global SCREEN_ONLY 1
 }
 cap mkdir "$OUT"
@@ -376,19 +378,29 @@ post tbl ("A") ("6") ("Less: firm-years with zero or negative book equity") ///
     ("حذف سال-شرکت‌هایی که حقوق صاحبان سهام صفر یا منفی دارند") (.) (-r(N))
 bys FirmCode: egen int _ny = total(InSample)
 egen byte _tfs = tag(FirmCode) if _ny > 0
-qui count if _tfs == 1
+* Step 7: balanced panel - only firms with usable data in every year
+gen byte _keepfirm = _ny > 0
+if "$SCR_BALANCED" == "1" {
+    replace _keepfirm = _ny == `NY'
+    qui count if _tfs == 1 & !_keepfirm
+    local f7 = r(N)
+    qui count if InSample & !_keepfirm
+    post tbl ("A") ("7") ("Less: firms without usable data in every year ${SCR_Y0}-${SCR_Y1} (balanced panel)") ///
+        ("حذف شرکت‌هایی که در همه‌ی سال‌های ۱۳۸۰ تا ۱۴۰۳ داده‌ی قابل استفاده ندارند (پنل متوازن)") (-`f7') (-r(N))
+}
+qui count if _tfs == 1 & _keepfirm
 local FS = r(N)
-qui count if InSample
+qui count if InSample & _keepfirm
 local NS = r(N)
 post tbl ("A") ("=") ("Final sample") ("نمونه‌ی نهایی") (`FS') (`NS')
-* Panel B: data availability of the firms in the final sample
+* Panel B: data availability of the firms remaining after step 6 (before step 7)
 bys FirmCode: egen int _first = min(cond(InSample, Year, .))
 bys FirmCode: egen int _last  = max(cond(InSample, Year, .))
 gen byte _gap = _ny > 0 & (_last - _first + 1) > _ny
 qui count if _tfs == 1 & _ny == `NY'
 local fa = r(N)
 qui count if InSample & _ny == `NY'
-post tbl ("B") ("") ("Firms with data in all `NY' years") ("شرکت‌هایی که داده‌ی هر ۲۴ سال را دارند") (`fa') (r(N))
+post tbl ("B") ("") ("Firms with data in all `NY' years (after step 6)") ("شرکت‌هایی که داده‌ی هر ۲۴ سال را دارند") (`fa') (r(N))
 qui count if _tfs == 1 & inrange(_ny, 2, `NY' - 1)
 local fp = r(N)
 qui count if InSample & inrange(_ny, 2, `NY' - 1)
@@ -413,8 +425,8 @@ drop _tf _tfs _ny _first _last _gap
 * Final sample only: firm-years without statements or with book equity <= 0
 * are removed (no empty rows). Gaps are handled by the panel lags.
 *------------------------------------------------------------------------------
-keep if InSample
-drop HasData InSample Note
+keep if InSample & _keepfirm
+drop HasData InSample Note _keepfirm
 
 *------------------------------------------------------------------------------
 * Industries with fewer than $SCR_MINFIRMS firms in the final sample are pooled
