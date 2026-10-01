@@ -292,11 +292,19 @@ import excel "$ROOT/$DATA", firstrow clear
 
 * string identifiers are kept; everything else must be numeric
 foreach v of varlist _all {
-    if inlist("`v'", "Symbol", "Industry") continue
+    if inlist("`v'", "Symbol", "Industry", "FirmCode") continue
     cap confirm string variable `v'
     if !_rc destring `v', replace ignore(", ") force
 }
-encode Symbol, gen(FirmID)
+* firm identifier: FirmCode (constant over time, e.g. national ID) if supplied,
+* otherwise Symbol (symbols can change over long periods)
+cap confirm variable FirmCode
+if !_rc {
+    cap confirm string variable FirmCode
+    if _rc tostring FirmCode, replace format(%20.0f)
+    encode FirmCode, gen(FirmID)
+}
+else encode Symbol, gen(FirmID)
 
 * checks: duplicates, years, balance
 duplicates report FirmID Year
