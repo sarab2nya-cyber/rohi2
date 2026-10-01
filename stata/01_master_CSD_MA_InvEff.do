@@ -54,14 +54,43 @@ global CLUST     "FirmID"
 
 cap mkdir "$OUT"
 cd "$ROOT"
+* Install community packages INTO the plus folder above (so they are found
+* every session), from SSC first and GitHub as a fallback for ftools/reghdfe.
+cap mkdir "$PLUS"
+sysdir set PLUS "$PLUS"
 adopath + "$PLUS"
-
-foreach p in reghdfe ftools winsor2 estout coefplot xtabond2 boottest {
+local PKGS "ftools require reghdfe winsor2 estout coefplot xtabond2 boottest"
+foreach p of local PKGS {
     cap which `p'
     if _rc {
         di as txt "Installing `p' from SSC ..."
         cap noi ssc install `p', replace
+        cap which `p'
+        if _rc & inlist("`p'", "ftools", "reghdfe") {
+            di as txt "SSC failed - trying GitHub for `p' ..."
+            cap noi net install `p', replace ///
+                from("https://raw.githubusercontent.com/sergiocorreia/`p'/master/src/")
+        }
     }
+}
+cap noi ftools, compile
+cap noi reghdfe, compile
+
+* Stop early with a clear message if anything is still missing
+local MISSING ""
+foreach p of local PKGS {
+    cap which `p'
+    if _rc local MISSING "`MISSING' `p'"
+}
+qui sysuse auto, clear
+cap reghdfe price weight, absorb(rep78)
+local RHDFE_OK = (_rc == 0)
+clear
+if "`MISSING'" != "" | !`RHDFE_OK' {
+    di as err _n "Required packages are missing or not working:`MISSING'"
+    if !`RHDFE_OK' di as err "reghdfe is installed but does not run (usually ftools/require missing)."
+    di as err "Install them manually (see stata/INSTALL_PACKAGES.md), then re-run."
+    exit 199
 }
 
 cap log close _all
