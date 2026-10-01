@@ -309,6 +309,53 @@ export excel using "$ROOT/Final_Master_Data_${SCR_Y0}_${SCR_Y1}.xlsx", firstrow(
 di as res "Sorted research file: $ROOT/Final_Master_Data_${SCR_Y0}_${SCR_Y1}.xlsx"
 drop Market
 save "$OUT/screened_data.dta", replace
+
+*------------------------------------------------------------------------------
+* Screening table (Section 3.1) -> $ROOT/Screening_Table.xlsx
+*   steps 1-4 from above; step 5 (book equity <= 0) previewed here and
+*   applied in 20_build.do; firm-years by year after all steps
+*------------------------------------------------------------------------------
+qui count if BV <= 0
+local nbv = r(N)
+egen byte _tf = tag(FirmCode) if !(BV <= 0)
+qui count if _tf == 1
+local ffin = r(N)
+qui count if !(BV <= 0)
+local nfin = r(N)
+drop _tf
+preserve
+    use "$OUT/screening_log.dta", clear
+    sort step
+    gen double firms_removed     = firms[_n-1] - firms
+    gen double firmyears_removed = firmyears[_n-1] - firmyears
+    local N = _N + 2
+    set obs `N'
+    replace step = 5 in `=_N - 1'
+    replace label = "Less: firm-years with book equity <= 0" in `=_N - 1'
+    replace firmyears_removed = `nbv' in `=_N - 1'
+    replace firmyears = firmyears[_N - 2] - `nbv' in `=_N - 1'
+    replace firms = `ffin' in `=_N - 1'
+    replace firms_removed = firms[_N - 2] - `ffin' in `=_N - 1'
+    replace step = 6 in `=_N'
+    replace label = "Final sample, ${SCR_Y0}-${SCR_Y1} (incl. base year ${SCR_Y0})" in `=_N'
+    replace firms = `ffin' in `=_N'
+    replace firmyears = `nfin' in `=_N'
+    order step label firms_removed firmyears_removed firms firmyears
+    format firms* firmyears* %9.0fc
+    di as res _n "SAMPLE SCREENING TABLE"
+    list, noobs sep(0) abbrev(20)
+    export excel using "$ROOT/Screening_Table.xlsx", sheet("screening") firstrow(variables) replace
+restore
+preserve
+    keep if !(BV <= 0)
+    egen byte _tf = tag(FirmCode Year)
+    collapse (sum) firms = _tf, by(Year)
+    rename firms firms_in_year
+    di as res _n "Firms per year in the final sample"
+    list, noobs sep(0)
+    export excel using "$ROOT/Screening_Table.xlsx", sheet("firms_per_year") firstrow(variables) sheetmodify
+restore
+di as res "Screening table: $ROOT/Screening_Table.xlsx"
 qui count if missing(Age) | missing(INF)
 if r(N) == _N & "$SCREEN_ONLY" != "1" {
     di as err _n "Age and/or INF are empty: the research file is saved, but the models cannot be"
