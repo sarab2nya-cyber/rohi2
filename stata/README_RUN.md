@@ -17,7 +17,8 @@ C:/Users/Rohi/Desktop/stata_pkgs/                   ← بسته‌های آفل
 | فایل | بخش روش‌شناسی | خروجی |
 |---|---|---|
 | `10_programs.do` | — | برنامه‌های کمکی |
-| `05_screening.do` | 3.1 | غربالگری خودکار از `Raw_All_Data.xlsx`: حذف فرابورس و شرکت‌های مالی، جدول غربالگری (`T0_sample`)، فهرست کنترلی `Screening_check.xlsx` |
+| `04_inspect_raw.do` | — | (یک‌بار، جداگانه) فهرست ستون‌های فایل خام ره‌آورد نوین |
+| `05_screening.do` | 3.1 | ساخت متغیرها از فایل خام، غربالگری (فرابورس، شرکت‌های مالی، بدون صورت مالی)، فایل مرتب `Final_Master_Data_1380_1403.xlsx`، جدول غربالگری `T0_sample`، فهرست کنترلی `Screening_check.xlsx`. به `Firm_Age.xlsx` (Symbol, FoundYear) و `Inflation.xlsx` (Year, INF) نیاز دارد. |
 | `20_build.do` | 3.1 تا 3.6 | ساخت همه متغیرها، وینزورایز، `analysis_panel.dta` |
 | `30_descriptives.do` | 3.10 | آمار توصیفی، همبستگی، چرخه عمر، VIF، آزمون‌های فروض کلاسیک |
 | `40_main_models.do` | 3.7 تا 3.9 | معادلات (6) تا (13) با GMM، آزمون فرضیه‌ها، اثر نهایی، Johnson–Neyman |

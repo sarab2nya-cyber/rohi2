@@ -31,12 +31,17 @@ set seed 20261001
 global ROOT   "C:/Users/Rohi/Desktop/Data"
 global CODE   "$ROOT/stata"
 global DATA   "Final_Master_Data.xlsx"   // used only when RUN_SCREEN = 0
-global RAWDATA "Raw_All_Data.xlsx"       // raw export, screened by 05_screening.do
+global RAWDATA "Raw_All_Data.dta"        // raw Rahavard Novin export (.dta or .xlsx),
+                                         // the same file used in 04_inspect_raw.do
+global AGEFILE "Firm_Age.xlsx"           // columns: Symbol (ticker, as «نماد») | FoundYear
+global INFFILE "Inflation.xlsx"          // columns: Year | INF (CPI inflation, %)
 global OUT    "$ROOT/output"
 global PLUS   "C:/Users/Rohi/Desktop/plus"
 global PKGDIR "C:/Users/Rohi/Desktop/stata_pkgs"
 
 global RUN_SCREEN    1      // 1 = screen $RAWDATA (05_screening.do); 0 = use $DATA as is
+global SCREEN_ONLY   1      // 1 = stop after building the research file (check it first);
+                            // 0 = continue with all models
 * screening settings (Section 3.1)
 global SCR_Y0 1380
 global SCR_Y1 1403
@@ -182,6 +187,12 @@ di as res "All required packages are installed and working."
 *------------------------------------------------------------------------------
 do "$CODE/10_programs.do"
 if $RUN_SCREEN do "$CODE/05_screening.do"
+if $RUN_SCREEN & $SCREEN_ONLY {
+    di as res _n "Research file built: $ROOT/Final_Master_Data_${SCR_Y0}_${SCR_Y1}.xlsx"
+    di as res "Check it, then set SCREEN_ONLY to 0 in section 0 and run again."
+    log close master
+    exit
+}
 do "$CODE/20_build.do"
 do "$CODE/30_descriptives.do"
 do "$CODE/40_main_models.do"
