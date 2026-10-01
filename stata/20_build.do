@@ -328,12 +328,25 @@ di as txt "INF treated as " cond($INF_SCALE == 100, "percent", "decimal")
 * basic validity: total assets must be positive
 * negative or zero book equity: target leverage is not defined (standard
 * exclusion in the capital-structure literature)
+* sample counts for the screening table (sheet T0_sample)
+egen byte _tf = tag(FirmID)
+qui count if _tf
+global S_F0 = r(N)
+global S_N0 = _N
 qui count if BV <= 0
+global S_BV = r(N)
 di as txt "Excluding " r(N) " firm-years with non-positive book equity (BV <= 0)"
 drop if BV <= 0
 qui count if TA <= 0
+global S_TA = r(N)
 if r(N) di as err "Dropping " r(N) " firm-years with non-positive total assets"
 drop if TA <= 0
+drop _tf
+egen byte _tf = tag(FirmID)
+qui count if _tf
+global S_F1 = r(N)
+global S_N1 = _N
+drop _tf
 * first data year = base year (lags only); estimation starts at base + 3
 qui su Year
 global Y0 = r(min)
@@ -412,3 +425,18 @@ preserve
     list, noobs sep(0) abbrev(16)
     export excel using "$OUT/Tables.xlsx", sheet("T0_winsorization") firstrow(variables) replace
 restore
+
+* sample construction after the manual screening (Section 3.1)
+egen byte _tf = tag(FirmID) if EST
+qui count if _tf == 1
+local fe = r(N)
+qui count if EST
+local ne = r(N)
+drop _tf
+putexcel set "$OUT/Tables.xlsx", sheet("T0_sample") modify
+putexcel A1 = "Sample construction" B1 = "Firms" C1 = "Firm-years"
+putexcel A2 = "Data file after manual screening ($Y0-$YN)" B2 = ($S_F0) C2 = ($S_N0)
+putexcel A3 = "Less: firm-years with book equity <= 0" C3 = (-$S_BV)
+putexcel A4 = "Less: firm-years with total assets <= 0" C4 = (-$S_TA)
+putexcel A5 = "Final panel, including base year" B5 = ($S_F1) C5 = ($S_N1)
+putexcel A6 = "GMM estimation sample (lags available; from `=$Y0 + 3')" B6 = (`fe') C6 = (`ne')
