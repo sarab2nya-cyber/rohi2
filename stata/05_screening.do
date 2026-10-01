@@ -62,6 +62,7 @@ if "$ROOT" == "" {
     global SCR_EXWORDS "چاپ|خردهفروشی|عرضهبرق|کمکیبهنهادهایمالی"
     global SCR_MINFIRMS 2
     global SCR_BALANCED 0
+    global SCR_MINYEARS 6
     global SCR_BAL_Y0 1393
     global SCREEN_ONLY 1
 }
@@ -383,8 +384,24 @@ egen byte _tfs = tag(FirmCode) if _ny > 0
 bys FirmCode: egen int _nyb = total(InSample & Year >= $SCR_BAL_Y0)
 gen byte Balanced = _nyb == ($SCR_Y1 - $SCR_BAL_Y0 + 1)
 drop _nyb
-* Step 7 (only if SCR_BALANCED = 1): balanced panel over the whole period
+* longest run of consecutive years with usable data (the panel holds every year)
+gen int _run = 0
+bys FirmCode (Year): replace _run = cond(InSample, cond(_n > 1, _run[_n-1], 0) + 1, 0)
+bys FirmCode: egen int _maxrun = max(_run)
 gen byte _keepfirm = _ny > 0
+* Step 7: at least $SCR_MINYEARS consecutive years of usable data. One observation
+* of the dynamic model needs data for t-3 ... t (four years); six consecutive
+* years give at least three consecutive observations, the minimum for the
+* forward orthogonal deviation and the Arellano-Bond AR(2) test.
+if "$SCR_MINYEARS" != "" & "$SCR_MINYEARS" != "0" & "$SCR_BALANCED" != "1" {
+    replace _keepfirm = _maxrun >= $SCR_MINYEARS
+    qui count if _tfs == 1 & !_keepfirm
+    local f7 = r(N)
+    qui count if InSample & !_keepfirm
+    post tbl ("A") ("7") ("Less: firms with fewer than $SCR_MINYEARS consecutive years of usable data") ///
+        ("حذف شرکت‌هایی که کمتر از ۶ سال متوالی داده‌ی قابل استفاده دارند") (-`f7') (-r(N))
+}
+drop _run
 if "$SCR_BALANCED" == "1" {
     replace _keepfirm = _ny == `NY'
     qui count if _tfs == 1 & !_keepfirm
@@ -436,7 +453,7 @@ drop _tf _tfs _ny _first _last _gap
 * are removed (no empty rows). Gaps are handled by the panel lags.
 *------------------------------------------------------------------------------
 keep if InSample & _keepfirm
-drop HasData InSample Note _keepfirm
+drop HasData InSample Note _keepfirm _maxrun
 
 *------------------------------------------------------------------------------
 * Industries with fewer than $SCR_MINFIRMS firms in the final sample are pooled

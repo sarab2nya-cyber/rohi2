@@ -15,6 +15,7 @@ The sample is constructed in the following steps:
 4. Exclude printing, retail, utilities (electricity, gas, steam and hot water) and activities auxiliary to financial intermediation, whose regulated pricing or business model makes investment and leverage not comparable with manufacturing and mining firms.
 5. Exclude firm-years without financial statements in the database (before listing, after delisting, or not reported).
 6. Exclude firm-years with zero or negative book equity. Leverage above one and a negative market-to-book ratio make a target capital structure undefined for these firm-years, and their investment reflects financial distress rather than financing choices.
+7. Exclude firms with fewer than six consecutive years of usable data. The threshold follows from the estimator rather than from a choice of the researcher: one observation of the dynamic models needs data for years t−3 to t (the lagged dependent variable is built from sales growth at t−2, and the volatility controls use t−3 to t−1), and the forward orthogonal deviation and the Arellano–Bond AR(2) test need at least three consecutive observations per firm. Six consecutive years are therefore the minimum with which a firm contributes to identification and to the specification tests.
 
 All firms have a fiscal year ending in Esfand (March), so every firm-year shares the same macroeconomic window. Table 1 reports the construction of the sample.
 
@@ -29,8 +30,9 @@ All firms have a fiscal year ending in Esfand (March), so every firm-year shares
 | | TSE non-financial firms: full panel (332 firms × 24 years) | 332 | 7,968 |
 | 5 | Less: firm-years without financial statements (not yet listed, delisted or not reported) | — | −3,062 |
 | 6 | Less: firm-years with zero or negative book equity | — | −214 |
-| = | Final sample (unbalanced panel, including base year 1380) | 319 | 4,692 |
-| | **Panel B. Data availability of the final sample** | | |
+| 7 | Less: firms with fewer than six consecutive years of usable data | [−n] | [−n] |
+| = | Final sample (unbalanced panel, including base year 1380) | [n] | [n] |
+| | **Panel B. Data availability of the firms after step 6** | | |
 | | Firms with data in all 24 years | 23 | 552 |
 | | Firms with data for part of the period | 274 | 4,118 |
 | | Firms with data in only one year | 22 | 22 |
@@ -39,7 +41,7 @@ All firms have a fiscal year ending in Esfand (March), so every firm-year shares
 | | Of all firms: one or more missing years inside their period | 196 | |
 | | Firms with data in every year 1393–1403 (balanced subsample, test S8) | 82 | 1,726 |
 
-The final sample is an unbalanced panel of 319 firms and 4,692 firm-years, an average of 14.7 years per firm. Only 23 firms report in all 24 years, while 120 firms entered the exchange after 1380 and 109 left it, or stopped reporting, before 1403. No minimum number of years is imposed. A firm-year enters an estimation when the lagged data that the estimation requires exist; the 22 firms with a single year of data therefore enter only the cross-sectional first-stage models, and firms with gaps contribute the years whose lags are observed. The rule is set by data availability rather than by a researcher-chosen threshold.
+After step 6, only 23 firms report in all 24 years, while 120 firms entered the exchange after 1380 and 109 left it, or stopped reporting, before 1403. The final sample is an unbalanced panel of [n] firms and [n] firm-years. The only length requirement is step 7, which is set by the data needs of the estimator (six consecutive years), not by a preference for long-lived firms; firms with gaps keep all their usable years, and each year enters an estimation when the lags it requires exist.
 
 An unbalanced panel is used for three reasons. First, requiring every firm to report in all 24 years would keep 23 firms, too few for System GMM, whose instrument count must stay below the number of cross-sectional units. Second, such a sample would retain only survivors. Over-leveraged firms that fell into distress or left the exchange, the firms at the centre of H1a, would be removed, and so would every firm listed after 1380, including the wave of listings that followed the privatisations of the late 1380s; the estimates would be subject to survivorship bias. Third, the forward orthogonal deviation used in the GMM estimator (Section 3.8.2) is designed for panels with gaps. To show that entry and exit do not drive the results, all models are re-estimated on the balanced subsample of 82 firms with usable data in every year 1393–1403 (sensitivity test S8).
 
