@@ -441,7 +441,7 @@ egen INDYR = group(IndID Year)
 *    INDLEV; (v) fitted value includes the fixed effects.
 *==============================================================================
 reghdfe TDA L_ROA L_SIZE L_MTB L_TANG L_COL L_INDLEV, ///
-    absorb(T_IND=IndID T_CY=CountryID#Year) vce(cluster FirmID)
+    absorb(T_IND=IndID T_CY=CountryID#Year) vce(cluster FirmID) resid(_RES1)
 estimates store TARGET
 predict double TDA_HAT, xbd
 replace TDA_HAT = min(max(TDA_HAT, 0), 1) if !missing(TDA_HAT)
@@ -450,16 +450,16 @@ gen double CSD = TDA - TDA_HAT
 * Robustness targets: (a) firm FE target -> transitory deviation;
 *                     (b) market leverage target
 reghdfe TDA L_ROA L_SIZE L_MTB L_TANG L_COL L_INDLEV, ///
-    absorb(T2_F=FirmID T2_CY=CountryID#Year) vce(cluster FirmID)
+    absorb(T2_F=FirmID T2_CY=CountryID#Year) vce(cluster FirmID) resid(_RES2)
 estimates store TARGET_FE
 predict double TDA_HAT_FE, xbd
 gen double CSD_FE = TDA - min(max(TDA_HAT_FE, 0), 1) if !missing(TDA_HAT_FE)
 
 reghdfe MLEV L_ROA L_SIZE L_MTB L_TANG L_COL L_INDLEV, ///
-    absorb(T3_IND=IndID T3_CY=CountryID#Year) vce(cluster FirmID)
+    absorb(T3_IND=IndID T3_CY=CountryID#Year) vce(cluster FirmID) resid(_RES3)
 predict double MLEV_HAT, xbd
 gen double CSD_MKT = MLEV - min(max(MLEV_HAT, 0), 1) if !missing(MLEV_HAT)
-drop T_* T2_* T3_*
+drop T_* T2_* T3_* _RES1 _RES2 _RES3
 
 winsor2 CSD CSD_FE CSD_MKT, replace cuts($WCUT)
 
