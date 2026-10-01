@@ -31,7 +31,7 @@ program define buildpanel
 
     quietly {
     *--------------------------------------------------------------------------
-    * CPI index from INF (1392 = 1); used only to deflate DEA inputs/outputs
+    * CPI index from INF (first data year $Y0 = 1); used only to deflate DEA inputs/outputs
     *--------------------------------------------------------------------------
     preserve
         keep Year INF
@@ -56,7 +56,7 @@ program define buildpanel
     else                    gen double TDA = TD / (TD + MV)
     gen double IOB    = FinExp / TA
     gen double COL    = (INV + PPE) / TA
-    gen double LTA    = ln(TA / CPI)          // real size, 1392 prices
+    gen double LTA    = ln(TA / CPI)          // real size, prices of the first data year
     gen double MTB    = MV / BV
     gen double PROFIT = OI / TA
     gen double FCF    = CFO / TA
@@ -112,12 +112,12 @@ program define buildpanel
         local det : list det - dropiob
     }
     if inlist("`target'", "base", "noiob") {
-        `V' reg TDA `det' i.IndID if Year >= 1393, vce(cluster FirmID)
+        `V' reg TDA `det' i.IndID if Year >= $Y0 + 1, vce(cluster FirmID)
         est store TGT_`tag'
         predict double TDAhat if e(sample), xb
     }
     else {
-        `V' reghdfe TDA `det' if Year >= 1393, absorb(FirmID) vce(cluster FirmID) resid(_rtg)
+        `V' reghdfe TDA `det' if Year >= $Y0 + 1, absorb(FirmID) vce(cluster FirmID) resid(_rtg)
         est store TGT_`tag'
         predict double TDAhat, xbd
         drop _rtg
@@ -198,7 +198,7 @@ program define buildpanel
     *--------------------------------------------------------------------------
     * 3.5 Managerial ability (Demerjian, Lev & McVay 2012)
     *     Stage 1: input-oriented DEA. Main: one frontier per industry over all
-    *     years (values in 1392 prices) - industry-year frontiers put more than
+    *     years (values in base-year prices) - industry-year frontiers put more than
     *     half of the firms on the frontier (no discrimination). Option
     *     deafront(indyr): per industry-year (>= mindea firms), else pooled.
     *--------------------------------------------------------------------------
@@ -241,7 +241,7 @@ program define buildpanel
     predict double FEhat if e(sample), xb
     gen double MA_raw = FE - FEhat
     wins MA_raw, `W'
-    su MA_raw if Year >= 1393, meanonly
+    su MA_raw if Year >= $Y0 + 1, meanonly
     gen double MA = MA_raw - r(mean)
     * alternatives used in robustness R7
     pctrank MA_raw, gen(MA_rank) by(INDYR)
@@ -277,7 +277,7 @@ program define buildpanel
     drop ind_1
     buildint
     sort FirmID Year
-    gen byte EST = !missing(InvEff, L.InvEff, CSDP, CSDN, MA, STAGE_L) & Year >= 1395
+    gen byte EST = !missing(InvEff, L.InvEff, CSDP, CSDN, MA, STAGE_L) & Year >= $Y0 + 3
     foreach v of global XCTRL {
         replace EST = 0 if missing(`v')
     }
@@ -326,6 +326,11 @@ drop if BV <= 0
 qui count if TA <= 0
 if r(N) di as err "Dropping " r(N) " firm-years with non-positive total assets"
 drop if TA <= 0
+* first data year = base year (lags only); estimation starts at base + 3
+qui su Year
+global Y0 = r(min)
+global YN = r(max)
+di as txt "Data years $Y0-$YN: base year $Y0, GMM estimation sample from `=$Y0 + 3'"
 save "$OUT/raw_panel.dta", replace
 
 *==============================================================================

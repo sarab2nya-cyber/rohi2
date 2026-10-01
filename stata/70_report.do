@@ -7,7 +7,15 @@
 *   5 Economic magnitude  6 Robustness / sensitivity / identification
 *   7 First stages and within-stage estimates  8 Figures (linked pictures)
 *==============================================================================
-di as res "70_report.do version 2026-10-01c"
+di as res "70_report.do version 2026-10-01d"
+if "$Y0" == "" {                          // report run on its own
+    preserve
+    qui use Year using "$OUT/raw_panel.dta", clear
+    qui su Year
+    global Y0 = r(min)
+    global YN = r(max)
+    restore
+}
 global RPT     "$OUT/Results_Report.rtf"
 global RPTMODE "replace"
 
@@ -173,15 +181,15 @@ local rcrit = `crit' / sqrt(`n' - 2 + `crit'^2)
 rpt_mat C, title("Table 2. Correlations: Pearson (lower triangle) and Spearman (upper triangle)") fmt(%6.3f) ///
     note("N = `n'. |r| > `: di %5.3f `rcrit'' is significant at 5%. Stars: Tables.xlsx, sheet T3_correlations.")
 
-qui tab LC5 if Year >= 1393, matcell(F5)
+qui tab LC5 if Year >= $Y0 + 1, matcell(F5)
 cap matrix rownames F5 = Introduction Growth Mature Shake_out Decline
 cap matrix colnames F5 = Firm_years
-rpt_mat F5, title("Table 3a. Dickinson (2011) life-cycle stages, 1393-1403") fmt(%9.0f)
+rpt_mat F5, title("Table 3a. Dickinson (2011) life-cycle stages, `=$Y0 + 1'-$YN") fmt(%9.0f)
 qui tab STAGE_L OVERLEV if EST, matcell(SC)
 cap matrix rownames SC = Growth Maturity Decline
 cap matrix colnames SC = Under_leveraged Over_leveraged
 rpt_mat SC, title("Table 3b. Consolidated stage (t-1) by leverage direction") fmt(%9.0f)
-qui tab STAGE_L STAGE if Year >= 1394, matcell(TR)
+qui tab STAGE_L STAGE if Year >= $Y0 + 2, matcell(TR)
 cap matrix rownames TR = Growth_t1 Maturity_t1 Decline_t1
 cap matrix colnames TR = Growth_t Maturity_t Decline_t
 rpt_mat TR, title("Table 3c. Stage transitions (counts)") fmt(%9.0f)
@@ -264,7 +272,7 @@ rpt_mat EC, title("Table 9. Simple slopes and economic magnitude") ///
 *==============================================================================
 * (analysis data are no longer needed from here on)
 foreach f in R S {
-    local lab = cond("`f'" == "R", "Robustness R1-R10", "Sensitivity S1-S9")
+    local lab = cond("`f'" == "R", "Robustness R1-R10", "Sensitivity S1-S10")
     local tn  = cond("`f'" == "R", "10", "11")
     cap use "$OUT/`f'_keyresults.dta", clear
     if _rc continue

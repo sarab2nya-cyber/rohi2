@@ -49,16 +49,16 @@ putexcel A7 = "t-test p (two-sided)"           B7 = (`tp')
 * T2 Life cycle: Dickinson five stages, consolidated stages, transitions,
 *    stage x deviation-direction cells
 *------------------------------------------------------------------------------
-di as res _n "T2. Dickinson (2011) original stages, 1393-1403"
-tab LC5 if Year >= 1393, matcell(F5)
+di as res _n "T2. Dickinson (2011) original stages, `=$Y0 + 1'-$YN"
+tab LC5 if Year >= $Y0 + 1, matcell(F5)
 di as res _n "T2. Consolidated stages (t-1) in the estimation sample"
 tab STAGE_L if EST, matcell(F3)
 di as res _n "T2b. Stage transition matrix (row = stage at t-1, column = stage at t)"
-tab STAGE_L STAGE if Year >= 1394, row matcell(TR)
+tab STAGE_L STAGE if Year >= $Y0 + 2, row matcell(TR)
 di as res _n "T2c. Stage (t-1) x leverage direction: cells identifying the interactions"
 tab STAGE_L OVERLEV if EST, matcell(SC)
 putexcel set "$OUT/Tables.xlsx", sheet("T2_lifecycle") modify
-putexcel A1 = "Dickinson stage" B1 = "Firm-years (1393-1403)"
+putexcel A1 = "Dickinson stage" B1 = "Firm-years (`=$Y0 + 1'-$YN)"
 putexcel A2 = "Introduction" A3 = "Growth" A4 = "Mature" A5 = "Shake-out" A6 = "Decline"
 putexcel B2 = matrix(F5)
 putexcel D1 = "Consolidated stage (t-1)" E1 = "Firm-years (estimation sample)"
@@ -129,17 +129,17 @@ di as res _n "OA2b. DEA (input-oriented, VRS): frontiers, efficiency scores, sha
 gen byte FE1     = FE == 1 if !missing(FE)
 gen byte DEA_own = DEA_CELL > 0 if !missing(FE)
 egen byte _tagcell = tag(DEA_CELL) if !missing(FE)
-tabstat FE FE1 DEA_own if Year >= 1393, by(Year) stat(mean n) format(%6.3f)
+tabstat FE FE1 DEA_own if Year >= $Y0 + 1, by(Year) stat(mean n) format(%6.3f)
 qui count if _tagcell == 1 & DEA_CELL > 0
 local nf_own = r(N)
 qui count if _tagcell == 1 & DEA_CELL < 0
 local nf_pool = r(N)
-qui su FE if Year >= 1393
+qui su FE if Year >= $Y0 + 1
 local fe_mean = r(mean)
 local fe_n = r(N)
-qui su FE1 if Year >= 1393
+qui su FE1 if Year >= $Y0 + 1
 local fe_eff = r(mean)
-qui su DEA_own if Year >= 1393
+qui su DEA_own if Year >= $Y0 + 1
 local fe_own = r(mean)
 di as txt "  frontiers estimated: `nf_own' industry-year, `nf_pool' industry-pooled"
 putexcel set "$OUT/Tables.xlsx", sheet("OA2b_DEA") modify
@@ -164,7 +164,7 @@ histogram CSDev if EST, bin(50) xline(0, lc(maroon)) graphregion(color(white)) /
     title("Distribution of capital structure deviation (CSDev)", size(medsmall)) ///
     note("Right of 0: over-leveraged; left of 0: under-leveraged.")
 graph export "$OUT/Fig0b_CSDev_distribution.png", replace width(2000)
-histogram FE if Year >= 1393, bin(40) graphregion(color(white)) ///
+histogram FE if Year >= $Y0 + 1, bin(40) graphregion(color(white)) ///
     title("DEA efficiency scores (stage 1 of managerial ability)", size(medsmall))
 graph export "$OUT/Fig0c_DEA_scores.png", replace width(2000)
 histogram MA if EST, bin(50) graphregion(color(white)) ///
@@ -239,7 +239,7 @@ sktest e_fe
 local SKp = r(P_chi2)
 
 foreach v in InvEff CSDev {
-    cap noi xtunitroot fisher `v' if Year >= 1394, dfuller lags(0) demean
+    cap noi xtunitroot fisher `v' if Year >= $Y0 + 2, dfuller lags(0) demean
     local UR_`v'  = cond(_rc, ., r(P))
     local URp_`v' = cond(_rc, ., r(p_P))
 }
