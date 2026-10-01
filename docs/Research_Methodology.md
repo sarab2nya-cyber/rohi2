@@ -33,7 +33,7 @@ Fiscal year 1392 serves only as a base year for variables that require prior-yea
 | Investment-expectation model, Eq. (1) | Sales at t−2 | 1394–1403 | 2,990 |
 | Dynamic models, Eqs. (6)–(12) | InvEff at t−1 | 1395–1403 | 2,691 |
 
-All continuous ratios are winsorized at the 1st and 99th percentiles of their pooled distributions after construction. Raw accounting levels are not winsorized, because doing so would distort the ratios built from them. The balanced-panel requirement may introduce survivorship bias toward stronger firms; Section 3.11 discusses this. All estimations are performed in Stata 17.
+All continuous ratios are winsorized at the 1st and 99th percentiles of their pooled distributions after construction. Raw accounting levels are not winsorized, because doing so would distort the ratios built from them. The generated measures InvEff, CSDev and MA are winsorized at the same percentiles. Expense items (cost of goods sold, SG&A and financial expense) are used in absolute value, because some databases record them with a negative sign. The balanced-panel requirement may introduce survivorship bias toward stronger firms; Section 3.11 discusses this. All estimations are performed in Stata 17.
 
 ## 3.2 Dependent Variable: Investment Inefficiency
 
@@ -284,7 +284,7 @@ GMM does not require normally distributed or homoskedastic errors. Its validity 
 
 ### 3.10.3 Static benchmarks
 
-For the static fixed-effects benchmarks, the F test (pooled OLS against fixed effects) and the Hausman (1978) test (random against fixed effects) are reported. These estimates also supply the bounds for the Bond (2002) check on γ̂₁.
+For the static fixed-effects benchmarks, the F test (pooled OLS against fixed effects) and the Hausman (1978) test (random against fixed effects) are reported. The classical assumptions of the static model are also documented with the modified Wald test for groupwise heteroskedasticity, the Wooldridge (2002) test for serial correlation and the skewness–kurtosis test for normality of residuals. Violations motivate the robust two-step GMM covariance and are not required assumptions of the GMM estimator. These estimates also supply the bounds for the Bond (2002) check on γ̂₁.
 
 ### 3.10.4 Generated regressors
 
@@ -403,6 +403,7 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 - Synn, C., & Williams, C. (2015). [Complete title, journal, volume and pages from your source.]
 - Windmeijer, F. (2005). A finite sample correction for the variance of linear efficient two-step GMM estimators. *Journal of Econometrics, 126*(1), 25–51.
 - Wintoki, M. B., Linck, J. S., & Netter, J. M. (2012). Endogeneity and the dynamics of internal corporate governance. *Journal of Financial Economics, 105*(3), 581–606.
+- Wooldridge, J. M. (2002). *Econometric analysis of cross section and panel data*. MIT Press.
 
 ## Notes for the Author (remove before submission)
 
