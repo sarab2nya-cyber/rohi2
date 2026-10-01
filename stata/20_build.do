@@ -57,7 +57,7 @@ program define buildpanel
     gen double IOB    = FinExp / TA
     gen double COL    = (INV + PPE) / TA
     gen double LTA    = ln(TA / CPI)          // real size, prices of the first data year
-    gen double MTB    = MV / BV
+    gen double MTB    = (MV + TD) / TA     // market-to-book of assets (defined for all firms)
     gen double PROFIT = OI / TA
     gen double FCF    = CFO / TA
     gen double lnAge  = ln(1 + Age)
@@ -370,10 +370,11 @@ egen byte _tf = tag(FirmID)
 qui count if _tf
 global S_F0 = r(N)
 global S_N0 = _N
+* firm-years with book equity <= 0 are kept (distressed firms; MTB is measured
+* on assets, so it is defined for them)
+global S_BV = 0
 qui count if BV <= 0
-global S_BV = r(N)
-di as txt "Excluding " r(N) " firm-years with non-positive book equity (BV <= 0)"
-drop if BV <= 0
+di as txt r(N) " firm-years with non-positive book equity are kept"
 qui count if TA <= 0
 global S_TA = r(N)
 if r(N) di as err "Dropping " r(N) " firm-years with non-positive total assets"
@@ -422,11 +423,11 @@ label var UNDERLEV "Under-leveraged`TT'"
 label var FE      "DEA firm efficiency"
 label var MA      "Managerial ability (centered)`TT'"
 label var LTA     "Size: ln(real total assets)"
-label var MTB     "Market-to-book"
+label var MTB     "Market-to-book of assets"
 label var PROFIT  "Profitability"
 label var FCF     "Operating cash flow / TA"
 label var L_LTA    "Size (t-1)"
-label var L_MTB    "Market-to-book (t-1)"
+label var L_MTB    "Market-to-book of assets (t-1)"
 label var L_PROFIT "Profitability (t-1)"
 label var L_FCF    "Operating cash flow / TA (t-1)"
 label var L_TANG   "Tangibility: PPE / TA (t-1)"

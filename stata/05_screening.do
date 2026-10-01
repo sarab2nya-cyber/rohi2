@@ -17,8 +17,8 @@
 *   3  less financial firms                              (industry keywords)
 *   4  less printing, retail, utilities, auxiliary financial activities
 *   5  less firm-years without financial statements
-*   6  less firm-years with book equity <= 0
-*   7  less firms without usable data in every year (balanced panel; SCR_BALANCED)
+*   6  less firms with fewer than SCR_MINYEARS consecutive years of data
+*   (firm-years with book equity <= 0 are kept)
 *   Industries with fewer than $SCR_MINFIRMS firms are pooled into code 999.
 * All firms have an Esfand year-end (sample characteristic, no step). No
 * minimum number of years: a firm-year enters estimation when its lags exist.
@@ -396,13 +396,13 @@ if `OLDOK' {
     drop _o_*
 }
 gen byte HasData = !missing(TA)
-* Step 5: book equity <= 0 (target leverage undefined): flagged, not used
-gen byte InSample = HasData & !(BV <= 0)
+* firm-years with zero or negative book equity are KEPT (financially distressed
+* firms are central to H1a); they are counted for information only
+gen byte InSample = HasData
 gen str40 Note = ""
 replace Note = "no financial statements in the database" if !HasData
-replace Note = "book equity <= 0" if HasData & BV <= 0
 qui count if HasData & BV <= 0
-di as txt r(N) " firm-years with book equity <= 0 are flagged (InSample = 0)"
+di as txt r(N) " firm-years with book equity <= 0 are kept in the sample"
 
 gen byte AUDITED  = ustrregexm(حسابرسیشده, "^بل[\x{06CC}\x{064A}]") if حسابرسیشده != "" & حسابرسیشده != "-"
 
@@ -489,9 +489,6 @@ if r(N) post tbl ("A") ("") ("  Of which: statements completed from the previous
 qui count if !HasData
 post tbl ("A") ("5") ("Less: firm-years without financial statements (not yet listed, delisted or not reported)") ///
     ("حذف سال-شرکت‌هایی که صورت مالی ندارند (هنوز پذیرفته نشده، خارج‌شده یا گزارش‌نشده)") (.) (-r(N))
-qui count if HasData & BV <= 0
-post tbl ("A") ("6") ("Less: firm-years with zero or negative book equity") ///
-    ("حذف سال-شرکت‌هایی که حقوق صاحبان سهام صفر یا منفی دارند") (.) (-r(N))
 bys FirmCode: egen int _ny = total(InSample)
 egen byte _tfs = tag(FirmCode) if _ny > 0
 * flag for sensitivity test S8: usable data in every year ${SCR_BAL_Y0}-${SCR_Y1}
@@ -503,7 +500,7 @@ gen int _run = 0
 bys FirmCode (Year): replace _run = cond(InSample, cond(_n > 1, _run[_n-1], 0) + 1, 0)
 bys FirmCode: egen int _maxrun = max(_run)
 gen byte _keepfirm = _ny > 0
-* Step 7: at least $SCR_MINYEARS consecutive years of usable data. One observation
+* Step 6: at least $SCR_MINYEARS consecutive years of usable data. One observation
 * of the dynamic model needs data for t-3 ... t (four years); six consecutive
 * years give at least three consecutive observations, the minimum for the
 * forward orthogonal deviation and the Arellano-Bond AR(2) test.
@@ -512,7 +509,7 @@ if "$SCR_MINYEARS" != "" & "$SCR_MINYEARS" != "0" & "$SCR_BALANCED" != "1" {
     qui count if _tfs == 1 & !_keepfirm
     local f7 = r(N)
     qui count if InSample & !_keepfirm
-    post tbl ("A") ("7") ("Less: firms with fewer than $SCR_MINYEARS consecutive years of usable data") ///
+    post tbl ("A") ("6") ("Less: firms with fewer than $SCR_MINYEARS consecutive years of usable data") ///
         ("حذف شرکت‌هایی که کمتر از ۶ سال متوالی داده‌ی قابل استفاده دارند") (-`f7') (-r(N))
 }
 drop _run
@@ -529,14 +526,14 @@ local FS = r(N)
 qui count if InSample & _keepfirm
 local NS = r(N)
 post tbl ("A") ("=") ("Final sample") ("نمونه‌ی نهایی") (`FS') (`NS')
-* Panel B: data availability of the firms remaining after step 6
+* Panel B: data availability of the firms remaining after step 5
 bys FirmCode: egen int _first = min(cond(InSample, Year, .))
 bys FirmCode: egen int _last  = max(cond(InSample, Year, .))
 gen byte _gap = _ny > 0 & (_last - _first + 1) > _ny
 qui count if _tfs == 1 & _ny == `NY'
 local fa = r(N)
 qui count if InSample & _ny == `NY'
-post tbl ("B") ("") ("Firms with data in all `NY' years (after step 6)") ("شرکت‌هایی که داده‌ی هر ۲۴ سال را دارند") (`fa') (r(N))
+post tbl ("B") ("") ("Firms with data in all `NY' years (after step 5)") ("شرکت‌هایی که داده‌ی هر ۲۴ سال را دارند") (`fa') (r(N))
 qui count if _tfs == 1 & inrange(_ny, 2, `NY' - 1)
 local fp = r(N)
 qui count if InSample & inrange(_ny, 2, `NY' - 1)

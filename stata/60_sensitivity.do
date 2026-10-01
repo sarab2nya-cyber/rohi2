@@ -44,6 +44,9 @@ runkey, test("S5 Exclude near-target") cond(abs(CSDX) >= `thr')
 * S6 exclude crisis years 1397-1398 (sanctions, currency) and 1399 (COVID-19)
 runkey, test("S6 Exclude 1397-1399") cond(!inlist(Year, 1397, 1398, 1399))
 
+* S11 exclude firm-years with zero or negative book equity (kept in the main sample)
+runkey, test("S11 Excl. book equity<=0") cond(BV > 0)
+
 * S10 original study period (estimation from 1395, i.e. data from 1392);
 *     relevant when the data start earlier than 1392
 if $Y0 < 1392 runkey, test("S10 Period 1395-1403") cond(Year >= 1395)

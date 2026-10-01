@@ -14,8 +14,9 @@ The sample is constructed in the following steps:
 3. Exclude banks, credit institutions, insurance, leasing, investment, holding, brokerage and fund companies. Their leverage reflects regulatory capital requirements and intermediation activity rather than financing choices, and their asset structure is not comparable (Fama & French, 1992).
 4. Exclude printing, retail, utilities (electricity, gas, steam and hot water) and activities auxiliary to financial intermediation, whose regulated pricing or business model makes investment and leverage not comparable with manufacturing and mining firms.
 5. Exclude firm-years without financial statements in the database (before listing, after delisting, or not reported).
-6. Exclude firm-years with zero or negative book equity. Leverage above one and a negative market-to-book ratio make a target capital structure undefined for these firm-years, and their investment reflects financial distress rather than financing choices.
-7. Exclude firms with fewer than six consecutive years of usable data. The threshold follows from the estimator rather than from a choice of the researcher: one observation of the dynamic models needs data for years t−3 to t (the lagged dependent variable is built from sales growth at t−2, and the volatility controls use t−3 to t−1), and the forward orthogonal deviation and the Arellano–Bond AR(2) test need at least three consecutive observations per firm. Six consecutive years are therefore the minimum with which a firm contributes to identification and to the specification tests.
+6. Exclude firms with fewer than six consecutive years of usable data. The threshold follows from the estimator rather than from a choice of the researcher: one observation of the dynamic models needs data for years t−3 to t (the lagged dependent variable is built from sales growth at t−2, and the volatility controls use t−3 to t−1), and the forward orthogonal deviation and the Arellano–Bond AR(2) test need at least three consecutive observations per firm. Six consecutive years are therefore the minimum with which a firm contributes to identification and to the specification tests.
+
+Firm-years with zero or negative book equity are retained. These are the most heavily indebted firms in the sample, many of them subject to Article 141 of the Commercial Code (accumulated losses of at least half of capital), and they are the firms in which debt overhang should be strongest; excluding them would remove the upper tail of over-leverage on which H1a rests. Two measurement choices keep these firm-years well defined. Growth opportunities are measured by the market-to-book ratio of assets, (MV + TD) / TA, which is defined for every firm, instead of the equity market-to-book ratio, which becomes negative or undefined when book equity is not positive. Leverage TDA can exceed one for these firms; it is winsorized at the 1st and 99th percentiles like every other ratio, and fitted target leverage is bounded to [0, 1]. Sensitivity test S11 re-estimates all models without these firm-years.
 
 All firms have a fiscal year ending in Esfand (March), so every firm-year shares the same macroeconomic window. Table 1 reports the construction of the sample.
 
@@ -29,21 +30,20 @@ All firms have a fiscal year ending in Esfand (March), so every firm-year shares
 | 4 | Less: printing, retail, utilities and auxiliary financial activities | −11 | −43 |
 | | TSE non-financial firms: full panel (430 firms × 24 years) | 430 | 10,320 |
 | 5 | Less: firm-years without financial statements (not yet listed, delisted or not reported) | — | −3,916 |
-| 6 | Less: firm-years with zero or negative book equity | — | −359 |
-| 7 | Less: firms with fewer than six consecutive years of usable data | −97 | −422 |
-| = | Final sample (unbalanced panel, including base year 1380) | 320 | 5,623 |
-| | **Panel B. Data availability of the firms after step 6** | | |
-| | Firms with data in all 24 years | 24 | 576 |
-| | Firms with data for part of the period | 371 | 5,447 |
-| | Firms with data in only one year | 22 | 22 |
-| | Of all firms: first year with data after 1380 (listed later) | 199 | |
-| | Of all firms: last year with data before 1403 (delisted or not reported) | 126 | |
-| | Of all firms: one or more missing years inside their period | 263 | |
-| | Firms with data in every year 1393–1403 (balanced subsample, test S8) | 120 | 2,323 |
+| 6 | Less: firms with fewer than six consecutive years of usable data | [−n] | [−n] |
+| = | Final sample (unbalanced panel, including base year 1380) | [n] | [n] |
+| | **Panel B. Data availability of the firms after step 5** | | |
+| | Firms with data in all 24 years | [n] | [n] |
+| | Firms with data for part of the period | [n] | [n] |
+| | Firms with data in only one year | [n] | [n] |
+| | Of all firms: first year with data after 1380 (listed later) | [n] | |
+| | Of all firms: last year with data before 1403 (delisted or not reported) | [n] | |
+| | Of all firms: one or more missing years inside their period | [n] | |
+| | Firms with data in every year 1393–1403 (balanced subsample, test S8) | [n] | [n] |
 
-After step 6, only 24 firms report in all 24 years, while 199 firms entered the exchange after 1380 and 126 left it, or stopped reporting, before 1403. The final sample is an unbalanced panel of 320 firms and 5,623 firm-years, an average of 17.6 years per firm. The only length requirement is step 7, which is set by the data needs of the estimator (six consecutive years), not by a preference for long-lived firms; firms with gaps keep all their usable years, and each year enters an estimation when the lags it requires exist.
+After step 5, only [n] firms report in all 24 years, while [n] firms entered the exchange after 1380 and [n] left it, or stopped reporting, before 1403. The final sample is an unbalanced panel of [n] firms and [n] firm-years. The only length requirement is step 6, which is set by the data needs of the estimator (six consecutive years), not by a preference for long-lived firms; firms with gaps keep all their usable years, and each year enters an estimation when the lags it requires exist.
 
-An unbalanced panel is used for three reasons. First, requiring every firm to report in all 24 years would keep 24 firms, too few for System GMM, whose instrument count must stay below the number of cross-sectional units. Second, such a sample would retain only survivors. Over-leveraged firms that fell into distress or left the exchange, the firms at the centre of H1a, would be removed, and so would every firm listed after 1380, including the wave of listings that followed the privatisations of the late 1380s; the estimates would be subject to survivorship bias. Third, the forward orthogonal deviation used in the GMM estimator (Section 3.8.2) is designed for panels with gaps. To show that entry and exit do not drive the results, all models are re-estimated on the balanced subsample of 120 firms with usable data in every year 1393–1403 (sensitivity test S8).
+An unbalanced panel is used for three reasons. First, requiring every firm to report in all 24 years would keep about two dozen firms, too few for System GMM, whose instrument count must stay below the number of cross-sectional units. Second, such a sample would retain only survivors. Over-leveraged firms that fell into distress or left the exchange, the firms at the centre of H1a, would be removed, and so would every firm listed after 1380, including the wave of listings that followed the privatisations of the late 1380s; the estimates would be subject to survivorship bias. Third, the forward orthogonal deviation used in the GMM estimator (Section 3.8.2) is designed for panels with gaps. To show that entry and exit do not drive the results, all models are re-estimated on the balanced subsample of firms with usable data in every year 1393–1403 (sensitivity test S8).
 
 **Industries.** Industries are defined by the industry name in the database. The database also reports a broad group code (eleven groups, each combining several industries), which is too coarse to serve as an industry classification and is not used. Industries with a single firm in the final sample are pooled into one category ("other industries"). In the estimations that use industry cells (industry leverage in Eq. 2, the DEA frontier and the industry dummies), industries with fewer than five firms are pooled into one group, so that no cell rests on one or two firms.
 
@@ -82,7 +82,7 @@ TDA is total debt divided by total assets. The determinants are measured at t−
 - **IOB**: financial expense / total assets (interest burden).
 - **COL**: (inventory + net PP&E) / total assets (collateral value of assets).
 - **LTA**: natural logarithm of total assets in 1380 prices (size). Deflation is necessary because nominal assets grow mechanically with inflation of 30–40% a year.
-- **MTB**: market value / book value of equity (growth opportunities).
+- **MTB**: market-to-book ratio of assets, (market value of equity + total liabilities) / total assets (growth opportunities). The asset-based ratio is used because it is defined for firms with zero or negative book equity, which are retained in the sample (Section 3.1).
 - **PROFIT**: operating income / total assets (profitability).
 - **INDLEV**: median TDA of the firm's industry in the same year, excluding the firm itself (industry leverage norm). Industries with fewer than five firms are pooled into one group, so that the median never rests on one or two peers.
 - **INF**: annual consumer-price inflation rate.
@@ -131,7 +131,7 @@ MktShare is the firm's share of industry sales. FCF⁺ equals 1 if free cash flo
 Following Biddle et al. (2009), the models control for firm characteristics that are associated with investment levels and with the accuracy of the investment-expectation model:
 
 - **LTA**: firm size. Larger firms have better access to finance and more stable investment.
-- **MTB**: growth opportunities not captured by past sales growth.
+- **MTB**: market-to-book ratio of assets, a measure of growth opportunities not captured by past sales growth.
 - **PROFIT**: operating income / total assets. More profitable firms can fund investment internally.
 - **FCF**: operating cash flow / total assets, which captures internal funds available for investment (Jensen, 1986). Operating rather than post-investment free cash flow is used because investing cash flow is part of the dependent variable.
 - **TANG**: net PP&E / total assets. Asset tangibility determines the scope for collateralised financing and the share of investment that is lumpy and irreversible.
@@ -227,7 +227,7 @@ Three sources of endogeneity make static panel estimators inconsistent in this s
 
 ### 3.8.2 Two-step System GMM
 
-Eqs. (6)–(12) are estimated with the two-step System GMM estimator (Arellano & Bover, 1995; Blundell & Bond, 1998), implemented with xtabond2 (Roodman, 2009b). Standard errors use the Windmeijer (2005) finite-sample correction. System GMM stacks a transformed equation, which removes η~i~ and is instrumented with lagged levels, and the levels equation, instrumented with lagged first differences. The transformation is the forward orthogonal deviation (Arellano & Bover, 1995): each observation is expressed as its deviation from the mean of all future observations of the same firm. The panel has gaps, because firm-years with non-positive book equity are excluded (Section 3.1). First-differencing loses two observations at every gap, while the forward orthogonal deviation loses only one and uses all available future information (Roodman, 2009b). First differences are reported as sensitivity test S9a. The levels equation is valid if changes in the instruments are uncorrelated with the firm effect. It adds information that is valuable when the series are persistent and the panel is short, in which case lagged levels are weak instruments for first differences (Blundell & Bond, 1998).
+Eqs. (6)–(12) are estimated with the two-step System GMM estimator (Arellano & Bover, 1995; Blundell & Bond, 1998), implemented with xtabond2 (Roodman, 2009b). Standard errors use the Windmeijer (2005) finite-sample correction. System GMM stacks a transformed equation, which removes η~i~ and is instrumented with lagged levels, and the levels equation, instrumented with lagged first differences. The transformation is the forward orthogonal deviation (Arellano & Bover, 1995): each observation is expressed as its deviation from the mean of all future observations of the same firm. The panel has gaps, because some firms do not report in every year (Section 3.1). First-differencing loses two observations at every gap, while the forward orthogonal deviation loses only one and uses all available future information (Roodman, 2009b). First differences are reported as sensitivity test S9a. The levels equation is valid if changes in the instruments are uncorrelated with the firm effect. It adds information that is valuable when the series are persistent and the panel is short, in which case lagged levels are weak instruments for first differences (Blundell & Bond, 1998).
 
 Lags in the table refer to the regressor as it enters the model; for example, the instruments of CSD⁺~t−1~ are its own values two and three periods earlier.
 
@@ -365,8 +365,9 @@ The robustness tests replace one element of the design at a time with an accepte
 | S5 | Near-target firms | Exclude firm-years with \|CSDev\| < 0.25 SD, whose direction is mostly estimation noise |
 | S6 | Crisis years | Exclude 1397–1398 (sanctions and currency crisis) and 1399 (COVID-19) |
 | S7 | Industry composition | Re-estimate excluding one industry at a time |
-| S8 | Sample composition | Balanced subsample: the 120 firms with usable data in every year 1393–1403, to assess survivorship effects |
+| S8 | Sample composition | Balanced subsample: firms with usable data in every year 1393–1403, to assess survivorship effects |
 | S10 | Study period | Original study period 1395–1403 (data from 1392), to check that the extension to 1380 does not drive the results |
+| S11 | Distressed firms | Exclude firm-years with zero or negative book equity (retained in the main sample) |
 | S9 | Elements of the original design | S9a: first differences instead of forward orthogonal deviations; S9b: original four controls (LTA, MTB, PROFIT, FCF); S9c: original specification as a whole (CSD and MA at t, first differences, four controls, lags 2–3) |
 
 ### 3.11.3 Additional identification checks
@@ -384,7 +385,7 @@ The robustness tests replace one element of the design at a time with an accepte
 | OA3 | Frequency of Dickinson's five stages and stage transitions |
 | OA4 | Static fixed-effects estimates of Eqs. (6)–(12), with F and Hausman tests |
 | OA5 | Full estimates for R1–R10 |
-| OA6 | Full estimates for S1–S10 |
+| OA6 | Full estimates for S1–S11 |
 | OA7 | Reverse-causality model, Eq. (13) |
 | OA8 | Oster bounds, placebo distribution and bootstrap standard errors |
 | OA9 | Within-stage estimates of Eqs. (6), (9) and (11) |
@@ -403,7 +404,7 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 | IOB | FinExp / TA | FinExp, TA |
 | COL | (INV + PPE) / TA | INV, PPE, TA |
 | LTA | ln(TA / CPI), total assets in 1380 prices | TA, INF |
-| MTB | MV / BV | MV, BV |
+| MTB | (MV + TD) / TA, market-to-book of assets | MV, TD, TA |
 | PROFIT | OI / TA | OI, TA |
 | INDLEV | Median TDA of the industry-year, excluding the firm | TD, TA, IndID |
 | INF | Annual consumer-price inflation rate | INF |
@@ -461,7 +462,7 @@ Data items refer to the columns of the research dataset. Subscript t−1 denotes
 
 ## Notes for the Author (remove before submission)
 
-- Table 1 uses the counts of the Screening sheet of Research_Data_1380_1403.xlsx (final run after the 1403 merge and the market correction).
+- Fill the [n] counts of Table 1 and of the paragraph below it from the Screening sheet of Research_Data_1380_1403.xlsx after re-running 05_screening.do (firm-years with negative book equity are now retained).
 - State the source and type of the inflation series you use (CBI or Statistical Centre; annual average or Esfand-to-Esfand).
 - Complete the Synn and Williams (2015) reference, and check every reference against the published version before submission.
 - The design changes of this version (CSD and MA at t−1, forward orthogonal deviations, extended controls) were fixed before the final estimation; the earlier specification is reported in S9c. State this in the cover letter if a reviewer asks how the specification was chosen.

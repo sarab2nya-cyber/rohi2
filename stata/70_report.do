@@ -272,7 +272,7 @@ rpt_mat EC, title("Table 9. Simple slopes and economic magnitude") ///
 *==============================================================================
 * (analysis data are no longer needed from here on)
 foreach f in R S {
-    local lab = cond("`f'" == "R", "Robustness R1-R10", "Sensitivity S1-S10")
+    local lab = cond("`f'" == "R", "Robustness R1-R10", "Sensitivity S1-S11")
     local tn  = cond("`f'" == "R", "10", "11")
     cap use "$OUT/`f'_keyresults.dta", clear
     if _rc continue
