@@ -20,22 +20,6 @@ def run(bars, log=None, fbo_log=None):
     pdn2 = [any(pb_parts(m, t, -1)) for t in range(n)]; pdn3 = [any(tri(m, t, -1)) for t in range(n)]
     pup2 = [any(pb_parts(m, t, 1)) for t in range(n)]; pup3 = [any(tri(m, t, 1)) for t in range(n)]
     seedBar = None
-    # real breakout SHAPES (no level): the 3 main conditions + the 3 three-candle patterns
-    def bo_shape(t, d):
-        if t < 1:
-            return False
-        H_, L_, C_, rng, bull, bear, maru, big = (m[k] for k in ('H', 'L', 'C', 'rng', 'bull', 'bear', 'maru', 'big'))
-        mid = (H_[t-1] + L_[t-1]) / 2
-        if d == 1:
-            r1 = maru[t-1] and maru[t] and bull[t-1] and bull[t] and C_[t] > H_[t-1]
-            r2 = big[t-1] and bull[t-1] and bull[t] and L_[t] > mid
-            r3 = big[t-1] and bull[t-1] and bear[t] and rng[t] < 0.30 * rng[t-1] - EPS and L_[t] > mid
-        else:
-            r1 = maru[t-1] and maru[t] and bear[t-1] and bear[t] and C_[t] < L_[t-1]
-            r2 = big[t-1] and bear[t-1] and bear[t] and H_[t] < mid
-            r3 = big[t-1] and bear[t-1] and bull[t] and rng[t] < 0.30 * rng[t-1] - EPS and H_[t] < mid
-        return r1 or r2 or r3 or any(tri(m, t, d))
-    bsu = [bo_shape(t, 1) for t in range(n)]; bsd = [bo_shape(t, -1) for t in range(n)]
     log = [] if log is None else log
     active = False; bdir = 0; rtype = 0; top = bot = None; left = None; exH = exL = None
     lastClose = None; seedBias = 0
@@ -72,16 +56,11 @@ def run(bars, log=None, fbo_log=None):
             p2 = pdn2[t] if bdir == 1 else pup2[t]
             p3 = pdn3[t] if bdir == 1 else pup3[t]
             young = (p2 and t - 1 <= seedBar) or (p3 and t - 2 <= seedBar)
-            # anywhere in the box: a real breakout (trend direction) or a real pullback
-            # (correction direction) closes it at once (type 4 keeps its own rules)
-            if rtype == 4:
-                realBO = boUp if bdir == 1 else boDn
-            else:
-                realBO = (boUp or bsu[t]) if bdir == 1 else (boDn or bsd[t])
+            realBO = boUp if bdir == 1 else boDn
             if rtype == 4:
                 realPB = boDn if bdir == 1 else boUp
             else:
-                realPB = (pdn[t] or boDn) if bdir == 1 else (pup[t] or boUp)
+                realPB = (pbDnExit or boDn) if bdir == 1 else (pbUpExit or boUp)
             cancel = young and rtype != 4
             if realBO:
                 close_box(t, 'breakout'); closedNow = True; seedBias = bdir
@@ -118,8 +97,8 @@ def run(bars, log=None, fbo_log=None):
                 active = True; exH = exL = None
                 log.append((t, 'BOX-OPEN', 'type', '1/2', 'dir', bdir, 'left', left))
         # ---------------- Structure ----------------
-        pbDn = pdn[t]      # a real pullback anywhere (it also closes any type 1-3 box)
-        pbUp = pup[t]
+        pbDn = pdn[t] and (not wasActive or pbDnExit or cancelDn)
+        pbUp = pup[t] and (not wasActive or pbUpExit or cancelUp)
         fbo4 = active and rtype == 4 and t - left > 2
         ctsUpLvl = (max(u['ext'], top) if (fbo4 and bdir == 1) else u['ext']) if u['lock'] else None
         ctsDnLvl = (min(d['ext'], bot) if (fbo4 and bdir == -1) else d['ext']) if d['lock'] else None

@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V17.6 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V17.7 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -293,8 +293,7 @@ bool pb_r3_up = is_bull[1] and is_big_maru[1] and is_bear and (c_range <= pb_c2_
 
 bool pb_pattern_up = pb_r1_up or pb_r2_up or pb_r3_up or tri_up
 
-// Real Breakout SHAPES without the level test (3 main conditions + 3 three-candle
-// patterns). Inside a range box (types 1-3) a shape ANYWHERE in the box ends it.
+// Real Breakout SHAPES without the level test (used by the pattern markers).
 bool mk_r1_up = is_marubozu[1] and is_marubozu and is_bull[1] and is_bull and close > high[1]
 bool mk_r2_up = is_big_maru[1] and is_bull[1] and is_bull and low > mid_1
 bool mk_r3_up = is_big_maru[1] and is_bull[1] and is_bear and (c_range < bo_c2_max_size * c_range[1] - eps) and low > mid_1
@@ -463,13 +462,13 @@ if rangeActive
     // Scenario 2 = Real Breakout of the trend-side boundary:
     //   up-leg box   -> above the ceiling
     //   down-leg box -> below the floor
-    // Anywhere in a type 1-3 box: a Real Breakout shape in the trend direction ends it.
-    bool realBO = rangeType == 4 ? (rangeDir == 1 ? boUpCeil : boDnFloor) : rangeDir == 1 ? (boUpCeil or shapeBoUp) : (boDnFloor or shapeBoDn)
-    // Scenario 1: anywhere in a type 1-3 box, a Real Pullback (3 main conditions or
-    // 3 three-candle patterns, against the leg) ends it at once, as does a Real
-    // Breakout through the counter-side boundary.
+    bool realBO = rangeDir == 1 ? boUpCeil : boDnFloor
+    // Scenario 1: the box closes by a Real Pullback only when the pullback BREAKS
+    // the box against its leg (a pullback pattern inside the box is range noise:
+    // no pullback, no CTS / BOS inside a range), or by a Real Breakout through the
+    // counter-side boundary.
     // Type 4 (FBO) box: its CTS side closes only by a Real Breakout.
-    bool realPB = rangeType == 4 ? (rangeDir == 1 ? boDnFloor : boUpCeil) : rangeDir == 1 ? (pb_pattern_down or boDnFloor) : (pb_pattern_up or boUpCeil)
+    bool realPB = rangeType == 4 ? (rangeDir == 1 ? boDnFloor : boUpCeil) : rangeDir == 1 ? (pbDnExit or boDnFloor) : (pbUpExit or boUpCeil)
     // Young box (at most 2 bars old) whose start candles complete a Real Pullback:
     // it was the pullback, not a range -> the box is removed.
     // "Start candles" = every candle up to the bar the box was confirmed on: a
@@ -653,9 +652,10 @@ bgcolor(rngShowBg and rangeActive ? color.new(color.gray, 96) : na, title="Range
 bool is_confirmed = msStrictClose ? barstate.isconfirmed : true
 
 // Real Pullback for STRUCTURE.
-// A Real Pullback anywhere (also inside a range box, which it closes) is a pullback.
-bool pbDnStruct = pb_pattern_down
-bool pbUpStruct = pb_pattern_up
+// A pullback pattern inside an active range counts only if it breaks that range;
+// start candles of a young box that complete a Real Pullback are that pullback.
+bool pbDnStruct = pb_pattern_down and (not rangeWasActive or pbDnExit or rngCancelDn)
+bool pbUpStruct = pb_pattern_up   and (not rangeWasActive or pbUpExit or rngCancelUp)
 
 // Real Breakout tests, evaluated on every bar (levels are the previous bar's state)
 bool revDnBreak = f_real_breakout(msTrendState == 1 ? keyLevel : na, -1)

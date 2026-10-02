@@ -3,7 +3,7 @@ import io, contextlib, sys
 with contextlib.redirect_stdout(io.StringIO()):
     import market_structure_scenarios as scen_ms
 from market_structure_scenarios import B
-import market_structure_sim_v174 as S
+import market_structure_sim_v177 as S
 
 SHOW = ('BOX-OPEN', 'BOX-CLOSE', 'BOX-CANCEL', 'BOX-DELETE', 'PULLBACK', 'CTS-up', 'CTS-dn', 'TREND SET', 'TREND->UP', 'TREND->DOWN', 'FBO-START', 'FBO-CONFIRMED', 'FBO-DELETED')
 
@@ -117,21 +117,5 @@ b.slow_to(117, 4); b.maru_to(126, 4)
 log = [e for e in S.run(b.bars) if e[0] >= n0]
 ok = any(e[1] == 'BOX-CLOSE' and e[2] == 'FBO starts' for e in log) and any(e[1] == 'BOX-OPEN' and e[3] == 4 for e in log)
 print('== FBO inside an active range -> range closed, FBO box opened:', 'OK' if ok else 'FAIL'); res.append(ok)
-
-# ---- Images 71/72: choppy decline (floor steps down), rule-1 pullback with C1 still inside the type-3 box, then breakout
-b = base(); n0 = len(b.bars)
-for k in range(6):
-    o = b.p; b.c(o, o - 0.9, 0.15, 0.15); b.c(b.p, b.p + 0.75, 0.1, 0.1)
-o = b.p; b.c(o, o - 0.45, 0.02, 0.02); b.c(o - 0.45, o - 0.9, 0.02, 0.02)
-b.slow_to(o - 2.0, 3); b.slow_to(118, 5); b.maru_to(128, 4)
-res.append(show('Images 71/72: pullback inside type-3 box, then CTS', b, n0, (['PULLBACK', 'CTS-up'], [])))
-
-# ---- Image 18 (rule changed by the user): a pullback pattern anywhere inside a range closes it -> pullback
-b = base(); b.slow_to(123, 3)
-b.c(123, 120, 0.5, 0.5); b.c(120.5, 121, 0.4, 0.4); b.c(121, 122.6, 0.2, 0.2); b.c(122.6, 121.5, 0.3, 0.3)
-n0 = len(b.bars)
-b.c(122.8, 121.8, 0.03, 0.03, 100); b.c(121.8, 120.8, 0.03, 0.03, 100)
-b.chop(4); b.maru_to(130, 5); b.slow_to(133, 3)
-res.append(show('Image 18 (new rule): pullback pattern inside the range closes it', b, n0, (['PULLBACK', 'CTS-up'], [])))
 
 print('\nSUMMARY:', sum(res), 'of', len(res), 'scenarios OK')
