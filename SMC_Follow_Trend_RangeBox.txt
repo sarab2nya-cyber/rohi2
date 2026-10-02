@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V17.7 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V17.8 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -933,17 +933,19 @@ if msShow and math.abs(msSignal) == 2
 
 // Correction-zone filter: on a confirmed CTS the correction (from the wave top
 // at ctsBar to this breakout) is known; hide the type 1-3 ranges that started
-// inside it. The box still active (if any) is left alone.
+// inside it - including one that is still open (its logic keeps running unseen).
 if rngHideInCorrection and math.abs(msSignal) == 1 and not na(ctsBar) and array.size(rbBoxes) > 0
     for i = array.size(rbBoxes) - 1 to 0
         int rbL = array.get(rbLeft, i)
-        if rbL >= ctsBar and not (rangeActive and rbL == rangeLeftBar)
+        if rbL >= ctsBar
             box   bx = array.get(rbBoxes, i)
             label lb = array.get(rbLabels, i)
             if not na(bx)
                 box.delete(bx)
             if not na(lb)
                 label.delete(lb)
+            if rangeActive and rbL == rangeLeftBar and rangeType != 4
+                rangeBox := na
             array.remove(rbBoxes, i)
             array.remove(rbLabels, i)
             array.remove(rbLeft, i)
