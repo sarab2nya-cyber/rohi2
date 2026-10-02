@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V17.5 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V17.6 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -48,6 +48,7 @@ rngActiveColor       = input.color(color.new(color.gray, 88), "Active Range", gr
 rngBlockFVG          = input.bool(true, "Block FVG Inside Range", group=grp_rng)
 rngPbColor           = input.color(color.new(color.orange, 86), "Range Closed by Real Pullback", group=grp_rng)
 rngMarkC1            = input.bool(true, "Mark Candle 1 (Range Anchor)", group=grp_rng)
+rngHideInCorrection  = input.bool(false, "Hide Ranges inside the Correction Zone (CTS → BOS)", group=grp_rng, tooltip="When a CTS is confirmed by a Real Breakout, every range box (types 1-3) that started after the wave top (inside the correction from CTS to BOS) is hidden. Ranges in the impulse leg and FBO boxes are always shown.")
 rngShowBg            = input.bool(false, "Shade Chart Background While Range Active", group=grp_rng)
 rngMemory            = input.int(50, "Closed Ranges Remembered (Level Filter)", minval=5, maxval=200, group=grp_rng)
 
@@ -380,6 +381,10 @@ var float exHi          = na     // highest high of the current upside excursion
 var float exLo          = na     // lowest low of the current downside excursion
 var int   rangeLeftBar  = na     // bar of Candle 1 (the anchor candle, always retained)
 var box   rangeBox      = na
+// Drawn type 1-3 range boxes and their anchor labels (for the correction-zone filter)
+var box[]   rbBoxes  = array.new_box()
+var label[] rbLabels = array.new_label()
+var int[]   rbLeft   = array.new_int()
 var int   lastCloseBar  = na     // bar on which the last box closed
 var int   seedBias      = 0      // direction of the last real move (+1 up / -1 down), 0 = use msTrendState
 
@@ -603,9 +608,17 @@ if rangeSeed
     exLo      := na
     if rngShow
         rangeBox := box.new(left=f_x(rangeLeftBar), top=boxTop, right=bar_index, bottom=boxBot, bgcolor=rngActiveColor, border_color=color.new(color.gray, 25), border_width=1, border_style=line.style_dotted)
+    label rbLab = na
     if rngMarkC1
         // Mark the range anchor (start candle) on the chart.
-        label.new(f_x(rangeLeftBar), rangeDir == 1 ? high[bar_index - rangeLeftBar] : low[bar_index - rangeLeftBar], str.tostring(rangeType == 3 ? 3 : 1), style=label.style_none, textcolor=color.gray, size=size.tiny, yloc=rangeDir == 1 ? yloc.abovebar : yloc.belowbar)
+        rbLab := label.new(f_x(rangeLeftBar), rangeDir == 1 ? high[bar_index - rangeLeftBar] : low[bar_index - rangeLeftBar], str.tostring(rangeType == 3 ? 3 : 1), style=label.style_none, textcolor=color.gray, size=size.tiny, yloc=rangeDir == 1 ? yloc.abovebar : yloc.belowbar)
+    array.push(rbBoxes, rangeBox)
+    array.push(rbLabels, rbLab)
+    array.push(rbLeft, rangeLeftBar)
+    if array.size(rbBoxes) > 300
+        array.shift(rbBoxes)
+        array.shift(rbLabels)
+        array.shift(rbLeft)
 
 // Box closed upward / downward (plots and alerts)
 bool rngRealUp   = rngBreakUp or (rngPbClose and rngClosedDir == -1)
@@ -917,6 +930,23 @@ if msShow and math.abs(msSignal) == 2
         line.new(f_x(lastPivotBar), lastPivotPrice, f_x(revBar), revPrice, color=color.black, width=1)
     lastPivotBar   := revBar
     lastPivotPrice := revPrice
+
+// Correction-zone filter: on a confirmed CTS the correction (from the wave top
+// at ctsBar to this breakout) is known; hide the type 1-3 ranges that started
+// inside it. The box still active (if any) is left alone.
+if rngHideInCorrection and math.abs(msSignal) == 1 and not na(ctsBar) and array.size(rbBoxes) > 0
+    for i = array.size(rbBoxes) - 1 to 0
+        int rbL = array.get(rbLeft, i)
+        if rbL >= ctsBar and not (rangeActive and rbL == rangeLeftBar)
+            box   bx = array.get(rbBoxes, i)
+            label lb = array.get(rbLabels, i)
+            if not na(bx)
+                box.delete(bx)
+            if not na(lb)
+                label.delete(lb)
+            array.remove(rbBoxes, i)
+            array.remove(rbLabels, i)
+            array.remove(rbLeft, i)
 
 if msShow and math.abs(msSignal) == 1
     isBull_MS = msSignal > 0
