@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V17.4 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V17.5 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -7,6 +7,8 @@ indicator("SMC Follow Trend V17.4 [Rohi] - Pro Edition Strict Lock", overlay=tru
 msSwingLen       = input.int(10, "Macro Swing Length (Liquidity)", minval=3, group="Market Structure")
 msShow           = input.bool(true, "Show Market Structure (BOS/CTS)", group="Market Structure")
 msShowFakeBO     = input.bool(true, "Show Fake Breakout of CTS (FBO label)", group="Market Structure")
+msShowLiveWave   = input.bool(true, "Show Current Wave (last BOS -> current extreme)", group="Market Structure")
+msLiveWaveColor  = input.color(color.new(#2962FF, 0), "Current Wave Color", group="Market Structure")
 msStrictClose    = input.bool(true, "Strict Confirm on Close (Anti-Repaint)", group="Market Structure")
 msBullColor      = input.color(color.blue, "Bullish Color", group="Market Structure")
 msBearColor      = input.color(color.red, "Bearish Color", group="Market Structure")
@@ -965,6 +967,26 @@ if msShow and math.abs(msSignal) == 1
         if botB >= topB
             botB := topB - (syminfo.mintick * 10)
         box.new(left=f_x(bosBar), top=topB, right=bar_index + 15, bottom=botB, bgcolor=color.new(#FF1744, 85), border_color=#FF1744, border_width=1, border_style=line.style_solid, text="Key Level\nVol: " + str.tostring(volBos, format.volume), text_size=size.tiny, text_color=#FF1744, text_halign=text.align_right, text_valign=text.align_center)
+
+// ---------------- Current wave (live) ----------------
+// A wave runs from the last BOS (or reversal point A) to the current impulse
+// extreme H* (L* in a downtrend). While the wave is not finished (no Real
+// Breakout of its top yet), its end follows the extreme; a pullback after the
+// top is NOT identified until that Real Breakout, so the line stays on the top.
+// On the next CTS the wave is fixed into the zigzag and a new live line starts
+// from the new BOS.
+var line liveWave = na
+if msShow and msSignal != 0 and not na(liveWave)
+    line.delete(liveWave)
+    liveWave := na
+float lwPrice = msTrendState == 1 ? uExt : msTrendState == -1 ? dExt : na
+int   lwBar   = msTrendState == 1 ? uExtBar : msTrendState == -1 ? dExtBar : na
+if msShow and msShowLiveWave and not na(lastPivotBar) and not na(lwPrice) and not na(lwBar) and lwBar >= lastPivotBar
+    if na(liveWave)
+        liveWave := line.new(f_x(lastPivotBar), lastPivotPrice, f_x(lwBar), lwPrice, color=msLiveWaveColor, width=2)
+    else
+        line.set_xy1(liveWave, f_x(lastPivotBar), lastPivotPrice)
+        line.set_xy2(liveWave, f_x(lwBar), lwPrice)
 
 plotchar(bull_break_confirmed, title="Real Bull Breakout", char="•", location=location.belowbar, color=color.blue, size=size.tiny)
 plotchar(bear_break_confirmed, title="Real Bear Breakout", char="•", location=location.abovebar, color=color.red, size=size.tiny)
