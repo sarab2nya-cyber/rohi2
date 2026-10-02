@@ -116,7 +116,7 @@ def run(bars, log=None, fbo_log=None):
                 d.update(ext=L[t], bar=t)
             else:
                 d.update(ext=u['pbx'], bar=u['pbxBar'])
-            d.update(lock=False, pbx=None, pbxBar=None); key = u['ext']
+            d.update(lock=False, pbx=None, pbxBar=None, fake=None); key = u['ext']
         elif tp == -1 and revUp:
             sig = 2; trend = 1
             log.append((t, 'TREND->UP', 'broken BOS', key))
@@ -124,7 +124,7 @@ def run(bars, log=None, fbo_log=None):
                 u.update(ext=H[t], bar=t)
             else:
                 u.update(ext=d['pbx'], bar=d['pbxBar'])
-            u.update(lock=False, pbx=None, pbxBar=None); key = d['ext']
+            u.update(lock=False, pbx=None, pbxBar=None, fake=None); key = d['ext']
         else:
             for s, sd, brk, pbflag, ext_px, pb_px in ((u, 1, ctsUp, pbDn, H[t], L[t]), (d, -1, ctsDn, pbUp, L[t], H[t])):
                 if not ((sd == 1 and tp >= 0) or (sd == -1 and tp <= 0)):
@@ -134,21 +134,29 @@ def run(bars, log=None, fbo_log=None):
                     s.update(ext=ext_px, bar=t); continue
                 if s['lock']:
                     if brk:
+                        s['fake'] = None
                         sig = sd
                         if trend == 0:
                             trend = sd; log.append((t, 'TREND SET', 'up' if sd == 1 else 'down'))
                         log.append((t, 'CTS-' + ('up' if sd == 1 else 'dn'), round(s['ext'], 3), 'BOS', round(s['pbx'], 3) if s['pbx'] is not None else None))
                         key = s['pbx']
                         s.update(ext=ext_px, bar=t, lock=False, pbx=None, pbxBar=None)
-                    elif s['pbx'] is None or beyond(s['pbx'], pb_px):
-                        s.update(pbx=pb_px, pbxBar=t)
+                    elif s.get('fake') is not None and s['pbx'] is not None and beyond(s['pbx'], pb_px):
+                        # state 2: fakes beyond the CTS, then the correction breaks the previous pullback
+                        log.append((t, 'STATE2', 'CTS moves', round(s['ext'], 3), '->', round(s['fake'], 3)))
+                        s.update(ext=s['fake'], bar=s['fakeBar'], pbx=pb_px, pbxBar=t, fake=None, fakeBar=None)
+                    else:
+                        if s['pbx'] is None or beyond(s['pbx'], pb_px):
+                            s.update(pbx=pb_px, pbxBar=t)
+                        if beyond(ext_px, s['ext']) and (s.get('fake') is None or beyond(ext_px, s['fake'])):
+                            s.update(fake=ext_px, fakeBar=t)
                 else:
                     if beyond(ext_px, s['ext']):
                         s.update(ext=ext_px, bar=t, pbx=None, pbxBar=None)
                     elif s['pbx'] is None or beyond(s['pbx'], pb_px):
                         s.update(pbx=pb_px, pbxBar=t)
                     if pbflag:
-                        s['lock'] = True
+                        s['lock'] = True; s['fake'] = None
                         if s['pbx'] is None:
                             s.update(pbx=pb_px, pbxBar=t)
                         log.append((t, 'PULLBACK', 'locks', round(s['ext'], 3)))

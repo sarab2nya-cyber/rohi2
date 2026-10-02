@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V17.8 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V17.9 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -324,6 +324,10 @@ var int msTrendState = 0
 // Up side: impulse up (H*) / bearish pullback (L*)
 var float uExt    = na
 var int   uExtBar = na
+var float uFake    = na   // highest fake high beyond the locked CTS (FBO, no Real Breakout)
+var int   uFakeBar = na
+var float dFake    = na   // lowest fake low beyond the locked CTS (FBO, no Real Breakout)
+var int   dFakeBar = na
 var bool  uLock   = false
 var float uPbx    = na
 var int   uPbxBar = na
@@ -700,6 +704,8 @@ if is_confirmed
         dLock    := false
         dPbx     := na
         dPbxBar  := na
+        dFake    := na
+        dFakeBar := na
         keyLevel := uExt
         keyBar   := uExtBar
     else if trendPre == -1 and revUpBreak
@@ -717,6 +723,8 @@ if is_confirmed
         uLock    := false
         uPbx     := na
         uPbxBar  := na
+        uFake    := na
+        uFakeBar := na
         keyLevel := dExt
         keyBar   := dExtBar
     else
@@ -741,9 +749,26 @@ if is_confirmed
                     uLock    := false
                     uPbx     := na
                     uPbxBar  := na
-                else if na(uPbx) or low < uPbx
-                    uPbx    := low
-                    uPbxBar := bar_index
+                    uFake    := na
+                    uFakeBar := na
+                else if not na(uFake) and not na(uPbx) and low < uPbx
+                    // State 2: no Real Breakout, only fakes beyond the CTS, and the
+                    // correction now breaks the previous pullback -> that pullback is
+                    // dropped; the CTS moves to the highest fake high and this new
+                    // correction is the pullback (CTS / BOS wait for its Real Breakout).
+                    uExt     := uFake
+                    uExtBar  := uFakeBar
+                    uPbx     := low
+                    uPbxBar  := bar_index
+                    uFake    := na
+                    uFakeBar := na
+                else
+                    if na(uPbx) or low < uPbx
+                        uPbx    := low
+                        uPbxBar := bar_index
+                    if high > uExt and (na(uFake) or high > uFake)
+                        uFake    := high
+                        uFakeBar := bar_index
             else
                 if high > uExt
                     uExt    := high
@@ -756,6 +781,8 @@ if is_confirmed
                 if pbDnStruct
                     uLock    := true
                     pbLockUp := true
+                    uFake    := na
+                    uFakeBar := na
                     if na(uPbx)
                         uPbx    := low
                         uPbxBar := bar_index
@@ -780,9 +807,25 @@ if is_confirmed
                     dLock    := false
                     dPbx     := na
                     dPbxBar  := na
-                else if na(dPbx) or high > dPbx
-                    dPbx    := high
-                    dPbxBar := bar_index
+                    dFake    := na
+                    dFakeBar := na
+                else if not na(dFake) and not na(dPbx) and high > dPbx
+                    // State 2 (mirror): fakes below the CTS, then the correction breaks
+                    // the previous pullback -> CTS moves to the lowest fake low and this
+                    // new correction is the pullback.
+                    dExt     := dFake
+                    dExtBar  := dFakeBar
+                    dPbx     := high
+                    dPbxBar  := bar_index
+                    dFake    := na
+                    dFakeBar := na
+                else
+                    if na(dPbx) or high > dPbx
+                        dPbx    := high
+                        dPbxBar := bar_index
+                    if low < dExt and (na(dFake) or low < dFake)
+                        dFake    := low
+                        dFakeBar := bar_index
             else
                 if low < dExt
                     dExt    := low
@@ -795,6 +838,8 @@ if is_confirmed
                 if pbUpStruct
                     dLock    := true
                     pbLockDn := true
+                    dFake    := na
+                    dFakeBar := na
                     if na(dPbx)
                         dPbx    := high
                         dPbxBar := bar_index

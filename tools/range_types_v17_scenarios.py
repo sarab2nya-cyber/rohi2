@@ -3,7 +3,7 @@ import io, contextlib, sys
 with contextlib.redirect_stdout(io.StringIO()):
     import market_structure_scenarios as scen_ms
 from market_structure_scenarios import B
-import market_structure_sim_v177 as S
+import market_structure_sim_v179 as S
 
 SHOW = ('BOX-OPEN', 'BOX-CLOSE', 'BOX-CANCEL', 'BOX-DELETE', 'PULLBACK', 'CTS-up', 'CTS-dn', 'TREND SET', 'TREND->UP', 'TREND->DOWN', 'FBO-START', 'FBO-CONFIRMED', 'FBO-DELETED')
 
@@ -117,5 +117,16 @@ b.slow_to(117, 4); b.maru_to(126, 4)
 log = [e for e in S.run(b.bars) if e[0] >= n0]
 ok = any(e[1] == 'BOX-CLOSE' and e[2] == 'FBO starts' for e in log) and any(e[1] == 'BOX-OPEN' and e[3] == 4 for e in log)
 print('== FBO inside an active range -> range closed, FBO box opened:', 'OK' if ok else 'FAIL'); res.append(ok)
+
+# ---- Image 81 state 2: pullback pending, fakes above CTS, correction breaks the previous pullback -> CTS moves to the fake high
+b = base(); n0 = len(b.bars)
+b.pb_down(3.0); b.slow_to(119.0, 3)
+for k in range(5):
+    o = b.p; b.c(o, o + 1.2, 0.35, 0.35); b.c(b.p, b.p - 0.25, 0.3, 0.3)
+b.slow_to(115.5, 6); b.slow_to(121, 4); b.maru_to(130, 4)
+log = [e for e in S.run(b.bars) if e[0] >= n0]
+cts = [e for e in log if e[1] == 'CTS-up']
+ok = any(e[1] == 'STATE2' for e in log) and cts and cts[0][2] > 124
+print('== Image 81 state 2: CTS moved to the fake high ->', 'OK' if ok else 'FAIL', cts[:1]); res.append(bool(ok))
 
 print('\nSUMMARY:', sum(res), 'of', len(res), 'scenarios OK')
