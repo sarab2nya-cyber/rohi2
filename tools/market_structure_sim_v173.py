@@ -164,6 +164,8 @@ def run(bars, log=None, fbo_log=None):
         if attempt and not fbActive:
             fbActive = True; fbLevel = preLevel; fbDir = preTrend
             log.append((t, 'FBO-START', round(fbLevel, 3)))
+            if active and rtype != 4:
+                close_box(t, 'FBO starts')
             if not active:
                 rtype = 4; bdir = fbDir; left = t; exH = exL = None
                 if bdir == 1:

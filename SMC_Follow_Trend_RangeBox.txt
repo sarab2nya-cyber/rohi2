@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V17.2 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V17.3 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -834,6 +834,22 @@ if fakeBreakoutStart
     fbActive := true
     fbLevel  := fbLevelPre
     fbDir    := fbTrendPre
+    // An FBO always forms its own box: a type 1-3 range still active is closed here.
+    if rangeActive and rangeType != 4
+        if not na(rangeBox)
+            box.set_right(rangeBox, bar_index)
+            box.set_bgcolor(rangeBox, rngPbColor)
+            box.set_border_color(rangeBox, color.new(rngPbColor, 15))
+            box.set_border_style(rangeBox, line.style_solid)
+            box.set_text(rangeBox, "Range Closed")
+            box.set_text_size(rangeBox, size.tiny)
+            box.set_text_color(rangeBox, color.new(rngPbColor, 0))
+            box.set_text_halign(rangeBox, text.align_left)
+        rangeBox     := na
+        rangeActive  := false
+        rangeDir     := 0
+        rangeType    := 0
+        lastCloseBar := bar_index
     // Range type 4: box between the CTS line (fixed side) and the fake candle's
     // extreme; it grows only away from the CTS until a Real Breakout.
     if not rangeActive

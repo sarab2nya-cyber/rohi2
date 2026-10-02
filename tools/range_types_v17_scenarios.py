@@ -3,7 +3,7 @@ import io, contextlib, sys
 with contextlib.redirect_stdout(io.StringIO()):
     import market_structure_scenarios as scen_ms
 from market_structure_scenarios import B
-import market_structure_sim_v172 as S
+import market_structure_sim_v173 as S
 
 SHOW = ('BOX-OPEN', 'BOX-CLOSE', 'BOX-CANCEL', 'BOX-DELETE', 'PULLBACK', 'CTS-up', 'CTS-dn', 'TREND SET', 'TREND->UP', 'TREND->DOWN', 'FBO-START', 'FBO-CONFIRMED', 'FBO-DELETED')
 
@@ -108,4 +108,14 @@ top = None
 for e in S.run(b.bars):
     if e[1] == 'BOX-OPEN' and e[0] >= n0: first = e; break
 print('== Image 67: type-3 box opened', lg[:1], ' wave peak', round(peak, 3))
+# ---- FBO while a type 1-3 range is active -> that range closes, FBO box from the crossing candle
+b = base(); b.pb_down(4.0); n0 = len(b.bars)
+b.maru_to(119.2, 2)
+a = b.p; b.c(a, a - 0.5, 0.2, 0.2); b.c(a - 0.5, a - 0.2, 0.1, 0.1)
+b.c(b.p, b.p + 0.3, 1.4, 0.1)
+b.slow_to(117, 4); b.maru_to(126, 4)
+log = [e for e in S.run(b.bars) if e[0] >= n0]
+ok = any(e[1] == 'BOX-CLOSE' and e[2] == 'FBO starts' for e in log) and any(e[1] == 'BOX-OPEN' and e[3] == 4 for e in log)
+print('== FBO inside an active range -> range closed, FBO box opened:', 'OK' if ok else 'FAIL'); res.append(ok)
+
 print('\nSUMMARY:', sum(res), 'of', len(res), 'scenarios OK')
