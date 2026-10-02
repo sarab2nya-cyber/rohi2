@@ -3,5 +3,6 @@ pandas
 scipy
 matplotlib
 openpyxl
-python-docx
 semopy
+python-docx
+plotly

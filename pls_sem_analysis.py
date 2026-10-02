@@ -33,6 +33,13 @@ Model fit           SRMR, d_ULS, d_G, Chi-square, NFI, RMS_theta, GoF for
                     saturated and estimated models, Bollen-Stine bootstrap
                     exact-fit tests (HI95 / HI99); optional CB-SEM CFA fit
                     (CFI, TLI, RMSEA, ...) through semopy
+CB-SEM (semopy)     CFA and structural model by maximum likelihood; Table 8
+                    (X2/df, GFI, SRMR, IFI, NFI, PGFI, PNFI, RMSEA, CFI) plus
+                    AGFI, RFI, TLI, PCFI, RMSEA 90% CI, PCLOSE, AIC, BIC;
+                    CFA reliability; ML/ULS/GLS estimator comparison; PLS vs
+                    CB-SEM triangulation; semopy HTML report
+3D figures          response surfaces, 3D path map, 3D HTMT, 3D LV scatter,
+                    3D cross-loadings; interactive rotatable HTML (plotly)
 Common method bias  Harman single factor, full collinearity VIF (Kock 2015)
 Robustness          Gaussian copula endogeneity test, nonlinear (quadratic)
                     effects, multigroup analysis with permutation test and
@@ -47,9 +54,10 @@ IPMA                construct- and indicator-level importance-performance maps
 Requirements
 ------------
     pip install numpy pandas scipy matplotlib openpyxl
+    pip install semopy        (CB-SEM, Table 8)
 Optional:
     pip install python-docx   (Word report)
-    pip install semopy        (CB-SEM CFA fit indices)
+    pip install plotly        (interactive 3D HTML)
 
 Usage
 -----
@@ -77,6 +85,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Ellipse  # noqa: E402
+from mpl_toolkits.mplot3d import Axes3D  # noqa: E402,F401
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -746,6 +755,158 @@ def ci_table(est: np.ndarray, boot: np.ndarray, jack: np.ndarray | None, n_obs: 
         out["CI_2.5_BCa"] = [np.nanpercentile(boot[:, i], 100 * lo_q[i]) for i in range(boot.shape[1])]
         out["CI_97.5_BCa"] = [np.nanpercentile(boot[:, i], 100 * hi_q[i]) for i in range(boot.shape[1])]
     return out
+
+
+# ---- covariance-based SEM with semopy ------------------------------------------
+
+def semopy_description(blocks, paths, structural: bool) -> str:
+    desc = "\n".join(f"{c} =~ " + " + ".join(v) for c, v in blocks.items())
+    if structural:
+        targets = list(OrderedDict.fromkeys(t for _, t in paths))
+        desc += "\n" + "\n".join(f"{t} ~ " + " + ".join(s for s, tt in paths if tt == t) for t in targets)
+    return desc
+
+
+def cb_fit_indices(model) -> "OrderedDict[str, float]":
+    """Complete set of CB-SEM fit indices from a fitted semopy model.
+
+    Chi-square, df and the baseline (independence) model come from semopy.
+    GFI, AGFI, PGFI, SRMR, RMR, IFI, RFI, PNFI, PCFI, RMSEA CI and PCLOSE are
+    computed from the sample (S) and model-implied (Sigma) covariance matrices
+    with the standard formulas (Joreskog & Sorbom; Bentler; Bollen; Mulaik et al.).
+    Note: semopy's own "GFI" equals 1 - chi2/chi2_baseline (i.e. the NFI), so the
+    Joreskog-Sorbom GFI is recomputed here.
+    """
+    import semopy
+    S = np.asarray(model.mx_cov, dtype=float)
+    Sig = np.asarray(model.calc_sigma()[0], dtype=float)
+    n = int(model.n_samples)
+    p = S.shape[0]
+    st = semopy.calc_stats(model).T.iloc[:, 0]
+    chi2, df = float(st["chi2"]), float(st["DoF"])
+    chi0, df0 = float(st["chi2 Baseline"]), float(st["DoF Baseline"])
+    n_par = len(model.param_vals)
+    Si = np.linalg.inv(Sig)
+    SiS = Si @ S
+    I = np.eye(p)
+    gfi = 1 - np.trace((SiS - I) @ (SiS - I)) / np.trace(SiS @ SiS)
+    nmom = p * (p + 1) / 2
+    agfi = 1 - nmom / df * (1 - gfi) if df > 0 else np.nan
+    pgfi = df / nmom * gfi
+    d = np.sqrt(np.diag(S))
+    tri = np.tril_indices(p)
+    srmr = math.sqrt(np.mean(((S - Sig) / np.outer(d, d))[tri] ** 2))
+    rmr = math.sqrt(np.mean((S - Sig)[tri] ** 2))
+    nfi = 1 - chi2 / chi0
+    rfi = 1 - (chi2 / df) / (chi0 / df0) if df > 0 else np.nan
+    ifi = (chi0 - chi2) / (chi0 - df)
+    tli = (chi0 / df0 - chi2 / df) / (chi0 / df0 - 1) if df > 0 else np.nan
+    cfi = 1 - max(chi2 - df, 0) / max(chi0 - df0, chi2 - df, 1e-12)
+    rmsea = math.sqrt(max(chi2 - df, 0) / (df * (n - 1))) if df > 0 else np.nan
+
+    def nc_bound(q):
+        """Noncentrality lambda with P(chi2_df(lambda) <= observed) = q."""
+        from scipy.optimize import brentq
+        f = lambda lam: stats.ncx2.cdf(chi2, df, lam) - q  # noqa: E731
+        if stats.chi2.cdf(chi2, df) <= q:
+            return 0.0
+        hi = max(chi2, 10.0)
+        while f(hi) > 0:
+            hi *= 2
+        return brentq(f, 1e-10, hi)
+
+    rmsea_lo = math.sqrt(nc_bound(0.95) / (df * (n - 1)))
+    rmsea_hi = math.sqrt(nc_bound(0.05) / (df * (n - 1)))
+    pclose = float(stats.ncx2.sf(chi2, df, 0.05 ** 2 * df * (n - 1)))
+    return OrderedDict([
+        ("Chi-square", chi2), ("df", df), ("p-value", float(stats.chi2.sf(chi2, df))),
+        ("X2/df", chi2 / df), ("GFI", gfi), ("AGFI", agfi), ("PGFI", pgfi), ("RMR", rmr),
+        ("SRMR", srmr), ("NFI", nfi), ("RFI", rfi), ("IFI", ifi), ("TLI", tli), ("CFI", cfi),
+        ("PNFI", df / df0 * nfi), ("PCFI", df / df0 * cfi), ("RMSEA", rmsea),
+        ("RMSEA 90% CI low", rmsea_lo), ("RMSEA 90% CI high", rmsea_hi), ("PCLOSE", pclose),
+        ("AIC (semopy)", float(st["AIC"])), ("BIC (semopy)", float(st["BIC"])),
+        ("Baseline Chi-square", chi0), ("Baseline df", df0), ("Free parameters", n_par),
+        ("N", n)])
+
+
+def semopy_analysis(items: pd.DataFrame, blocks, paths, folder: Path):
+    """CFA + structural CB-SEM with semopy, estimator robustness and reports."""
+    import semopy
+    out = OrderedDict()
+    models = OrderedDict()
+    for label, structural in (("Measurement model (CFA)", False), ("Structural model", True)):
+        m = semopy.Model(semopy_description(blocks, paths, structural))
+        r = m.fit(items, obj="MLW")
+        models[label] = m
+        out[label] = {"fit": cb_fit_indices(m), "estimates": m.inspect(std_est=True),
+                      "converged": "successful" in str(r).lower()}
+    # estimator robustness (structural paths under alternative discrepancy functions)
+    est_rows = OrderedDict()
+    for obj in ("MLW", "ULS", "GLS"):
+        try:
+            m = semopy.Model(semopy_description(blocks, paths, True))
+            m.fit(items, obj=obj)
+            ins = m.inspect(std_est=True)
+            ins = ins[(ins["op"] == "~") & ins["lval"].isin(list(blocks)) & ins["rval"].isin(list(blocks))]
+            est_rows[obj] = {f"{rv} -> {lv}": est for lv, rv, est in
+                             zip(ins["lval"], ins["rval"], ins["Est. Std"])}
+        except Exception as exc:  # noqa: BLE001
+            log(f"   semopy {obj} failed: {exc}")
+    out["estimators"] = pd.DataFrame(est_rows)
+    # semopy HTML report and path diagram (need graphviz; skipped silently if absent)
+    import logging
+    logging.getLogger().setLevel(logging.ERROR)  # silence semopy's graphviz warning
+    try:
+        semopy.semplot(models["Structural model"], str(folder / "semopy_structural_model.png"),
+                       plot_covs=True, std_ests=True)
+        sp_png = folder / "semopy_structural_model.png"
+        out["semplot"] = sp_png if sp_png.exists() else None
+    except Exception:  # noqa: BLE001
+        out["semplot"] = None
+    try:
+        semopy.report(models["Structural model"], str(folder / "semopy_report"))
+        out["report"] = folder / "semopy_report" if (folder / "semopy_report").exists() else None
+    except Exception:  # noqa: BLE001
+        out["report"] = None
+    return out
+
+
+def fit_indices_table(fi: dict, label: str) -> pd.DataFrame:
+    """Table in the layout Category / The fit indices / ATV / Result / Decision."""
+    spec_ = [("Absolute", "X2/df", "1-5", lambda v: 1 <= v <= 5),
+             ("Absolute", "GFI", "> 0.9", lambda v: v > 0.9),
+             ("Absolute", "SRMR", "< 0.08", lambda v: v < 0.08),
+             ("Relative", "IFI", "> 0.9", lambda v: v > 0.9),
+             ("Relative", "NFI", "> 0.9", lambda v: v > 0.9),
+             ("Parsimonious", "PGFI", "> 0.50", lambda v: v > 0.5),
+             ("Parsimonious", "PNFI", "> 0.50", lambda v: v > 0.5),
+             ("Noncentrality", "RMSEA", "< 0.1", lambda v: v < 0.1),
+             ("Noncentrality", "CFI", "> 0.9", lambda v: v > 0.9)]
+    cols = ["Category"] + [c for c, _, _, _ in spec_]
+    rows = [["The fit indices"] + [n for _, n, _, _ in spec_],
+            ["ATV*"] + [a for _, _, a, _ in spec_],
+            [f"Result ({label})"] + [f"{fi[n]:.3f}" for _, n, _, _ in spec_],
+            ["Decision"] + ["Acceptable" if ok(fi[n]) else "Not acceptable" for _, n, _, ok in spec_]]
+    return pd.DataFrame(rows, columns=cols)
+
+
+def boxed_table(df: pd.DataFrame, header: bool = False) -> str:
+    """Box-drawing text table (tabulate 'fancy_grid' look) without extra dependencies."""
+    data = ([list(map(str, df.columns))] if header else []) + [[str(v) for v in r] for r in df.values]
+    w = [max(len(r[i]) for r in data) for i in range(len(data[0]))]
+
+    def line(l, m, r):
+        return l + m.join("─" * (x + 2) for x in w) + r
+
+    out = ["╒" + "╤".join("═" * (x + 2) for x in w) + "╕"]
+    for k, r in enumerate(data):
+        out.append("│" + "│".join(f" {c:<{x}} " for c, x in zip(r, w)) + "│")
+        if k == 0:
+            out.append("╞" + "╪".join("═" * (x + 2) for x in w) + "╡")
+        elif k < len(data) - 1:
+            out.append(line("├", "┼", "┤"))
+    out.append("╘" + "╧".join("═" * (x + 2) for x in w) + "╛")
+    return "\n".join(out)
 
 
 # =============================================================================
@@ -1478,7 +1639,7 @@ def fig_bootstrap_dist(boot: np.ndarray, path_tab: pd.DataFrame, folder, figs):
 
 
 def fig_forest(comp: pd.DataFrame, folder, figs):
-    models = [c for c in ["Main PLS", "PLSc", "Purified", "Sum-score OLS", "Outliers removed",
+    models = [c for c in ["Main PLS", "PLSc", "CB-SEM (ML)", "Purified", "Sum-score OLS", "Outliers removed",
                           "With controls"] if f"{c}_beta" in comp.columns]
     fig, ax = plt.subplots(figsize=(8, 6))
     n = len(comp)
@@ -1603,6 +1764,227 @@ def fig_mahalanobis(md: pd.DataFrame, p: int, folder, figs):
     ax.set_title("Multivariate outlier screening")
     ax.legend(fontsize=8)
     save(fig, folder, "Fig18_mahalanobis", figs)
+
+
+# ---- 3D figures -----------------------------------------------------------------
+
+def _style_3d(ax, xl, yl, zl):
+    ax.set_xlabel(xl, labelpad=6, color=C_TEXT2)
+    ax.set_ylabel(yl, labelpad=6, color=C_TEXT2)
+    ax.set_zlabel(zl, labelpad=6, color=C_TEXT2)
+    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+        axis.set_pane_color((0.99, 0.99, 0.985, 1.0))
+        axis._axinfo["grid"]["color"] = C_GRID
+        axis._axinfo["grid"]["linewidth"] = 0.5
+    ax.tick_params(labelsize=7, colors=C_TEXT2)
+
+
+def _quad_design(a, b):
+    return np.column_stack([np.ones_like(a), a, b, a ** 2, b ** 2, a * b])
+
+
+def fig3d_response_surfaces(res: PLSResult, folder, figs):
+    """Quadratic response surface of each outcome over the two exogenous constructs."""
+    spec = res.spec
+    if len(spec.exog) < 2:
+        return
+    i1, i2 = spec.exog[:2]
+    x, y = res.Y[:, i1], res.Y[:, i2]
+    g = np.linspace(-2.6, 2.6, 45)
+    GX, GY = np.meshgrid(g, g)
+    fig = plt.figure(figsize=(13, 10.5))
+    for k, j in enumerate(spec.endog[:4]):
+        ax = fig.add_subplot(2, 2, k + 1, projection="3d")
+        z = res.Y[:, j]
+        coef = np.linalg.lstsq(_quad_design(x, y), z, rcond=None)[0]
+        r2 = 1 - np.sum((z - _quad_design(x, y) @ coef) ** 2) / np.sum((z - z.mean()) ** 2)
+        GZ = (_quad_design(GX.ravel(), GY.ravel()) @ coef).reshape(GX.shape)
+        surf = ax.plot_surface(GX, GY, GZ, cmap=_seq_cmap(), alpha=0.88, linewidth=0, antialiased=True,
+                               rstride=1, cstride=1)
+        ax.contour(GX, GY, GZ, zdir="z", offset=GZ.min() - 1.0, cmap=_seq_cmap(), levels=12, linewidths=1)
+        ax.scatter(x, y, z, s=9, color=C_SERIES[1], alpha=0.75, depthshade=True, edgecolor="white", linewidth=0.3)
+        ax.set_zlim(GZ.min() - 1.0, max(GZ.max(), z.max()) + 0.2)
+        _style_3d(ax, spec.lv[i1], spec.lv[i2], spec.lv[j])
+        ax.view_init(elev=24, azim=-132)
+        ax.set_title(f"{CONSTRUCTS.get(spec.lv[j], {'name': spec.lv[j]})['name']}\n"
+                     f"quadratic response surface, R² = {r2:.3f}", fontsize=10)
+        fig.colorbar(surf, ax=ax, shrink=0.55, pad=0.08, label=f"Predicted {spec.lv[j]} (z-score)")
+    fig.suptitle("3D response surfaces: accountability dimensions as a function of control activities "
+                 "and financial management\n(points = latent variable scores; floor = contour projection)",
+                 fontweight="bold", color=C_TEXT)
+    fig.tight_layout()
+    save(fig, folder, "Fig20_3D_response_surfaces", figs)
+
+
+def fig3d_path_bars(path_tab: pd.DataFrame, folder, figs):
+    src = list(OrderedDict.fromkeys(path_tab["Source"]))
+    tgt = list(OrderedDict.fromkeys(path_tab["Target"]))
+    fig = plt.figure(figsize=(9, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    cmap = _seq_cmap()
+    xs, ys, hs, cols = [], [], [], []
+    bmax = max(path_tab["Original_sample"].abs().max(), 1e-6)
+    for _, r in path_tab.iterrows():
+        xs.append(src.index(r["Source"]) - 0.22)
+        ys.append(tgt.index(r["Target"]) - 0.22)
+        hs.append(r["Original_sample"])
+        sig = r["p_value"] < ALPHA
+        cols.append(cmap(0.35 + 0.65 * abs(r["Original_sample"]) / bmax) if sig else "#c3c2b7")
+    ax.bar3d(xs, ys, np.zeros(len(xs)), 0.44, 0.44, hs, color=cols, alpha=0.95, edgecolor="white",
+             linewidth=0.5, shade=True)
+    for x_, y_, h_, (_, r) in zip(xs, ys, hs, path_tab.iterrows()):
+        ax.text(x_ + 0.22, y_ + 0.22, h_ + 0.06,
+                f"{h_:.3f}{stars(r['p_value']) if r['p_value'] < ALPHA else ''}",
+                ha="center", fontsize=8, color=C_TEXT, zorder=10)
+    ax.set_xticks(range(len(src)))
+    ax.set_xticklabels(src)
+    ax.set_yticks(range(len(tgt)))
+    ax.set_yticklabels(tgt)
+    _style_3d(ax, "Predictor", "Outcome", "Path coefficient (β)")
+    ax.view_init(elev=28, azim=-55)
+    ax.set_title("3D map of standardised path coefficients\n(blue shade ∝ |β| for significant paths; grey = not significant)")
+    save(fig, folder, "Fig21_3D_path_coefficients", figs)
+
+
+def fig3d_htmt(H: np.ndarray, labels: list[str], folder, figs):
+    L = len(labels)
+    fig = plt.figure(figsize=(9, 7.5))
+    ax = fig.add_subplot(111, projection="3d")
+    xs, ys, hs, cols = [], [], [], []
+    for i in range(L):
+        for j in range(i):
+            v = H[i, j]
+            if not np.isfinite(v):
+                continue
+            xs.append(j - 0.3)
+            ys.append(i - 0.3)
+            hs.append(v)
+            cols.append(C_SERIES[7] if v > 0.90 else C_SERIES[3] if v > 0.85 else C_SERIES[0])
+    ax.bar3d(xs, ys, np.zeros(len(xs)), 0.6, 0.6, hs, color=cols, alpha=0.95, edgecolor="white",
+             linewidth=0.5, shade=True)
+    for x_, y_, h_ in zip(xs, ys, hs):
+        ax.text(x_ + 0.3, y_ + 0.3, h_ + 0.04, f"{h_:.2f}", ha="center", fontsize=7, color=C_TEXT, zorder=10)
+    edge = [-0.5, L - 0.5]
+    for level, col, ls in ((0.85, C_SERIES[3], "--"), (0.90, C_SERIES[7], "-")):
+        xx = [edge[0], edge[1], edge[1], edge[0], edge[0]]
+        yy = [edge[0], edge[0], edge[1], edge[1], edge[0]]
+        ax.plot(xx, yy, [level] * 5, color=col, lw=1.6, ls=ls, label=f"HTMT = {level:.2f}")
+    ax.legend(loc="upper left", fontsize=8)
+    ax.set_xticks(range(L))
+    ax.set_xticklabels(labels, fontsize=8)
+    ax.set_yticks(range(L))
+    ax.set_yticklabels(labels, fontsize=8)
+    _style_3d(ax, "", "", "HTMT")
+    ax.set_zlim(0, max(1.05, np.nanmax(H) + 0.1))
+    ax.view_init(elev=26, azim=-60)
+    ax.set_title("3D HTMT matrix with 0.85 and 0.90 threshold frames\n"
+                 "bars: blue < 0.85, amber 0.85-0.90, red > 0.90")
+    save(fig, folder, "Fig22_3D_HTMT", figs)
+
+
+def fig3d_scatter(res: PLSResult, folder, figs):
+    spec = res.spec
+    if len(spec.exog) < 2:
+        return
+    i1, i2 = spec.exog[:2]
+    acc = res.Y[:, spec.endog].mean(axis=1)
+    fig = plt.figure(figsize=(9, 7.5))
+    ax = fig.add_subplot(111, projection="3d")
+    sc = ax.scatter(res.Y[:, i1], res.Y[:, i2], acc, c=acc, cmap=_seq_cmap(), s=28, edgecolor="white",
+                    linewidth=0.4, depthshade=True)
+    A = np.column_stack([np.ones(len(acc)), res.Y[:, i1], res.Y[:, i2]])
+    b = np.linalg.lstsq(A, acc, rcond=None)[0]
+    g = np.linspace(-2.6, 2.6, 20)
+    GX, GY = np.meshgrid(g, g)
+    ax.plot_surface(GX, GY, b[0] + b[1] * GX + b[2] * GY, color=C_SERIES[0], alpha=0.18)
+    _style_3d(ax, spec.lv[i1], spec.lv[i2], "Overall accountability (mean of LV scores)")
+    ax.view_init(elev=20, azim=-125)
+    fig.colorbar(sc, ax=ax, shrink=0.6, pad=0.1, label="Overall accountability")
+    ax.set_title("3D scatter of latent variable scores with the fitted regression plane")
+    save(fig, folder, "Fig23_3D_LV_scatter", figs)
+
+
+def fig3d_cross_loadings(cl: np.ndarray, spec: ModelSpec, folder, figs):
+    fig = plt.figure(figsize=(12, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    k, L = cl.shape
+    xs, ys, hs, cols = [], [], [], []
+    for i in range(k):
+        for j in range(L):
+            own = spec.ind_lv[i] == j
+            xs.append(i - 0.4)
+            ys.append(j - 0.4)
+            hs.append(abs(cl[i, j]))
+            cols.append(C_SERIES[list(CONSTRUCTS).index(spec.lv[j]) % 8] if own and spec.lv[j] in CONSTRUCTS
+                        else C_SERIES[0] if own else "#dddcd7")
+    ax.bar3d(xs, ys, np.zeros(len(xs)), 0.8, 0.8, hs, color=cols, alpha=0.95, edgecolor="white",
+             linewidth=0.3, shade=True)
+    ax.set_xticks(range(k))
+    ax.set_xticklabels(spec.indicators, rotation=90, fontsize=6)
+    ax.set_yticks(range(L))
+    ax.set_yticklabels(spec.lv, fontsize=8)
+    _style_3d(ax, "", "", "|Loading|")
+    ax.view_init(elev=32, azim=-70)
+    ax.set_title("3D cross-loading landscape (coloured = own construct, grey = other constructs)")
+    save(fig, folder, "Fig24_3D_cross_loadings", figs)
+
+
+def interactive_3d(res: PLSResult, path_tab: pd.DataFrame, H: np.ndarray, path: Path) -> bool:
+    """Rotatable 3D figures in one HTML file (requires plotly)."""
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+    except ImportError:
+        return False
+    spec = res.spec
+    i1, i2 = spec.exog[:2]
+    x, y = res.Y[:, i1], res.Y[:, i2]
+    g = np.linspace(-2.6, 2.6, 40)
+    GX, GY = np.meshgrid(g, g)
+    titles = [f"{spec.lv[j]} response surface" for j in spec.endog[:4]]
+    fig = make_subplots(rows=2, cols=2, specs=[[{"type": "scene"}] * 2] * 2, subplot_titles=titles,
+                        horizontal_spacing=0.02, vertical_spacing=0.06)
+    scale = [[0, C_BLUE_SEQ[0]], [0.5, C_BLUE_SEQ[3]], [1, C_BLUE_SEQ[-1]]]
+    for k, j in enumerate(spec.endog[:4]):
+        z = res.Y[:, j]
+        coef = np.linalg.lstsq(_quad_design(x, y), z, rcond=None)[0]
+        GZ = (_quad_design(GX.ravel(), GY.ravel()) @ coef).reshape(GX.shape)
+        r, c = divmod(k, 2)
+        fig.add_trace(go.Surface(x=g, y=g, z=GZ, colorscale=scale, opacity=0.9, showscale=False,
+                                 name=spec.lv[j]), row=r + 1, col=c + 1)
+        fig.add_trace(go.Scatter3d(x=x, y=y, z=z, mode="markers", name=f"{spec.lv[j]} scores",
+                                   marker=dict(size=3, color=C_SERIES[1], line=dict(width=0.5, color="white")),
+                                   hovertemplate=f"{spec.lv[i1]}=%{{x:.2f}}<br>{spec.lv[i2]}=%{{y:.2f}}<br>"
+                                                 f"{spec.lv[j]}=%{{z:.2f}}<extra></extra>"),
+                      row=r + 1, col=c + 1)
+        fig.update_scenes(dict(xaxis_title=spec.lv[i1], yaxis_title=spec.lv[i2], zaxis_title=spec.lv[j]),
+                          row=r + 1, col=c + 1)
+    fig.update_layout(title="Interactive 3D response surfaces (drag to rotate, scroll to zoom)",
+                      height=950, showlegend=False, paper_bgcolor="white", font=dict(color=C_TEXT))
+    fig2 = go.Figure()
+    src = list(OrderedDict.fromkeys(path_tab["Source"]))
+    tgt = list(OrderedDict.fromkeys(path_tab["Target"]))
+    for _, rr in path_tab.iterrows():
+        xi, yi, h = src.index(rr["Source"]), tgt.index(rr["Target"]), rr["Original_sample"]
+        col = C_SERIES[0] if rr["p_value"] < ALPHA else "#c3c2b7"
+        xs = [xi - .3, xi + .3, xi + .3, xi - .3, xi - .3, xi + .3, xi + .3, xi - .3]
+        ys = [yi - .3, yi - .3, yi + .3, yi + .3, yi - .3, yi - .3, yi + .3, yi + .3]
+        zs = [0, 0, 0, 0, h, h, h, h]
+        fig2.add_trace(go.Mesh3d(x=xs, y=ys, z=zs, i=[7, 0, 0, 0, 4, 4, 6, 6, 4, 0, 3, 2],
+                                 j=[3, 4, 1, 2, 5, 6, 5, 2, 0, 1, 6, 3], k=[0, 7, 2, 3, 6, 7, 1, 1, 5, 5, 7, 6],
+                                 color=col, opacity=0.95, flatshading=True,
+                                 hovertext=f"{rr['Source']} → {rr['Target']}: β = {h:.3f}, p = {fmt_p(rr['p_value'])}",
+                                 hoverinfo="text", name=f"{rr['Source']}→{rr['Target']}"))
+    fig2.update_layout(title="Interactive 3D path coefficients (blue = significant)", height=650,
+                       scene=dict(xaxis=dict(tickvals=list(range(len(src))), ticktext=src, title="Predictor"),
+                                  yaxis=dict(tickvals=list(range(len(tgt))), ticktext=tgt, title="Outcome"),
+                                  zaxis=dict(title="β")), showlegend=False)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("<html><head><meta charset='utf-8'><title>Interactive 3D PLS-SEM figures</title></head><body>")
+        fh.write(fig.to_html(full_html=False, include_plotlyjs=True))
+        fh.write(fig2.to_html(full_html=False, include_plotlyjs=False))
+        fh.write("</body></html>")
+    return True
 
 
 # =============================================================================
@@ -1916,7 +2298,7 @@ def main() -> None:
         fcrit = stats.f.ppf(1 - ALPHA, df1, df2)
         power.append(float(stats.ncf.sf(fcrit, df1, df2, max(f, 0) * n)))
     path_tab["Post_hoc_power"] = power
-    add("T8_Hypotheses_testing", path_tab, f"Table 8. Path coefficients, bootstrapping ({N_BOOT} "
+    add("T9_Hypotheses_testing", path_tab, f"Table 9. Path coefficients, bootstrapping ({N_BOOT} "
         "subsamples; percentile, bias-corrected and BCa 95% CIs), f², inner VIF and post-hoc power.")
     fig_bootstrap_dist(boot[:, sl["paths"]], path_tab, fig_dir, figs)
 
@@ -1941,9 +2323,9 @@ def main() -> None:
     r2_tab["R2_level_(Hair)"] = pd.cut(r2_tab["R2"], [-1, 0.25, 0.50, 0.75, 1.01],
                                        labels=["very weak", "weak", "moderate", "substantial"]).astype(str)
     r2_tab["Q2_relevance"] = r2_tab["Q2_blindfolding"].apply(effect_label_q2)
-    add("T9_R2_Q2", r2_tab, "Explanatory power (R², adjusted R², bootstrap CI) and predictive relevance "
+    add("T10_R2_Q2", r2_tab, "Explanatory power (R², adjusted R², bootstrap CI) and predictive relevance "
         f"(Stone-Geisser Q², blindfolding D = {BLINDFOLD_D}).")
-    add("T9b_q2_effect_sizes", q2_eff, "q² effect sizes (change in Q² when a path is omitted).")
+    add("T10b_q2_effect_sizes", q2_eff, "q² effect sizes (change in Q² when a path is omitted).")
     fig_effects(r2_tab, path_tab[["Path", "f2"]], fig_dir, figs)
 
     # total and indirect effects
@@ -1958,14 +2340,14 @@ def main() -> None:
     if len(tot_df) and sl["tot"].stop > sl["tot"].start:
         tci = ci.iloc[sl["tot"]].reset_index(drop=True)
         tot_df = pd.concat([tot_df, tci.drop(columns=["Original_sample"])], axis=1)
-    add("T10_Total_effects", tot_df, "Total effects with bootstrap inference.")
+    add("T11_Total_effects", tot_df, "Total effects with bootstrap inference.")
     if len(ind_df):
-        add("T10b_Indirect_effects", ind_df, "Specific indirect effects.")
+        add("T11b_Indirect_effects", ind_df, "Specific indirect effects.")
 
     # minimum sample size
     bmin = path_tab["Original_sample"].abs().min()
     nmin = math.ceil((2.486 / bmin) ** 2) if bmin > 0 else np.nan
-    add("T11_Sample_size_power", pd.DataFrame([[n, bmin, nmin, "Adequate" if n >= nmin else "Insufficient"]],
+    add("T12_Sample_size_power", pd.DataFrame([[n, bmin, nmin, "Adequate" if n >= nmin else "Insufficient"]],
                                               columns=["Sample_size", "Smallest_|beta|",
                                                        "Minimum_n_inverse_square_root_(5%,80%)",
                                                        "Assessment"]),
@@ -1974,9 +2356,9 @@ def main() -> None:
     # PLSpredict
     log("PLSpredict (k-fold cross-validation)")
     pred_ind, pred_lv = pls_predict(X, spec)
-    add("T12_PLSpredict_indicators", pred_ind, f"PLSpredict ({PREDICT_FOLDS}-fold, {PREDICT_REPEATS} "
+    add("T13_PLSpredict_indicators", pred_ind, f"PLSpredict ({PREDICT_FOLDS}-fold, {PREDICT_REPEATS} "
         "repetitions): Q²_predict and RMSE/MAE vs. linear-model benchmark.")
-    add("T12b_PLSpredict_constructs", pred_lv, "PLSpredict construct-level Q²_predict.")
+    add("T13b_PLSpredict_constructs", pred_lv, "PLSpredict construct-level Q²_predict.")
     share = (pred_ind["RMSE_diff_PLS_minus_LM"] < 0).mean()
     pp = "high" if share == 1 else "medium" if share >= 0.5 else "low" if share > 0 else "none"
     summary.append(f"PLSpredict: Q²_predict > 0 for {(pred_ind['Q2_predict'] > 0).sum()}/{len(pred_ind)} "
@@ -2038,6 +2420,64 @@ def main() -> None:
     summary.append(f"Model fit: SRMR saturated = {fit['saturated']['SRMR']:.3f}, estimated = "
                    f"{fit['estimated']['SRMR']:.3f}; NFI = {fit['saturated']['NFI']:.3f}; "
                    f"RMS_theta = {fit['RMS_theta']:.3f}.")
+
+    # ---- CB-SEM with semopy (Table 8)
+    cb_paths = None
+    cb_fit = None
+    try:
+        log("CB-SEM with semopy: CFA, structural model, fit indices (Table 8)")
+        cb = semopy_analysis(items, blocks, paths, out_dir)
+        cb_fit = cb["Structural model"]["fit"]
+        t8 = fit_indices_table(cb_fit, "structural model")
+        add("T8_Structural_fit_indices", t8, "Table 8. Structural model fit indices (CB-SEM, maximum "
+            "likelihood, semopy). *ATV = acceptable threshold value.")
+        add("T8b_CFA_fit_indices", fit_indices_table(cb["Measurement model (CFA)"]["fit"], "measurement model"),
+            "Fit indices of the measurement model (confirmatory factor analysis, semopy).")
+        full = pd.DataFrame({"Index": list(cb_fit.keys()),
+                             "Measurement_model_CFA": list(cb["Measurement model (CFA)"]["fit"].values()),
+                             "Structural_model": list(cb_fit.values())})
+        full["Guideline"] = full["Index"].map({
+            "p-value": "> 0.05 (sensitive to N)", "X2/df": "1-5 (< 3 good)", "GFI": "> 0.90", "AGFI": "> 0.80",
+            "PGFI": "> 0.50", "RMR": "small", "SRMR": "< 0.08", "NFI": "> 0.90", "RFI": "> 0.90",
+            "IFI": "> 0.90", "TLI": "> 0.90", "CFI": "> 0.90 (> 0.95 good)", "PNFI": "> 0.50",
+            "PCFI": "> 0.50", "RMSEA": "< 0.08 (< 0.10 acceptable)", "PCLOSE": "> 0.05",
+            "AIC (semopy)": "lower is better", "BIC (semopy)": "lower is better"}).fillna("")
+        add("T8c_CBSEM_all_fit_indices", full, "All CB-SEM fit indices for the measurement (CFA) and "
+            "structural models (semopy ML estimation; GFI/AGFI/PGFI recomputed with the Joreskog-Sorbom formula).")
+        add("CB1_CFA_estimates", cb["Measurement model (CFA)"]["estimates"],
+            "CB-SEM confirmatory factor analysis: unstandardised and standardised estimates (semopy).")
+        sem_est = cb["Structural model"]["estimates"]
+        add("CB2_SEM_estimates", sem_est, "CB-SEM structural model: all parameter estimates (semopy).")
+        lvs_ = list(blocks)
+        reg = sem_est[(sem_est["op"] == "~") & sem_est["lval"].isin(lvs_) & sem_est["rval"].isin(lvs_)]
+        cb_paths = {f"{rv} -> {lv}": (est, se, pv) for lv, rv, est, se, pv in
+                    zip(reg["lval"], reg["rval"], reg["Est. Std"],
+                        pd.to_numeric(reg["Std. Err"], errors="coerce") *
+                        (pd.to_numeric(reg["Est. Std"]) / pd.to_numeric(reg["Estimate"])),
+                        pd.to_numeric(reg["p-value"], errors="coerce"))}
+        add("CB3_Estimator_robustness", cb["estimators"].reset_index().rename(columns={"index": "Path"}),
+            "Standardised CB-SEM path coefficients under ML (MLW), ULS and GLS estimation (GLS is less "
+            "stable with many indicators and moderate N; interpret ML as the reference).")
+        cfa = cb["Measurement model (CFA)"]["estimates"]
+        ld = cfa[(cfa["op"] == "~") & ~cfa["lval"].isin(list(blocks)) & cfa["rval"].isin(list(blocks))]
+        lam_cb = dict(zip(ld["lval"], pd.to_numeric(ld["Est. Std"], errors="coerce")))
+        cb_rel = []
+        for c, v in blocks.items():
+            lam = np.array([lam_cb[i] for i in v], dtype=float)
+            cr = lam.sum() ** 2 / (lam.sum() ** 2 + (1 - lam ** 2).sum())
+            cb_rel.append([c, cr, np.mean(lam ** 2), lam.min(), lam.max()])
+        add("CB4_CFA_reliability", pd.DataFrame(cb_rel, columns=["Construct", "CR_(CFA)", "AVE_(CFA)",
+                                                                  "Min_std_loading", "Max_std_loading"]),
+            "Composite reliability and AVE from the CB-SEM CFA standardised loadings.")
+        if cb["semplot"] is not None:
+            figs.append(cb["semplot"])
+        print("\nTable 8: Structural Model Fit Indices\n" + boxed_table(t8, header=True))
+        summary.append("CB-SEM (semopy) structural model: " + ", ".join(
+            f"{k} = {cb_fit[k]:.3f}" for k in ("X2/df", "GFI", "SRMR", "IFI", "NFI", "PGFI", "PNFI", "RMSEA", "CFI")))
+    except ImportError:
+        log("semopy is not installed - Table 8 skipped. Install with: pip install semopy")
+    except Exception as exc:  # noqa: BLE001
+        log(f"CB-SEM (semopy) step failed: {exc}")
 
     # ---- common method bias
     Cinv = np.linalg.pinv(res.C)
@@ -2175,6 +2615,14 @@ def main() -> None:
         ss_rows.append([b[k_], b[k_] - 1.96 * se[k_], b[k_] + 1.96 * se[k_], p_from_t(tval, n - len(P) - 1)])
     ss = np.array(ss_rows)
     comp["Sum-score OLS_beta"], comp["Sum-score OLS_lo"], comp["Sum-score OLS_hi"], comp["Sum-score OLS_p"] = ss.T
+
+    if cb_paths:
+        e_cb = np.array([cb_paths.get(pth, (np.nan,) * 3)[0] for pth in comp["Path"]], dtype=float)
+        se_cb = np.array([cb_paths.get(pth, (np.nan,) * 3)[1] for pth in comp["Path"]], dtype=float)
+        comp["CB-SEM (ML)_beta"] = e_cb
+        comp["CB-SEM (ML)_lo"] = e_cb - 1.96 * se_cb
+        comp["CB-SEM (ML)_hi"] = e_cb + 1.96 * se_cb
+        comp["CB-SEM (ML)_p"] = [cb_paths.get(pth, (np.nan,) * 3)[2] for pth in comp["Path"]]
 
     # outliers removed
     if 0 < n_out < n * 0.2:
@@ -2356,35 +2804,20 @@ def main() -> None:
     add("I1_IPMA", pd.concat(ipma_all).fillna({"Level": "construct"}),
         "IPMA: importance (unstandardised total effects) and performance (0-100) at construct and indicator level.")
 
-    # ---------------- CB-SEM CFA (optional) ----------------
-    try:
-        import semopy
-        log("CB-SEM confirmatory factor analysis (semopy)")
-        desc_cfa = "\n".join(f"{c} =~ " + " + ".join(v) for c, v in blocks.items())
-        desc_sem = desc_cfa + "\n" + "\n".join(
-            f"{t} ~ " + " + ".join(s for s, tt in paths if tt == t) for t in [spec.lv[j] for j in spec.endog])
-        cb_rows = []
-        for lab, d in (("CFA (measurement model)", desc_cfa), ("Structural model", desc_sem)):
-            m = semopy.Model(d)
-            m.fit(items)
-            st = semopy.calc_stats(m).T
-            st.columns = [lab]
-            cb_rows.append(st)
-        cb = pd.concat(cb_rows, axis=1).reset_index().rename(columns={"index": "Statistic"})
-        add("CB1_CBSEM_fit", cb, "Covariance-based SEM fit indices (semopy, ML): Chi², df, CFI, TLI, "
-            "RMSEA, GFI, AGFI, NFI, AIC, BIC. Guidelines: CFI/TLI >= 0.90, RMSEA <= 0.08.")
-        m = semopy.Model(desc_cfa)
-        m.fit(items)
-        est_cfa = m.inspect(std_est=True)
-        add("CB2_CFA_estimates", est_cfa, "CB-SEM CFA standardised estimates.")
-    except ImportError:
-        log("semopy not installed - CB-SEM fit indices skipped (pip install semopy)")
-    except Exception as exc:  # noqa: BLE001
-        log(f"CB-SEM step failed: {exc}")
-
     # ---------------- figures of main model ----------------
     fig_structural(spec, path_tab, {spec.lv[j]: res.R2[j] for j in spec.endog}, fig_dir, figs)
     fig_full_model(spec, res, path_tab, fig_dir, figs)
+
+    log("3D figures")
+    fig3d_response_surfaces(res, fig_dir, figs)
+    fig3d_path_bars(path_tab, fig_dir, figs)
+    fig3d_htmt(H, spec.lv, fig_dir, figs)
+    fig3d_scatter(res, fig_dir, figs)
+    fig3d_cross_loadings(cl, spec, fig_dir, figs)
+    if interactive_3d(res, path_tab, H, out_dir / "Interactive_3D_figures.html"):
+        log("Interactive 3D HTML written")
+    else:
+        log("plotly not installed - interactive 3D HTML skipped (pip install plotly)")
 
     # ---------------- overview and writing ----------------
     checks = pd.DataFrame([
@@ -2410,6 +2843,12 @@ def main() -> None:
         ["Q² > 0 for all endogenous", ", ".join(f"{q2[j]:.3f}" for j in spec.endog), all(q2[j] > 0 for j in spec.endog)],
         ["Hypotheses supported", f"{int((path_tab['Decision'] == 'Supported').sum())}/{len(path_tab)}",
          bool((path_tab['Decision'] == 'Supported').all())],
+        *([["CB-SEM " + k + " (" + a + ")", f"{cb_fit[k]:.3f}", ok(cb_fit[k])]
+           for k, a, ok in (("X2/df", "1-5", lambda v: 1 <= v <= 5), ("GFI", "> 0.9", lambda v: v > 0.9),
+                            ("SRMR", "< 0.08", lambda v: v < 0.08), ("IFI", "> 0.9", lambda v: v > 0.9),
+                            ("NFI", "> 0.9", lambda v: v > 0.9), ("PGFI", "> 0.5", lambda v: v > 0.5),
+                            ("PNFI", "> 0.5", lambda v: v > 0.5), ("RMSEA", "< 0.1", lambda v: v < 0.1),
+                            ("CFI", "> 0.9", lambda v: v > 0.9))] if cb_fit else []),
         ["Copula terms non-significant", f"{int((cop['p_value'] >= 0.05).sum())}/{len(cop)}",
          bool((cop['p_value'] >= 0.05).all())],
     ], columns=["Criterion", "Result", "Met"])
@@ -2435,10 +2874,12 @@ def main() -> None:
                                                                         "Composite_reliability_rho_C", "AVE"]]),
                   ("Table 5. HTMT", htmt_df), ("Table 6. Fornell-Larcker criterion", fl_df.drop(columns=["Fornell_Larcker_met"])),
                   ("Table 7. Model fit", fit_df[["Index", "Saturated_model", "Estimated_model", "Guideline"]]),
-                  ("Table 8. Hypotheses testing", path_tab[["Hypothesis", "Path", "Original_sample", "Sample_mean",
+                  *([("Table 8. Structural model fit indices", tables["T8_Structural_fit_indices"][0])]
+                    if "T8_Structural_fit_indices" in tables else []),
+                  ("Table 9. Hypotheses testing", path_tab[["Hypothesis", "Path", "Original_sample", "Sample_mean",
                                                             "Std_dev", "t_statistic", "p_value", "CI_2.5_percentile",
                                                             "CI_97.5_percentile", "f2", "Decision"]]),
-                  ("Table 9. R² and Q²", r2_tab[["Construct", "R2", "R2_adjusted", "Q2_blindfolding"]]),
+                  ("Table 10. R² and Q²", r2_tab[["Construct", "R2", "R2_adjusted", "Q2_blindfolding"]]),
                   ("Quality checklist", checks)]
     if write_docx(doc_tables, figs, summary, out_dir / "PLS_SEM_Report.docx"):
         log("Word report written")
