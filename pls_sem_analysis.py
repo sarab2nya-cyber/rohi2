@@ -76,9 +76,39 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-from scipy import stats
+
+# =============================================================================
+# 0. AUTOMATIC INSTALLATION OF REQUIRED PACKAGES (Google Colab, Windows, Linux)
+# =============================================================================
+
+REQUIRED_PACKAGES = OrderedDict([   # import name -> pip name
+    ("numpy", "numpy"), ("pandas", "pandas"), ("scipy", "scipy"), ("matplotlib", "matplotlib"),
+    ("openpyxl", "openpyxl"), ("semopy", "semopy"), ("docx", "python-docx"), ("plotly", "plotly"),
+])
+
+
+def ensure_packages() -> None:
+    """Install any missing package with pip (one by one, so one failure never blocks the rest)."""
+    import importlib.util
+    import subprocess
+    missing = [(mod, pkg) for mod, pkg in REQUIRED_PACKAGES.items() if importlib.util.find_spec(mod) is None]
+    for mod, pkg in missing:
+        print(f"Installing {pkg} ...", flush=True)
+        cmd = [sys.executable, "-m", "pip", "install", "-q", pkg]
+        ok = subprocess.call(cmd) == 0
+        if not ok:  # e.g. semopy on systems with a patched setuptools
+            env = dict(os.environ, SETUPTOOLS_USE_DISTUTILS="stdlib")
+            ok = subprocess.call(cmd, env=env) == 0
+        importlib.invalidate_caches()
+        if not ok or importlib.util.find_spec(mod) is None:
+            print(f"   WARNING: could not install {pkg}; the parts that need it will be skipped.")
+
+
+ensure_packages()
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+from scipy import stats  # noqa: E402
 
 import matplotlib
 
@@ -913,29 +943,69 @@ def boxed_table(df: pd.DataFrame, header: bool = False) -> str:
 # 4. DATA LOADING AND SCREENING
 # =============================================================================
 
+def in_notebook() -> bool:
+    """True inside a Jupyter/Colab kernel (cell or %run), where files can be uploaded/downloaded."""
+    try:
+        from IPython import get_ipython
+        return get_ipython() is not None and hasattr(get_ipython(), "kernel")
+    except ImportError:
+        return False
+
+
+def in_colab() -> bool:
+    return "google.colab" in sys.modules or "COLAB_RELEASE_TAG" in os.environ or Path("/content").is_dir()
+
+
+def _script_dir() -> Path:
+    try:
+        return Path(__file__).resolve().parent
+    except NameError:  # code pasted into a notebook cell
+        return Path.cwd()
+
+
 def locate_input() -> Path:
-    if len(sys.argv) > 1:
-        p = Path(sys.argv[1]).expanduser()
+    # data file given on the command line (Jupyter/Colab add "-f kernel.json", which is ignored)
+    args = [a for a in sys.argv[1:] if not a.startswith("-") and a.lower().endswith((".xlsx", ".xls", ".csv"))]
+    if args:
+        p = Path(args[0]).expanduser()
         if p.exists():
             return p
         raise FileNotFoundError(f"File not found: {p}")
     home = Path.home()
     candidates = [home / "Desktop" / INPUT_FILE_NAME,
                   home / "OneDrive" / "Desktop" / INPUT_FILE_NAME,
-                  Path(__file__).resolve().parent / INPUT_FILE_NAME,
-                  Path.cwd() / INPUT_FILE_NAME]
+                  _script_dir() / INPUT_FILE_NAME,
+                  Path.cwd() / INPUT_FILE_NAME,
+                  Path("/content") / INPUT_FILE_NAME,                       # Colab working folder
+                  Path("/content/drive/MyDrive") / INPUT_FILE_NAME,         # Google Drive root
+                  Path("/content/drive/MyDrive/Desktop") / INPUT_FILE_NAME]
     candidates += list(home.glob(f"OneDrive*/Desktop/{INPUT_FILE_NAME}"))
     candidates += list(home.glob(f"OneDrive*/*/{INPUT_FILE_NAME}"))
     for c in candidates:
         if c.exists():
             return c
+    # Colab / Jupyter: ask the user to upload the file
+    if in_notebook() and in_colab():
+        try:
+            from google.colab import files
+            print(f"{INPUT_FILE_NAME} was not found. Please choose your Excel file to upload ...")
+            up = files.upload()
+            if up:
+                name = next(iter(up))
+                dest = Path("/content") / name
+                if not dest.exists():
+                    dest.write_bytes(up[name])
+                return dest
+        except ImportError:
+            pass
     raise FileNotFoundError(
-        f"Could not find {INPUT_FILE_NAME} on the Desktop. Pass the full path:\n"
-        f"    python {Path(__file__).name} \"C:/path/to/{INPUT_FILE_NAME}\"")
+        f"Could not find {INPUT_FILE_NAME}. Pass the full path, e.g.\n"
+        f"    python pls_sem_analysis.py \"C:/path/to/{INPUT_FILE_NAME}\"\n"
+        f"In Colab: upload the file to /content, or run  %run pls_sem_analysis.py  to get an upload button.")
 
 
 def load_data(path: Path):
-    raw = pd.read_excel(path, sheet_name=SHEET_NAME)
+    raw = pd.read_csv(path) if path.suffix.lower() == ".csv" else pd.read_excel(path, sheet_name=SHEET_NAME)
     raw.columns = [str(c).strip() for c in raw.columns]
     upper = {c.upper(): c for c in raw.columns}
     all_items = [i for c in CONSTRUCTS.values() for i in c["items"]]
@@ -2894,6 +2964,34 @@ def main() -> None:
     print("\n" + checks.to_string(index=False))
     print(f"\nAll results saved in: {out_dir}  ({len(figs)} figures, {len(tables)} tables)")
     print(f"Total run time: {time.time() - t_start:.0f} s")
+    finish_in_notebook(out_dir, tables, figs)
+
+
+def finish_in_notebook(out_dir: Path, tables, figs) -> None:
+    """In Jupyter/Colab: show key results inline, zip the output folder and download it."""
+    import shutil
+    zip_path = Path(shutil.make_archive(str(out_dir), "zip", root_dir=out_dir))
+    log(f"Zipped results: {zip_path}")
+    if not in_notebook():
+        return
+    try:
+        from IPython.display import Image, Markdown, display
+        for key in ("T8_Structural_fit_indices", "T9_Hypotheses_testing", "00_Checklist"):
+            if key in tables:
+                df, desc = tables[key]
+                display(Markdown(f"**{desc}**"))
+                display(df)
+        for f in figs:
+            if any(k in f.name for k in ("Fig09_structural", "Fig10_full", "Fig20_3D", "Fig22_3D")):
+                display(Image(filename=str(f)))
+    except Exception:  # noqa: BLE001
+        pass
+    if in_colab():
+        try:
+            from google.colab import files
+            files.download(str(zip_path))
+        except Exception as exc:  # noqa: BLE001
+            log(f"Automatic download not available ({exc}); download {zip_path} from the Files panel.")
 
 
 if __name__ == "__main__":

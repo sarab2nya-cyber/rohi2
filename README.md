@@ -29,6 +29,13 @@ estimated with semopy (maximum likelihood). semopy's own "GFI" equals 1 - chi2/c
 (the NFI formula), so GFI/AGFI/PGFI are recomputed with the Joreskog-Sorbom formula from
 semopy's implied covariance matrix.
 
+### Google Colab
+
+Open `PLS_SEM_Colab.ipynb` in Colab (File > Upload notebook), upload `pls_sem_analysis.py`
+and `1.xlsx`, and run `%run pls_sem_analysis.py 1.xlsx`. Missing libraries are installed
+automatically, key tables and figures are shown in the notebook, and
+`PLS_SEM_Results.zip` is downloaded at the end.
+
 ### Test data
 
 `simulate_data.py` writes `simulated_data_200.xlsx`: 200 respondents with the same
