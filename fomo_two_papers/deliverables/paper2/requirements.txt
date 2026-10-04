@@ -1,0 +1,10 @@
+numpy
+pandas
+scipy
+statsmodels
+scikit-learn
+shap
+matplotlib
+openpyxl
+# semopy را جداگانه نصب کنید (نسخهٔ ۲٫۳٫۱۱):
+# pip install "setuptools<58" wheel && pip install --no-build-isolation semopy==2.3.11
