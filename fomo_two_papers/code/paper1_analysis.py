@@ -110,8 +110,6 @@ for f, k in FAC.items():
     alpha = float(k/(k-1)*(1 - X[cols].var().sum()/X[cols].sum(axis=1).var()))
     rel[f] = dict(items=k, alpha=alpha, cr=cr, ave=ave, sqrt_ave=ave**.5, lmin=float(l.min()), lmax=float(l.max()))
 R["rel"] = rel
-comp = pd.DataFrame({f: X[[f"{f}{j}" for j in range(1, k+1)]].mean(axis=1) for f, k in FAC.items()})
-R["comp_desc"] = {f: dict(m=float(comp[f].mean()), sd=float(comp[f].std())) for f in FAC}
 # همبستگی سازه‌ها از مدل CFA (مکنون)
 lc = ins[(ins.op=="~~") & (ins.lval.isin(FAC)) & (ins.rval.isin(FAC)) & (ins.lval!=ins.rval)]
 phi = cfa.inspect(std_est=True)
@@ -139,9 +137,12 @@ try:
     R["cmb"]["clf_var"] = float((mm**2).mean()*100)
 except Exception as e:
     R["cmb"]["clf"] = None
-# فاصلهٔ نمرات ترکیبی: VIF
-Xv = sm.add_constant(comp[["SME","FOMO","AIU","HRD"]])
-R["vif"] = {c: float(variance_inflation_factor(Xv.values, i)) for i, c in enumerate(Xv.columns) if c != "const"}
+# هم‌خطی: VIF از ماتریس همبستگی مکنون پیش‌بینی‌کننده‌ها (بدون نمرهٔ ترکیبی)
+def vif_latent(preds):
+    Rm = latcorr.loc[preds, preds].values; iv = np.linalg.inv(Rm)
+    return {p_: float(iv[i, i]) for i, p_ in enumerate(preds)}
+R["vif"] = {"HRD": vif_latent(["FOMO", "SME", "AIU"]), "IDQ": vif_latent(["HRD", "FOMO", "SME", "AIU"])}
+R["latent_corr_max"] = float(max(abs(latcorr.loc[a_, b_]) for a_ in FAC for b_ in FAC if a_ != b_))
 
 # ------------------------------------------------------------ ۵) مدل ساختاری
 dfc = X - X.mean()
@@ -158,13 +159,28 @@ for l, r in [("FOMO","SME"),("FOMO","AIU"),("FOMO","age"),("FOMO","gender"),("HR
              ("IDQ","HRD"),("IDQ","FOMO"),("IDQ","SME"),("IDQ","AIU"),("IDQ","exp")]:
     P[f"{l}~{r}"] = row(si, l, "~", r)
 R["paths"] = P
-# واریانس تبیین‌شده دقیق‌تر: از مدل نمرات ترکیبی (برای گزارش R²)
-cz = (comp - comp.mean())/comp.std(); cz["INT"] = (cz.FOMO*cz.AIU)
-for k in ["age","gender","exp"]: cz[k] = dfc[k].values
-R["r2_comp"] = dict(
-    FOMO=float(sm.OLS(cz.FOMO, sm.add_constant(cz[["SME","AIU","age","gender"]])).fit().rsquared),
-    HRD=float(sm.OLS(cz.HRD, sm.add_constant(cz[["FOMO","SME","AIU","INT","exp"]])).fit().rsquared),
-    IDQ=float(sm.OLS(cz.IDQ, sm.add_constant(cz[["HRD","FOMO","SME","AIU","exp"]])).fit().rsquared))
+# R² متغیرهای پنهان درون‌زا = ۱ − واریانس باقی‌ماندهٔ استاندارد (مدل مکنون)
+def latent_r2(ins_std):
+    out = {}
+    for dv in ["FOMO", "HRD", "IDQ"]:
+        q = ins_std[(ins_std.lval == dv) & (ins_std.op == "~~") & (ins_std.rval == dv)].iloc[0]
+        out[dv] = float(1 - float(q["Est. Std"]))
+    return out
+R["r2"] = latent_r2(si)
+ins_u = sem.inspect()
+psi = lambda dv: float(ins_u[(ins_u.lval == dv) & (ins_u.op == "~~") & (ins_u.rval == dv)]["Estimate"].iloc[0])
+R["sd_latent"] = {"FOMO": float((psi("FOMO")/(1-R["r2"]["FOMO"]))**.5), "HRD": float((psi("HRD")/(1-R["r2"]["HRD"]))**.5), "AIU": float(psi("AIU")**.5), "SME": float(psi("SME")**.5), "IDQ": float((psi("IDQ")/(1-R["r2"]["IDQ"]))**.5)}
+# بارهای عاملی استاندارد در مدل ساختاری نهایی (برای نمودار مدل)
+R["sem_loadings"] = {r.lval: float(r["Est. Std"]) for _, r in si[(si.op == "~") & (si.rval.isin(list(FAC)))].iterrows()}
+R["n_obs_vars"] = len(sem.vars["observed"]); R["n_params_sem"] = int(R["n_obs_vars"]*(R["n_obs_vars"]+1)/2 - R["sem"]["df"])
+R["n_params_cfa"] = int(len(ITEMS)*(len(ITEMS)+1)/2 - R["cfa"]["df"])
+R["sem_corr"] = {"SME~AIU": float(si[(si.lval.isin(["SME", "AIU"])) & (si.rval.isin(["SME", "AIU"])) & (si.op == "~~") & (si.lval != si.rval)]["Est. Std"].iloc[0])}
+# اندازهٔ اثر تعامل: f² از تفاضل R² مدل با و بدون جملهٔ تعاملی (هر دو مکنون)
+M_NOINT = CFA + "FOMO ~ SME + AIU + age + gender\nHRD ~ FOMO + SME + AIU + exp\nIDQ ~ HRD + FOMO + SME + AIU + exp\nSME ~~ AIU\n"
+m_ni = Model(M_NOINT); m_ni.fit(dfc[ITEMS + ["age", "gender", "exp"]])
+r2_ni = latent_r2(m_ni.inspect(std_est=True))
+R["r2_noint"] = r2_ni; R["f2_int"] = float((R["r2"]["HRD"] - r2_ni["HRD"])/(1 - R["r2"]["HRD"]))
+R["fit_noint"] = fitstats(m_ni, dfc[ITEMS + ["age", "gender", "exp"]])
 
 # ------------------------------------------------------------ ۶) بوت‌استرپ اثرهای غیرمستقیم و مشروط
 ins0 = sem.inspect()
@@ -230,26 +246,31 @@ try:
     R["dwls_fit"] = fitstats(md, dfc[ITEMS + ["age","gender","exp"]])
 except Exception as e:
     R["dwls"] = None
-# رگرسیون نمرات ترکیبی با خطای معیار مقاوم (HC3) + تعدیل‌گری
-mod = sm.OLS(cz.HRD, sm.add_constant(cz[["FOMO","SME","AIU","INT","exp"]])).fit(cov_type="HC3")
-R["ols_hrd"] = {k: dict(b=float(mod.params[k]), se=float(mod.bse[k]), t=float(mod.tvalues[k]), p=float(mod.pvalues[k])) for k in mod.params.index}
-mod2 = sm.OLS(cz.IDQ, sm.add_constant(cz[["HRD","FOMO","SME","AIU","exp"]])).fit(cov_type="HC3")
-R["ols_idq"] = {k: dict(b=float(mod2.params[k]), se=float(mod2.bse[k]), t=float(mod2.tvalues[k]), p=float(mod2.pvalues[k])) for k in mod2.params.index}
-# شیب‌های ساده روی نمرات ترکیبی
-bF, bI = mod.params["FOMO"], mod.params["INT"]
-R["simple_slopes"] = {}
-for tag, k in [("low", -1), ("mean", 0), ("high", 1)]:
-    Xs = cz[["FOMO","SME","AIU","INT","exp"]].copy(); Xs["AIU"] = cz.AIU - k; Xs["INT"] = cz.FOMO*(cz.AIU - k)
-    mm_ = sm.OLS(cz.HRD, sm.add_constant(Xs)).fit(cov_type="HC3")
-    R["simple_slopes"][tag] = dict(b=float(mm_.params["FOMO"]), se=float(mm_.bse["FOMO"]), t=float(mm_.tvalues["FOMO"]), p=float(mm_.pvalues["FOMO"]))
-# حساسیت: حذف مشاهدات پرت چندمتغیره (ماهالانوبیس، p<0.001)
-cut = np.quantile(d2, .95); keep = d2 < cut          # حذف ۵٪ دورترین مشاهدات از مرکز (ماهالانوبیس)
+# حذف ۵٪ دورترین مشاهدات (ماهالانوبیس)
+cut = np.quantile(d2, .95); keep = d2 < cut
 R["outliers_removed"] = int((~keep).sum())
 m_o = Model(M_FULL); m_o.fit(dfc[keep].reset_index(drop=True)); oi = m_o.inspect(std_est=True)
 R["no_outliers"] = {f"{l}~{r}": row(oi, l, "~", r) for l, r in [("FOMO","SME"),("HRD","FOMO"),("IDQ","HRD"),("HRD","INT"),("IDQ","FOMO")]}
-# تحلیل توان: Monte-Carlo-free، توان تعامل با اندازهٔ اثر مشاهده‌شده (تقریبی)
-f2 = (R["r2_comp"]["HRD"] - sm.OLS(cz.HRD, sm.add_constant(cz[["FOMO","SME","AIU","exp"]])).fit().rsquared)/(1-R["r2_comp"]["HRD"])
-R["f2_int"] = float(f2)
+# تعامل مکنون با شاخص‌های حاصل‌ضرب مرکزسازی‌شدهٔ باقی‌مانده (Little et al., 2006) — روش جایگزین ساخت شاخص
+dfr = dfc.copy(); FO = [f"FOMO{j}" for j in range(1, 7)]; AI = [f"AIU{j}" for j in range(1, 6)]
+Xfirst = sm.add_constant(dfc[FO + AI].values)
+for i in range(1, 6):
+    pr = (dfc[f"FOMO{i}"]*dfc[f"AIU{i}"]).values
+    dfr[f"INT{i}"] = pr - Xfirst @ np.linalg.lstsq(Xfirst, pr, rcond=None)[0]
+m_rc = Model(M_FULL); m_rc.fit(dfr); rci = m_rc.inspect(std_est=True)
+R["resid_centered"] = {f"{l}~{r}": row(rci, l, "~", r) for l, r in [("FOMO","SME"),("HRD","FOMO"),("IDQ","HRD"),("HRD","INT"),("IDQ","AIU")]}
+R["resid_centered_fit"] = fitstats(m_rc, dfr)
+# بازمشخص‌سازی: آزاد کردن چهار بزرگ‌ترین باقی‌ماندهٔ همبستگی درون‌سازه‌ای (CFA)
+sig_ = cfa.calc_sigma()[0]; nm_ = cfa.vars["observed"]; Sx_ = X[nm_].cov().values; sd_ = np.sqrt(np.diag(Sx_))
+res_ = (Sx_ - sig_)/np.outer(sd_, sd_); pairs = []
+for i_ in range(len(nm_)):
+    for j_ in range(i_):
+        if nm_[i_].rstrip("0123456789") == nm_[j_].rstrip("0123456789"): pairs.append((abs(res_[i_, j_]), nm_[j_], nm_[i_]))
+pairs = sorted(pairs, reverse=True)[:4]
+add_ = "".join(f"{a_} ~~ {b_}\n" for _, a_, b_ in pairs)
+m_rs = Model(M_FULL + add_); m_rs.fit(dfc); rsi = m_rs.inspect(std_est=True)
+R["respec"] = dict(pairs=[(a_, b_) for _, a_, b_ in pairs], fit=fitstats(m_rs, dfc),
+                   paths={f"{l}~{r}": row(rsi, l, "~", r) for l, r in [("FOMO","SME"),("HRD","FOMO"),("IDQ","HRD"),("HRD","INT"),("IDQ","AIU")]})
 
 json.dump(R, open(os.path.join(OUT, "results_paper1.json"), "w"), ensure_ascii=False, indent=1)
 bt.describe().T.round(4).to_csv(os.path.join(OUT, "bootstrap_summary.csv"), encoding="utf-8-sig")
@@ -262,6 +283,6 @@ print("CMB", R["cmb"]["harman"], R["cmb"]["one_factor"]["cfi"], R["cmb"].get("cl
 for f, v in R["rel"].items(): print(f, {k: round(x, 3) for k, x in v.items()})
 for k, v in R["paths"].items(): print(k, {a: round(b, 3) for a, b in v.items()})
 for k, v in R["indirect"].items(): print(k, {a: (round(b, 3) if not isinstance(b, bool) else b) for a, b in v.items()})
-print("R2", R.get("r2"), R["r2_comp"], "f2 int", R["f2_int"])
+print("R2", R["r2"], "f2 int", R["f2_int"])
 for k, v in R["models"].items(): print(k, v["name"], round(v["chi2"], 1), v["df"], round(v["cfi"], 3), round(v["rmsea"], 3), round(v["aic"], 1))
-print("simple", R["simple_slopes"]); print("HTMT max", R["htmt_max"], "VIF", R["vif"])
+print("respec", R["respec"]["pairs"], {k: round(v, 3) for k, v in R["respec"]["fit"].items()}); print("rc", R["resid_centered"]["HRD~INT"], {k: round(v, 3) for k, v in R["resid_centered_fit"].items()}); print("HTMT max", R["htmt_max"], "VIF", R["vif"])

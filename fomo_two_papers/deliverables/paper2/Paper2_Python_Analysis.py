@@ -173,7 +173,7 @@ class MGCFA:
             Lam, Psi, Theta, nu, kap = self._unpack(r.x, g); Sig = Lam@Psi@Lam.T + np.diag(Theta)
             sd = np.sqrt(np.diag(self.S[g])); res = (self.S[g]-Sig)/np.outer(sd, sd)
             srs.append(np.sqrt((res[np.tril_indices(self.p)]**2).mean()))
-        return dict(chi2=chi2, df=df, cfi=cfi, rmsea=rmsea, srmr=float(np.mean(srs)), npar=self.npar, x=r.x, ok=r.success)
+        return dict(chi2=chi2, df=df, cfi=cfi, rmsea=rmsea, srmr=float(np.mean(srs)), npar=self.npar, x=r.x, ok=r.success, cfg=(inv_load, inv_int, tuple(free_int)))
 
     def _layout_custom(self, inv_load, inv_int, free_int):
         free_int = set(free_int)
@@ -211,6 +211,26 @@ class MGCFA:
             gaps.append(abs(self.xbar[0][i]-self.xbar[1][i])/pooled)
         return np.array(gaps)
 
+
+    def latent_mean_tests(self, res, h=1e-5):
+        """آزمون میانگین‌های پنهان گروه دوم نسبت به گروه اول (مدل اسکالر): κ، خطای معیار والد از هسین عددی، z، p و d استاندارد"""
+        from scipy import stats
+        self._layout_custom(*res["cfg"]); x = res["x"]; n = len(x); N = sum(self.n)
+        Hm = np.zeros((n, n))
+        for j in range(n):
+            xp = x.copy(); xm = x.copy(); xp[j] += h; xm[j] -= h
+            Hm[:, j] = (self.fun(xp)[1] - self.fun(xm)[1])/(2*h)
+        Hm = (Hm + Hm.T)/2
+        cov = (2.0/N)*np.linalg.pinv(Hm)
+        out = {}
+        g = self.G - 1
+        for k, f in enumerate(self.fac):
+            idx = self.map[g]["kappa"][k]; kap = x[idx]; se = float(np.sqrt(max(cov[idx, idx], 1e-12)))
+            ph = [self._unpack(x, gg)[1][k, k] for gg in range(self.G)]
+            d = kap/np.sqrt(np.mean(ph)); z = kap/se
+            out[f] = dict(kappa=float(kap), se=se, z=float(z), p=float(2*(1 - stats.norm.cdf(abs(z)))), d=float(d))
+        return out
+
 # ---- پایان mgcfa.py ----
 
 
@@ -218,7 +238,7 @@ SEED, N = 24071, 442
 DATA_PATH = None
 OUT = os.path.join(HERE, "output"); os.makedirs(OUT, exist_ok=True)
 DATA_DIR = os.path.join(HERE, "output"); os.makedirs(DATA_DIR, exist_ok=True)
-B = 2000; BG = 1000
+B = int(os.environ.get("BOOT", 2000)); BG = int(os.environ.get("BOOT_G", 1000))
 z = lambda x: (x-x.mean())/x.std()
 
 # ------------------------------------------------------------ ۱) شبیه‌سازی
@@ -234,7 +254,7 @@ def simulate(seed=SEED, n=N):
     bAR = np.where(LE==1, .40, .20); bSC = .30; bF_idq = np.where(LE==1, -.34, -.20); bA_idq = np.where(LE==1, .40, .25)
     FOMO = z(bSC*SC + bAR*AR + .24*SME + .18*LE + .75*rng.normal(size=n))
     AIU = z(.46*AL - .25*SME - .05*LE + .85*rng.normal(size=n))
-    IDQ = z(bF_idq*FOMO + bA_idq*AIU + .12*AL - .60*np.maximum(FOMO-.2, 0) + .35*FOMO*AIU + .10*exp_z + .78*rng.normal(size=n))
+    IDQ = z(bF_idq*FOMO + bA_idq*AIU + .12*AL - 1.00*np.maximum(FOMO-.2, 0) + .55*FOMO*AIU + .10*exp_z + .78*rng.normal(size=n))
     HRD = z(.45*FOMO + .10*SME - .15*AIU + .80*rng.normal(size=n))
     lat = dict(SC=z(SC), AR=z(AR), SME=z(SME), FOMO=FOMO, AL=z(AL), AIU=AIU, IDQ=IDQ, HRD=HRD)
     spec = dict(SC=[.79,.76,.72,.67], AR=[.80,.76,.73,.66], SME=[.78,.74,.70,.66,.61], FOMO=[.81,.77,.73,.70,.67,.63],
@@ -264,6 +284,7 @@ R["demo"] = dict(male=float((df.gender==1).mean()*100), age_m=float(df.age.mean(
     edu={int(k): float(v*100) for k, v in df.edu.value_counts(normalize=True).sort_index().items()},
     port_med=float(df.portfolio.median()), port_q1=float(df.portfolio.quantile(.25)), port_q3=float(df.portfolio.quantile(.75)))
 it = pd.DataFrame({"mean": X.mean(), "sd": X.std(), "skew": X.apply(stats.skew), "kurt": X.apply(stats.kurtosis)})
+R["items"] = it.round(3).to_dict("index")
 R["skew_range"] = [float(it["skew"].min()), float(it["skew"].max())]; R["kurt_range"] = [float(it["kurt"].min()), float(it["kurt"].max())]
 Zc = (X - X.mean()).values; S = np.cov(Zc.T, bias=True); d2 = np.einsum("ij,jk,ik->i", Zc, np.linalg.inv(S), Zc)
 p = X.shape[1]; mk = (d2**2).mean(); R["mardia"] = dict(k=float(mk), expected=float(p*(p+2)), z=float((mk-p*(p+2))/np.sqrt(8*p*(p+2)/len(df))))
@@ -292,8 +313,6 @@ for f, k in FAC.items():
     alpha = float(k/(k-1)*(1 - X[cols].var().sum()/X[cols].sum(axis=1).var()))
     rel[f] = dict(items=k, alpha=alpha, cr=cr, ave=ave, sqrt_ave=ave**.5, lmin=float(l.min()), lmax=float(l.max()))
 R["rel"] = rel
-comp = pd.DataFrame({f: X[[f"{f}{j}" for j in range(1, k+1)]].mean(axis=1) for f, k in FAC.items()})
-R["comp_desc"] = {f: dict(m=float(comp[f].mean()), sd=float(comp[f].std())) for f in FAC}
 lc = ins[(ins.op=="~~") & (ins.lval.isin(FAC)) & (ins.rval.isin(FAC)) & (ins.lval!=ins.rval)]
 latcorr = pd.DataFrame(np.eye(len(FAC)), index=FAC, columns=FAC)
 for _, r in lc.iterrows(): latcorr.loc[r.lval, r.rval] = latcorr.loc[r.rval, r.lval] = float(r["Est. Std"])
@@ -318,11 +337,13 @@ si = sem.inspect(std_est=True)
 PAIRS = [("FOMO","SC"),("FOMO","AR"),("FOMO","SME"),("FOMO","LE"),("AIU","AL"),("AIU","SME"),("AIU","LE"),
          ("IDQ","FOMO"),("IDQ","AIU"),("IDQ","AL"),("IDQ","LE"),("IDQ","exp")]
 R["paths"] = {f"{l}~{r}": row(si, l, "~", r) for l, r in PAIRS}
-cz = (comp - comp.mean())/comp.std(); cz["LE"] = df.LE.values; cz["exp"] = dfc["exp"].values
-R["r2_comp"] = dict(
-    FOMO=float(sm.OLS(cz.FOMO, sm.add_constant(cz[["SC","AR","SME","LE"]])).fit().rsquared),
-    AIU=float(sm.OLS(cz.AIU, sm.add_constant(cz[["AL","SME","LE"]])).fit().rsquared),
-    IDQ=float(sm.OLS(cz.IDQ, sm.add_constant(cz[["FOMO","AIU","AL","LE","exp"]])).fit().rsquared))
+def latent_r2(ins_std, dvs=("FOMO", "AIU", "IDQ")):
+    out = {}
+    for dv in dvs:
+        q = ins_std[(ins_std.lval == dv) & (ins_std.op == "~~") & (ins_std.rval == dv)].iloc[0]; out[dv] = float(1 - float(q["Est. Std"]))
+    return out
+R["r2"] = latent_r2(si)
+R["sem_loadings"] = {r.lval: float(r["Est. Std"]) for _, r in si[(si.op == "~") & (si.rval.isin(list(FAC)))].iterrows()}
 # مدل رقیب: بدون مسیر مستقیم AL→IDQ و بدون SME→AIU
 alt = Model(CFA + "FOMO ~ SC + AR + SME + LE\nAIU ~ AL + LE\nIDQ ~ FOMO + AIU + LE + exp\nSC ~~ AR\nSC ~~ SME\nSC ~~ AL\nAR ~~ SME\nAR ~~ AL\nSME ~~ AL\n")
 alt.fit(dfc); R["alt"] = fitstats(alt, dfc)
@@ -361,15 +382,7 @@ for it_name in order[:6]:
 inv["partial"] = part
 R["invariance"] = {k: {a: float(b) for a, b in v.items() if a in ("chi2","df","cfi","rmsea","srmr","npar")} for k, v in inv.items()}
 R["invariance_freed"] = steps
-R["latent_mean_diff"] = {k: float(v) for k, v in mg.latent_means(inv["partial"]).items()}
-# اندازهٔ اثر تفاوت میانگین نمرات ترکیبی بین دو گروه
-tt = {}
-for f in FAC:
-    a, b = comp[f][df.LE==1], comp[f][df.LE==0]; t, pv = stats.ttest_ind(a, b, equal_var=False)
-    sp = np.sqrt(((len(a)-1)*a.var() + (len(b)-1)*b.var())/(len(a)+len(b)-2))
-    tt[f] = dict(m1=float(a.mean()), m0=float(b.mean()), t=float(t), p=float(pv), d=float((a.mean()-b.mean())/sp))
-R["group_means"] = tt
-
+R["latent_mean_diff"] = mg.latent_mean_tests(inv["partial"])
 # ------------------------------------------------------------ ۶) مقایسهٔ مسیرها بین گروه‌ها
 GS = CFA + "FOMO ~ SC + AR + SME\nAIU ~ AL + SME\nIDQ ~ FOMO + AIU + AL + exp\nSC ~~ AR\nSC ~~ SME\nSC ~~ AL\nAR ~~ SME\nAR ~~ AL\nSME ~~ AL\n"
 GP = [("FOMO","SC"),("FOMO","AR"),("FOMO","SME"),("AIU","AL"),("AIU","SME"),("IDQ","FOMO"),("IDQ","AIU")]
@@ -406,10 +419,23 @@ from sklearn.model_selection import RepeatedKFold, cross_val_predict
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-feat = comp[["SC","AR","SME","FOMO","AL","AIU"]].copy()
+def factor_scores(m, data):
+    """نمرات عاملی روش رگرسیونی از برآوردهای CFA (وزن‌دهی بر پایهٔ بارها؛ نه میانگین ساده)"""
+    ii = m.inspect(); items_ = m.vars["observed"]; facs_ = list(FAC)
+    Lam = np.zeros((len(items_), len(facs_))); Th = np.zeros(len(items_)); Ph = np.eye(len(facs_))
+    for _, r in ii.iterrows():
+        if r.op == "~" and r.rval in facs_ and r.lval in items_: Lam[items_.index(r.lval), facs_.index(r.rval)] = float(r.Estimate)
+        if r.op == "~~" and r.lval in items_ and r.lval == r.rval: Th[items_.index(r.lval)] = float(r.Estimate)
+        if r.op == "~~" and r.lval in facs_ and r.rval in facs_: Ph[facs_.index(r.lval), facs_.index(r.rval)] = Ph[facs_.index(r.rval), facs_.index(r.lval)] = float(r.Estimate)
+    Sg = Lam @ Ph @ Lam.T + np.diag(Th); W = Ph @ Lam.T @ np.linalg.inv(Sg)
+    Z = (data[items_] - data[items_].mean()).values
+    F = Z @ W.T
+    return pd.DataFrame((F - F.mean(0))/F.std(0), columns=facs_)
+fs_ = factor_scores(cfa, X)
+feat = fs_[["SC", "AR", "SME", "FOMO", "AL", "AIU"]].copy()
 feat["LE"] = df.LE.values; feat["exp"] = df.exp.values; feat["age"] = df.age.values; feat["gender"] = df.gender.values; feat["edu"] = df.edu.values
 feat["logport"] = np.log(df.portfolio.values)
-y = comp["IDQ"].values
+y = fs_["IDQ"].values
 models = {"OLS": LinearRegression(),
           "RF": RandomForestRegressor(n_estimators=500, min_samples_leaf=6, max_features=.5, random_state=SEED, n_jobs=-1),
           "GBM": GradientBoostingRegressor(n_estimators=150, learning_rate=.04, max_depth=2, subsample=.8, min_samples_leaf=10, random_state=SEED)}
@@ -452,4 +478,4 @@ for k, v in R["paths"].items(): print(k, {a: round(b, 3) for a, b in v.items()})
 for k, v in R["indirect"].items(): print(k, {a: (round(b, 3) if not isinstance(b, bool) else b) for a, b in v.items()})
 print("INV", {k: {a: round(b, 3) for a, b in v.items()} for k, v in R["invariance"].items()}, R["invariance_freed"])
 for k, v in R["group_paths"].items(): print(k, round(v["g0"]["b"], 3), round(v["g1"]["b"], 3), "diff", round(v["diff"], 3), "z", round(v["z"], 2), "p", round(v["p"], 4), "boot", round(v["boot_lo"], 3), round(v["boot_hi"], 3))
-print("ML", R["ml"], R["ml_tests"]); print("SHAP", R["shap"]); print("R2", R["r2_comp"], "means", {k: round(v["d"], 2) for k, v in R["group_means"].items()})
+print("ML", R["ml"], R["ml_tests"]); print("SHAP", R["shap"]); print("R2", R["r2"], "latent means", {k: (round(v["d"], 2), round(v["p"], 4)) for k, v in R["latent_mean_diff"].items()})

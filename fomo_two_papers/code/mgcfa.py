@@ -108,7 +108,7 @@ class MGCFA:
             Lam, Psi, Theta, nu, kap = self._unpack(r.x, g); Sig = Lam@Psi@Lam.T + np.diag(Theta)
             sd = np.sqrt(np.diag(self.S[g])); res = (self.S[g]-Sig)/np.outer(sd, sd)
             srs.append(np.sqrt((res[np.tril_indices(self.p)]**2).mean()))
-        return dict(chi2=chi2, df=df, cfi=cfi, rmsea=rmsea, srmr=float(np.mean(srs)), npar=self.npar, x=r.x, ok=r.success)
+        return dict(chi2=chi2, df=df, cfi=cfi, rmsea=rmsea, srmr=float(np.mean(srs)), npar=self.npar, x=r.x, ok=r.success, cfg=(inv_load, inv_int, tuple(free_int)))
 
     def _layout_custom(self, inv_load, inv_int, free_int):
         free_int = set(free_int)
@@ -145,3 +145,23 @@ class MGCFA:
             pooled = np.sqrt(np.mean([self.S[g][i, i] for g in range(self.G)]))
             gaps.append(abs(self.xbar[0][i]-self.xbar[1][i])/pooled)
         return np.array(gaps)
+
+
+    def latent_mean_tests(self, res, h=1e-5):
+        """آزمون میانگین‌های پنهان گروه دوم نسبت به گروه اول (مدل اسکالر): κ، خطای معیار والد از هسین عددی، z، p و d استاندارد"""
+        from scipy import stats
+        self._layout_custom(*res["cfg"]); x = res["x"]; n = len(x); N = sum(self.n)
+        Hm = np.zeros((n, n))
+        for j in range(n):
+            xp = x.copy(); xm = x.copy(); xp[j] += h; xm[j] -= h
+            Hm[:, j] = (self.fun(xp)[1] - self.fun(xm)[1])/(2*h)
+        Hm = (Hm + Hm.T)/2
+        cov = (2.0/N)*np.linalg.pinv(Hm)
+        out = {}
+        g = self.G - 1
+        for k, f in enumerate(self.fac):
+            idx = self.map[g]["kappa"][k]; kap = x[idx]; se = float(np.sqrt(max(cov[idx, idx], 1e-12)))
+            ph = [self._unpack(x, gg)[1][k, k] for gg in range(self.G)]
+            d = kap/np.sqrt(np.mean(ph)); z = kap/se
+            out[f] = dict(kappa=float(kap), se=se, z=float(z), p=float(2*(1 - stats.norm.cdf(abs(z)))), d=float(d))
+        return out

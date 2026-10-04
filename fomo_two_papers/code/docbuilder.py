@@ -66,7 +66,7 @@ class Doc:
         if pos < len(text): out.append(self._run(text[pos:], **kw))
         return "".join(out)
 
-    def para(self, text, jc="both", indent=True, size=None, bold=False, rtl=True, font=None, after=80, before=0, keep=False, persian=True, **kw):
+    def para(self, text, jc="both", indent=True, size=None, bold=False, rtl=True, font=None, after=50, before=0, keep=False, persian=True, **kw):
         ppr = ('<w:keepNext/>' if keep else '') + ('<w:bidi/>' if rtl else '')
         ppr += f'<w:spacing w:before="{before}" w:after="{after}" w:line="240" w:lineRule="auto"/>'
         if indent: ppr += '<w:ind w:firstLine="360"/>'
@@ -76,7 +76,7 @@ class Doc:
         self.parts.append(f"<w:p><w:pPr>{ppr}</w:pPr>{self.runs(text, persian=persian, size=size, bold=bold, font=font, **kw)}</w:p>")
 
     def heading(self, text, level=1):
-        self.para(text, jc="right", indent=False, size=self.body-2 if self.body > 24 else 24, bold=True, before=160, after=80, keep=True, italic=(level == 3))
+        self.para(text, jc="right", indent=False, size=self.body-2 if self.body > 24 else 24, bold=True, before=110, after=50, keep=True, italic=(level == 3))
 
     def title(self, text):
         self.para(text, jc="center", indent=False, size=24, bold=True, font=self.tf, after=200)
@@ -91,7 +91,7 @@ class Doc:
         self.para(text, jc="center", indent=False, size=size, bold=True, font=self.tf, after=60, before=120, keep=True)
 
     def reference(self, text, latin=False):
-        if latin: self.para(text, jc="left", indent=False, size=24, rtl=False, persian=False, font=self.lat, after=60)
+        if latin: self.para(text, jc="left", indent=False, size=24, rtl=False, persian=False, font=self.lat, after=30)
         else:
             self.para(text, jc="both", indent=False, size=24, after=60)
 
@@ -147,7 +147,7 @@ class Doc:
               f'<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>']
         for n, mark, en in self.footnotes:
             rp = f'<w:rPr><w:rFonts w:ascii="{self.lat}" w:hAnsi="{self.lat}" w:cs="{self.lat}"/><w:sz w:val="22"/><w:szCs w:val="22"/>'
-            fn.append(f'<w:footnote w:id="{n}"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="left"/></w:pPr>'
+            fn.append(f'<w:footnote w:id="{n}"><w:p><w:pPr><w:bidi w:val="0"/><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="left"/></w:pPr>'
                       f'<w:r>{rp}<w:vertAlign w:val="superscript"/></w:rPr><w:t xml:space="preserve">{mark} </w:t></w:r>'
                       f'<w:r>{rp}</w:rPr><w:t xml:space="preserve">{escape(en)}</w:t></w:r></w:p></w:footnote>')
         footnotes = f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes {NS}>{"".join(fn)}</w:footnotes>'
