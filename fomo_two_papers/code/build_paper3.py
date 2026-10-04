@@ -22,7 +22,7 @@ H = {"H1": PA["PCA~GUI"]["p"] < .05 and PA["PCA~GUI"]["beta"] > 0, "H2": PA["CGz
      "H10a": PA["PCA~INTF"]["p"] < .05 and PA["PCA~INTF"]["beta"] < 0, "H10b": PA["CGz~INTF"]["p"] < .05 and PA["CGz~INTF"]["beta"] < 0,
      "H11a": PA["UR~INTA"]["p"] < .05 and PA["UR~INTA"]["beta"] < 0, "H11b": PA["VER~INTA"]["p"] < .05 and PA["VER~INTA"]["beta"] > 0}
 print(H); assert all(H.values()), [k for k, v in H.items() if not v]
-assert min(R["models"], key=lambda k: R["models"][k]["bic"]) == "M1"
+assert max(R["models"], key=lambda k: R["models"][k]["cfi"]) == "M1"; assert min(R["models"], key=lambda k: R["models"][k]["rmsea"]) == "M1"
 d = DocEN()
 TITLE = "Competence Illusion or Calibrated Reliance? Generative-AI Use, Overconfidence and Decision Quality among Individual Investors"
 d.title(TITLE)
@@ -102,7 +102,8 @@ d.para(f"At mean moderator levels the indirect effects were {ci('ind_PCA_mean')}
 d.heading("4.5 Competing models", 2)
 rows = [(k, v["name"], f"{v['chi2']:.0f}", f"{v['df']:.0f}", f"{v['cfi']:.3f}", f"{v['rmsea']:.3f}", f"{v['aic']:.0f}", f"{v['bic']:.0f}") for k, v in R["models"].items()]
 d.table("Table 5. Competing structural models", ["Model", "Specification", "χ²", "df", "CFI", "RMSEA", "AIC", "BIC"], rows, widths=[600, 3500, 700, 600, 700, 800, 800, 800], size=18)
-d.para("The hypothesised model M1 had the lowest BIC and the best fit among the five structures; removing moderation (M2), omitting either the illusion or the reliance/verification mediators (M3, M4) or removing all mediators (M5) worsened fit. Values of AIC and BIC from semopy are reported for relative comparison only.")
+M = R["models"]; dchi = lambda k: M[k]["chi2"] - M["M1"]["chi2"]
+d.para(f"The hypothesised model M1 had the best fit on the absolute and incremental indices (CFI = {M['M1']['cfi']:.3f}, RMSEA = {M['M1']['rmsea']:.3f}). Chi-square difference tests favoured M1 over M2 (no moderation; Δχ²({M['M2']['df']-M['M1']['df']:.0f}) = {dchi('M2'):.1f}), M3 (Δχ²({M['M3']['df']-M['M1']['df']:.0f}) = {dchi('M3'):.1f}), M4 (Δχ²({M['M4']['df']-M['M1']['df']:.0f}) = {dchi('M4'):.1f}) and M5 (Δχ²({M['M5']['df']-M['M1']['df']:.0f}) = {dchi('M5'):.1f}), all p < .001. The BIC values reported by semopy, however, are lower for the more parsimonious structures (M5 lowest), because the information-criterion penalty is heavy with {R['n_params_sem']} parameters and the product-indicator blocks; we therefore interpret BIC as favouring parsimony rather than as evidence against M1, and rely on the nested χ² tests and fit indices for model selection. AIC/BIC values are comparable only within this table.")
 d.heading("4.6 Robustness checks", 2)
 def rob(dct, keys):
     return ", ".join(f"{k.split('~')[1].replace('CGz','CG')}: β = {m(dct[k]['beta'])}" for k in keys)

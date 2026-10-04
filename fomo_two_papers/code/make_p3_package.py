@@ -29,11 +29,11 @@ for v in P.VARS:
 extra = {"FKz": "Standardized knowledge-test score (moderator)", "CGz": "Standardized calibration gap = predicted − actual score", "CG": "Calibration gap (raw)", "VIGERR": "Wrong AI statements accepted (0–2)"}
 cbdf = pd.DataFrame(cb, columns=["Item", "Latent", "Construct", "Wording", "Response", "Origin", "References"])
 with pd.ExcelWriter(os.path.join(D, "Paper3_Data.xlsx")) as w:
-    df.to_excel(w, "Data", index=False); cbdf.to_excel(w, "Codebook", index=False)
-    pd.DataFrame([dict(Variable=k, Description=v) for k, v in extra.items()]).to_excel(w, "Derived_variables", index=False)
-    pd.DataFrame(R["rel"]).T.to_excel(w, "Reliability")
-    pd.DataFrame(R["paths"]).T.to_excel(w, "Paths")
-    pd.DataFrame(R["indirect"]).T.to_excel(w, "Indirect_effects")
-    pd.DataFrame(R["models"]).T.to_excel(w, "Competing_models")
+    df.to_excel(w, sheet_name="Data", index=False); cbdf.to_excel(w, sheet_name="Codebook", index=False)
+    pd.DataFrame([dict(Variable=k, Description=v) for k, v in extra.items()]).to_excel(w, sheet_name="Derived_variables", index=False)
+    pd.DataFrame(R["rel"]).T.to_excel(w, sheet_name="Reliability")
+    pd.DataFrame(R["paths"]).T.to_excel(w, sheet_name="Paths")
+    pd.DataFrame(R["indirect"]).T.to_excel(w, sheet_name="Indirect_effects")
+    pd.DataFrame(R["models"]).T.to_excel(w, sheet_name="Competing_models")
 shutil.copy(os.path.join(ROOT, "paper3", "output", "fig_p3_model.png"), os.path.join(D, "Figure1_model.png")) if os.path.exists(os.path.join(ROOT, "paper3", "output", "fig_p3_model.png")) else None
 print("package ok")

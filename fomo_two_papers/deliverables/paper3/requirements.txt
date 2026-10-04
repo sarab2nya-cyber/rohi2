@@ -1,0 +1,8 @@
+numpy
+pandas
+scipy
+statsmodels
+matplotlib
+openpyxl
+# semopy 2.3.11 separately:
+# pip install "setuptools<58" wheel && pip install --no-build-isolation semopy==2.3.11
