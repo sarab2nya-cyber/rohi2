@@ -1,0 +1,13 @@
+﻿,mean,0.025,0.975,sig
+ind_OC,-0.0785,-0.1189,-0.0438,True
+ind_OC_lowFL,-0.1183,-0.1702,-0.073,True
+ind_OC_highFL,-0.0388,-0.0781,-0.0046,True
+ind_HRD,-0.0612,-0.0948,-0.0327,True
+ind_HRD_lowFL,-0.0924,-0.1384,-0.0532,True
+ind_HRD_highFL,-0.03,-0.0611,-0.0033,True
+ind_LA,-0.091,-0.1306,-0.0566,True
+ind_LA_lowFL,-0.1374,-0.1871,-0.092,True
+ind_LA_highFL,-0.0446,-0.0852,-0.0053,True
+index_modmed_OC,0.0438,0.0226,0.0674,True
+index_modmed_HRD,0.0344,0.0155,0.0565,True
+index_modmed_LA,0.0511,0.0264,0.078,True
