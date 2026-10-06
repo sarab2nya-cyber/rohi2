@@ -33,7 +33,7 @@ SHEET     = 0             # نام یا شمارهٔ شیت
 B         = 2000          # تعداد بازنمونهٔ خودگردان (برای آزمایش سریع مثلاً 200)
 SEED      = 14031         # فقط برای تکرارپذیری بازنمونه‌گیری
 N_JOBS    = -1            # همهٔ هسته‌ها
-MALE_CODE = 1             # کدی که در ستون gender نشان‌دهندهٔ «مرد» است
+MALE_CODE = 1             # gender: مرد = 1 ، زن = 0
 OUT = "output"; os.makedirs(OUT, exist_ok=True)
 
 if not os.path.exists(DATA_PATH):
@@ -61,6 +61,7 @@ df = df.loc[~bad_rows & df[["age", "exp", "gender"]].notna().all(axis=1)].reset_
 if "ID" in df.columns:
     dup = int(df["ID"].duplicated().sum()); print("ID تکراری:", dup)
     df = df.drop_duplicates("ID").reset_index(drop=True)
+assert set(df.gender.unique()) <= {0, 1}, f"مقادیر غیرمنتظره در gender: {df.gender.unique()}"
 print("نمونهٔ نهایی N =", len(df))
 # پاسخ‌های یکنواخت (straight-lining) فقط گزارش می‌شود و حذف نمی‌شود
 R = {"n_raw": int(n_raw), "n": int(len(df)), "straightliners": int((df[ITEMS].std(axis=1) == 0).sum())}
