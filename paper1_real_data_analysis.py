@@ -6,15 +6,21 @@
 # هیچ داده‌ای شبیه‌سازی نمی‌شود؛ همهٔ اعداد از فایل شما محاسبه می‌شوند.
 
 # %% [code]
-# --- ۱) نصب (فقط یک‌بار). اگر پس از نصب باز هم semopy پیدا نشد: Runtime ▸ Restart session و دوباره اجرا ---
+# --- ۱) نصب (فقط یک‌بار) ---
+# اگر قبلاً نسخهٔ قدیمی این سلول را اجرا کرده‌اید: Runtime ▸ Disconnect and delete runtime، سپس دوباره اتصال و اجرا.
 import os, sys, subprocess, importlib.util
 os.environ["OMP_NUM_THREADS"] = "1"
-pip = lambda *a: subprocess.run([sys.executable, "-m", "pip", "-q", "install", *a])
+def pip(*a):
+    r = subprocess.run([sys.executable, "-m", "pip", "install", "-q", *a], capture_output=True, text=True)
+    if r.returncode: print("خطای pip برای", a, "\n", r.stderr[-1500:])
+    return r.returncode
+pip("-U", "setuptools>=65", "wheel")                 # setuptools قدیمی (<58) باعث خرابی نصب می‌شود
 pip("numpy", "pandas", "scipy", "statsmodels", "scikit-learn", "matplotlib", "openpyxl", "joblib")
-pip("semopy")                                    # روش عادی؛ در نسخه‌های جدید Colab درست کار می‌کند
-if importlib.util.find_spec("semopy") is None:   # راه جایگزین (برای محیط‌های قدیمی)
-    pip("setuptools<58", "wheel"); pip("--no-build-isolation", "semopy==2.3.11")
-print("semopy آماده است:", importlib.util.find_spec("semopy") is not None)
+if pip("semopy"):                                    # اگر ساخت بسته شکست خورد، با ساخت بدون جداسازی تلاش مجدد
+    pip("--no-build-isolation", "semopy")
+ok = importlib.util.find_spec("semopy") is not None
+print("semopy آماده است:", ok)
+assert ok, "semopy نصب نشد؛ متن خطای بالا را بفرستید."
 
 # %% [code]
 # --- ۲) تنظیمات و بارگذاری فایل اکسل ---
