@@ -6,12 +6,15 @@
 # هیچ داده‌ای شبیه‌سازی نمی‌شود؛ همهٔ اعداد از فایل شما محاسبه می‌شوند.
 
 # %% [code]
-# --- ۱) نصب (فقط یک‌بار؛ سپس Runtime ▸ Restart session اگر خطا داد) ---
-import os
+# --- ۱) نصب (فقط یک‌بار). اگر پس از نصب باز هم semopy پیدا نشد: Runtime ▸ Restart session و دوباره اجرا ---
+import os, sys, subprocess, importlib.util
 os.environ["OMP_NUM_THREADS"] = "1"
-!pip -q install "setuptools<58" wheel
-!pip -q install --no-build-isolation semopy==2.3.11
-!pip -q install numpy pandas scipy statsmodels scikit-learn matplotlib openpyxl joblib
+pip = lambda *a: subprocess.run([sys.executable, "-m", "pip", "-q", "install", *a])
+pip("numpy", "pandas", "scipy", "statsmodels", "scikit-learn", "matplotlib", "openpyxl", "joblib")
+pip("semopy")                                    # روش عادی؛ در نسخه‌های جدید Colab درست کار می‌کند
+if importlib.util.find_spec("semopy") is None:   # راه جایگزین (برای محیط‌های قدیمی)
+    pip("setuptools<58", "wheel"); pip("--no-build-isolation", "semopy==2.3.11")
+print("semopy آماده است:", importlib.util.find_spec("semopy") is not None)
 
 # %% [code]
 # --- ۲) تنظیمات و بارگذاری فایل اکسل ---
