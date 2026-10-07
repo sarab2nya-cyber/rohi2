@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V18.0 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V18.1 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -33,7 +33,10 @@ cdlColorBars     = input.bool(false, "Color Candles by Type (check the classifie
 // Real Breakout Settings
 grp_bo           = "Real Breakout Settings"
 bo_c1_above_pct  = input.float(0.30, "C1 Candle % Beyond BOI incl. shadows - must exceed (Rule 2,3)", step=0.05, group=grp_bo)
-bo_c2_max_size   = input.float(0.30, "C2 Size % vs C1 - must be below (Rule 3)", step=0.05, group=grp_bo)
+bo_c2_max_size   = input.float(0.30, "C2 Length % vs C1 - at most (Rule 3)", step=0.05, group=grp_bo)
+bo_c2_min_r1     = input.float(0.70, "C2 Length % vs C1 - at least (Rule 1, High-Low incl. shadows)", step=0.05, group=grp_bo)
+bo_vol_mode      = input.string("C2 Volume < C1 Volume", "Low Volume on C2 (Rule 2, 3)", options=["C2 Volume < C1 Volume", "C2 Volume < Average Volume", "Off"], group=grp_bo, tooltip="Rule 2 and 3 need low volume on C2. With no volume data on the symbol the test is skipped.")
+bo_vol_len       = input.int(20, "Average Volume Length (for 'C2 Volume < Average Volume')", minval=2, group=grp_bo)
 
 // Real Pullback Settings
 grp_pb           = "Real Pullback Settings"
@@ -44,9 +47,8 @@ pb_c2_max_r3     = input.float(0.30, "PB Rule 3: C2 Length at most % of C1 (Oppo
 grp_tri          = "Special 3-Candle Patterns"
 useTri           = input.bool(true, "Use Special 3-Candle Patterns (A, B, C)", group=grp_tri)
 tri_min_pct      = input.float(0.50, "Candle Length at least % of Ref (largest of last 5 Marubozus)", step=0.05, group=grp_tri)
-tri_c_norm_pct   = input.float(0.40, "Pattern C: Normal candles (C1, C2) Length at least % of Ref", step=0.05, group=grp_tri, tooltip="C3 (Marubozu) keeps the general 50% threshold.")
+tri_c_norm_pct   = input.float(0.50, "Pattern C: Normal candles (C1, C2) Length at least % of Ref", step=0.05, group=grp_tri)
 tri_near_pct     = input.float(0.05, "Pattern B: C2 closes within % of C1's far end", step=0.01, group=grp_tri)
-tri_a_body_pct   = input.float(0.30, "Pattern A: C1 Body % Beyond BOI - must exceed", step=0.05, group=grp_tri)
 showPatterns     = input.bool(false, "Show Pattern Markers (1,2,3 / P1 / A,B,C)", group=grp_tri, tooltip="Inspection aid: marks every completed pattern shape without the level test. Bullish below the candle, bearish above.")
 
 // PRICE ACTION RANGE Settings
@@ -198,10 +200,11 @@ if is_marubozu and is_bear
 // colour (bullish move: all bullish; bearish move: all bearish).
 // Every sized candle is at least 50% of Ref (largest of the 5 SAME-COLOUR
 // Marubozus before C1: bullish patterns vs bullish Marubozus, bearish vs bearish).
-//  A: Marubozu + Pin Bar + Marubozu
-//  B: Pin Bar + Marubozu + Marubozu; C2 is an inside bar of C1, closes in the
-//     last 5% of C1 (towards the move), or closes beyond C1
-//  C: Normal + Normal + Marubozu (the two Normals need only 40% of Ref, C3 50%)
+//  A: Marubozu (>= 50% Ref) + Pin Bar + Marubozu (>= 50% Ref)
+//  B: Pin Bar + Marubozu OR Normal (no size test) + Marubozu (>= 50% Ref);
+//     C2 is an inside bar of C1, closes in the last 5% of C1 (towards the
+//     move), or closes beyond C1
+//  C: Normal + Normal + Marubozu (all three >= 50% Ref)
 // C3 closes beyond the extreme (high / low) of C1 and C2.
 // They confirm a Real Breakout (with the level test in f_real_breakout) and a
 // Real Pullback (no level). The 3 main two-candle conditions are unchanged.
@@ -209,13 +212,11 @@ if is_marubozu and is_bear
 float triRefUp = maruRefBull[2]
 float triRefDn = maruRefBear[2]
 bool  tri_s2u  = not na(triRefUp) and c_range[2] >= tri_min_pct * triRefUp - eps
-bool  tri_s1u  = not na(triRefUp) and c_range[1] >= tri_min_pct * triRefUp - eps
 bool  tri_s0u  = not na(triRefUp) and c_range    >= tri_min_pct * triRefUp - eps
 bool  tri_s2d  = not na(triRefDn) and c_range[2] >= tri_min_pct * triRefDn - eps
-bool  tri_s1d  = not na(triRefDn) and c_range[1] >= tri_min_pct * triRefDn - eps
 bool  tri_s0d  = not na(triRefDn) and c_range    >= tri_min_pct * triRefDn - eps
 bool  tri_in   = high[1] <= high[2] and low[1] >= low[2]
-// Pattern C: the two Normal candles only need 40% of Ref (C3 keeps 50%)
+// Pattern C: the two Normal candles need tri_c_norm_pct (50%) of Ref
 bool  tri_n2u  = not na(triRefUp) and c_range[2] >= tri_c_norm_pct * triRefUp - eps
 bool  tri_n1u  = not na(triRefUp) and c_range[1] >= tri_c_norm_pct * triRefUp - eps
 bool  tri_n2d  = not na(triRefDn) and c_range[2] >= tri_c_norm_pct * triRefDn - eps
@@ -229,7 +230,7 @@ bool tri_all_bull = is_bull[2] and is_bull[1] and is_bull
 bool tri_c3_up  = close > math.max(high[1], high[2])
 bool tri_near_up = close[1] >= high[2] - tri_near_pct * c_range[2] - eps
 bool triA_up = useTri and tri_all_bull and is_marubozu[2] and tri_s2u and is_bull_pin[1] and is_marubozu and tri_s0u and tri_c3_up
-bool triB_up = useTri and tri_all_bull and is_bull_pin[2] and is_marubozu[1] and tri_s1u and (tri_in or tri_near_up) and is_marubozu and tri_s0u and tri_c3_up
+bool triB_up = useTri and tri_all_bull and is_bull_pin[2] and (is_marubozu[1] or is_normal[1]) and (tri_in or tri_near_up) and is_marubozu and tri_s0u and tri_c3_up
 bool triC_up = useTri and tri_all_bull and is_normal[2] and tri_n2u and is_normal[1] and tri_n1u and is_marubozu and tri_s0u and tri_c3_up
 
 // Bearish
@@ -239,27 +240,26 @@ bool tri_all_bear = is_bear[2] and is_bear[1] and is_bear
 bool tri_c3_dn  = close < math.min(low[1], low[2])
 bool tri_near_dn = close[1] <= low[2] + tri_near_pct * c_range[2] + eps
 bool triA_dn = useTri and tri_all_bear and is_marubozu[2] and tri_s2d and is_bear_pin[1] and is_marubozu and tri_s0d and tri_c3_dn
-bool triB_dn = useTri and tri_all_bear and is_bear_pin[2] and is_marubozu[1] and tri_s1d and (tri_in or tri_near_dn) and is_marubozu and tri_s0d and tri_c3_dn
+bool triB_dn = useTri and tri_all_bear and is_bear_pin[2] and (is_marubozu[1] or is_normal[1]) and (tri_in or tri_near_dn) and is_marubozu and tri_s0d and tri_c3_dn
 bool triC_dn = useTri and tri_all_bear and is_normal[2] and tri_n2d and is_normal[1] and tri_n1d and is_marubozu and tri_s0d and tri_c3_dn
 
 bool tri_up = triA_up or triB_up or triC_up
 bool tri_dn = triA_dn or triB_dn or triC_dn
 
 // Level test for the patterns (Real Breakout / range exit):
-//  A: MORE than 30% of C1's BODY beyond the level; B and C: C1 closes beyond the level.
+//  A: C1 AND C3 close beyond the level; B and C: C3 closes beyond the level.
 f_tri_at(level, dir) =>
     bool ok = false
     if not na(level)
-        float bTop = math.max(open[2], close[2])
-        float bBot = math.min(open[2], close[2])
-        float bLen = bTop - bBot
         if dir == 1
-            float part = math.max(0.0, bTop - math.max(bBot, level))
-            ok := (triA_up and part > tri_a_body_pct * bLen + eps) or ((triB_up or triC_up) and close[2] > level)
+            ok := (triA_up and close[2] > level and close > level) or ((triB_up or triC_up) and close > level)
         else if dir == -1
-            float part = math.max(0.0, math.min(bTop, level) - bBot)
-            ok := (triA_dn and part > tri_a_body_pct * bLen + eps) or ((triB_dn or triC_dn) and close[2] < level)
+            ok := (triA_dn and close[2] < level and close < level) or ((triB_dn or triC_dn) and close < level)
     ok
+
+// Low volume on C2 (Rule 2 and 3). No volume data on the symbol -> not tested.
+float volAvg = ta.sma(volume, bo_vol_len)
+bool  bo_c2_low_vol = bo_vol_mode == "Off" or na(volume) or (bo_vol_mode == "C2 Volume < C1 Volume" ? (na(volume[1]) or volume < volume[1]) : (na(volAvg[1]) or volume < volAvg[1]))
 
 // =====================================================================
 // REAL BREAKOUT (3 Main Conditions) - used by market structure AND the Range Box
@@ -269,40 +269,42 @@ f_tri_at(level, dir) =>
 // C2 = current candle) evaluated on the bar it completes.
 //
 // Rule 1: C1 and C2 are Marubozus in the breakout direction, both close beyond
-//         the BOI, and C2 closes beyond the ENTIRE C1 candle (its high in an
-//         up-breakout, its low in a down-breakout). No % beyond BOI required.
-// Rule 2: C1 is a BIG Marubozu with MORE than 30% of its body beyond the BOI;
-//         C2 is a small candle in the breakout direction whose low (high for
-//         down-breakouts) stays beyond the 50% mark of C1.
-// Rule 3: as Rule 2, but C2 is opposite to the breakout direction and SMALLER
-//         than 30% of C1's total size.
+//         the BOI, C2 closes beyond the ENTIRE C1 candle (its high in an
+//         up-breakout, its low in a down-breakout) and C2's length (High-Low)
+//         is at least 70% of C1's length. No % beyond BOI required.
+// Rule 2: C1 is a BIG Marubozu with MORE than 30% of its whole candle beyond
+//         the BOI; C2 is a candle in the breakout direction (any size) whose
+//         low (high for down-breakouts) stays beyond the 50% mark of C1, on
+//         low volume.
+// Rule 3: as Rule 2, but C2 is opposite to the breakout direction and at most
+//         30% of C1's length (High-Low).
 // =====================================================================
 f_real_breakout(level, dir) =>
     bool ok = false
     if not na(level)
         if dir == 1
             // Rule 1: two bullish Marubozus, both closing above the BOI, C2 closing above C1's high
-            bool r1 = is_marubozu[1] and is_marubozu and is_bull[1] and is_bull and (close[1] > level) and (close > level) and (close > high[1])
+            bool r1 = is_marubozu[1] and is_marubozu and is_bull[1] and is_bull and (close[1] > level) and (close > level) and (close > high[1]) and (c_range >= bo_c2_min_r1 * c_range[1] - eps)
             // More than 30% of C1's WHOLE candle (body + shadows) above the CTS
             float c1_part_above = math.max(0.0, high[1] - math.max(low[1], level))
             bool c1_above_30 = c1_part_above > bo_c1_above_pct * c_range[1] + eps
 
             float mid_c1 = (high[1] + low[1]) / 2.0
-            // Rule 2: big bullish Marubozu + bullish candle whose LOW stays above C1's 50%
-            bool r2 = is_big_maru[1] and is_bull[1] and is_bull and (low > mid_c1) and c1_above_30
-            // Rule 3: big bullish Marubozu + small bearish candle (< 30% of C1) holding its upper half
-            bool r3 = is_big_maru[1] and is_bull[1] and is_bear and (c_range < bo_c2_max_size * c_range[1] - eps) and (low > mid_c1) and c1_above_30
+            // Rule 2: big bullish Marubozu + bullish candle (low volume) whose LOW stays above C1's 50%
+            bool r2 = is_big_maru[1] and is_bull[1] and is_bull and (low > mid_c1) and bo_c2_low_vol and c1_above_30
+            // Rule 3: big bullish Marubozu + small bearish candle (<= 30% of C1, low volume) holding its upper half
+            bool r3 = is_big_maru[1] and is_bull[1] and is_bear and (c_range <= bo_c2_max_size * c_range[1] + eps) and (low > mid_c1) and bo_c2_low_vol and c1_above_30
             ok := r1 or r2 or r3
 
         else if dir == -1
-            bool r1 = is_marubozu[1] and is_marubozu and is_bear[1] and is_bear and (close[1] < level) and (close < level) and (close < low[1])
+            bool r1 = is_marubozu[1] and is_marubozu and is_bear[1] and is_bear and (close[1] < level) and (close < level) and (close < low[1]) and (c_range >= bo_c2_min_r1 * c_range[1] - eps)
             // More than 30% of C1's WHOLE candle (body + shadows) below the CTS
             float c1_part_below = math.max(0.0, math.min(high[1], level) - low[1])
             bool c1_below_30 = c1_part_below > bo_c1_above_pct * c_range[1] + eps
 
             float mid_c1 = (high[1] + low[1]) / 2.0
-            bool r2 = is_big_maru[1] and is_bear[1] and is_bear and (high < mid_c1) and c1_below_30
-            bool r3 = is_big_maru[1] and is_bear[1] and is_bull and (c_range < bo_c2_max_size * c_range[1] - eps) and (high < mid_c1) and c1_below_30
+            bool r2 = is_big_maru[1] and is_bear[1] and is_bear and (high < mid_c1) and bo_c2_low_vol and c1_below_30
+            bool r3 = is_big_maru[1] and is_bear[1] and is_bull and (c_range <= bo_c2_max_size * c_range[1] + eps) and (high < mid_c1) and bo_c2_low_vol and c1_below_30
             ok := r1 or r2 or r3
     // ...or one of the special three-candle patterns (A, B, C)
     bool triOk = f_tri_at(level, dir)
@@ -342,12 +344,12 @@ bool pb_r3_up = is_bull[1] and is_big_maru[1] and is_bear and (c_range <= pb_c2_
 bool pb_pattern_up = pb_r1_up or pb_r2_up or pb_r3_up or tri_up
 
 // Real Breakout SHAPES without the level test (used by the pattern markers).
-bool mk_r1_up = is_marubozu[1] and is_marubozu and is_bull[1] and is_bull and close > high[1]
-bool mk_r2_up = is_big_maru[1] and is_bull[1] and is_bull and low > mid_1
-bool mk_r3_up = is_big_maru[1] and is_bull[1] and is_bear and (c_range < bo_c2_max_size * c_range[1] - eps) and low > mid_1
-bool mk_r1_dn = is_marubozu[1] and is_marubozu and is_bear[1] and is_bear and close < low[1]
-bool mk_r2_dn = is_big_maru[1] and is_bear[1] and is_bear and high < mid_1
-bool mk_r3_dn = is_big_maru[1] and is_bear[1] and is_bull and (c_range < bo_c2_max_size * c_range[1] - eps) and high < mid_1
+bool mk_r1_up = is_marubozu[1] and is_marubozu and is_bull[1] and is_bull and close > high[1] and c_range >= bo_c2_min_r1 * c_range[1] - eps
+bool mk_r2_up = is_big_maru[1] and is_bull[1] and is_bull and low > mid_1 and bo_c2_low_vol
+bool mk_r3_up = is_big_maru[1] and is_bull[1] and is_bear and (c_range <= bo_c2_max_size * c_range[1] + eps) and low > mid_1 and bo_c2_low_vol
+bool mk_r1_dn = is_marubozu[1] and is_marubozu and is_bear[1] and is_bear and close < low[1] and c_range >= bo_c2_min_r1 * c_range[1] - eps
+bool mk_r2_dn = is_big_maru[1] and is_bear[1] and is_bear and high < mid_1 and bo_c2_low_vol
+bool mk_r3_dn = is_big_maru[1] and is_bear[1] and is_bull and (c_range <= bo_c2_max_size * c_range[1] + eps) and high < mid_1 and bo_c2_low_vol
 bool shapeBoUp = mk_r1_up or mk_r2_up or mk_r3_up or tri_up
 bool shapeBoDn = mk_r1_dn or mk_r2_dn or mk_r3_dn or tri_dn
 
