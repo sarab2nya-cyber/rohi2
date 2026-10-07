@@ -1,0 +1,443 @@
+# %% [markdown]
+# # Internal Control Architectures and Accountability Dimensions in Emerging Economy Bureaucracies
+# تحلیل کامل داده‌های واقعی با SEM مبتنی بر کوواریانس (semopy)
+# **مدل:** Control Activities (CA: Q1–Q9) و Financial Management (FM: Q10–Q13) → چهار بُعد پاسخ‌گویی:
+# Organizational (ORG: Z1–Z7)، Legal (LEG: Z8–Z13)، Professional (PRO: Z14–Z20)، Political (POL: Z21–Z24)
+# **ورودی:** فایل اکسل با ستون‌های `Gender Age Degree Experience Q1…Q13 Z1…Z24` (۱۸۷ پاسخ‌دهنده)
+# همهٔ اعداد از فایل شما محاسبه می‌شوند؛ جدول‌ها (Excel + PNG) و نمودارها (PNG) در پوشهٔ `output` و فایل zip ذخیره می‌شوند.
+
+# %% [code]
+# --- ۱) نصب (فقط یک‌بار). اگر قبلاً نصب ناموفق بوده: Runtime ▸ Disconnect and delete runtime ---
+import os, sys, subprocess, importlib.util
+os.environ["OMP_NUM_THREADS"] = "1"
+def pip(*a):
+    r = subprocess.run([sys.executable, "-m", "pip", "install", "-q", *a], capture_output=True, text=True)
+    if r.returncode: print("خطای pip برای", a, "\n", r.stderr[-1500:])
+    return r.returncode
+pip("-U", "setuptools>=65", "wheel")
+pip("numpy", "pandas", "scipy", "statsmodels", "scikit-learn", "matplotlib", "openpyxl", "joblib")
+if pip("semopy"): pip("--no-build-isolation", "semopy")
+ok = importlib.util.find_spec("semopy") is not None
+print("semopy آماده است:", ok); assert ok, "semopy نصب نشد؛ متن خطای بالا را بفرستید."
+
+# %% [code]
+# --- ۲) تنظیمات، بارگذاری و ابزارهای کمکی ---
+import json, shutil, warnings
+import numpy as np, pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse, Rectangle, FancyArrowPatch
+from scipy import stats
+import statsmodels.api as sm
+from statsmodels.stats.diagnostic import lilliefors
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from joblib import Parallel, delayed
+from IPython.display import display
+from semopy import Model, calc_stats
+warnings.filterwarnings("ignore")
+pd.set_option("display.width", 200, "display.max_columns", 60)
+plt.rcParams.update({"font.family": "DejaVu Sans", "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 110})
+
+DATA_PATH = "data.xlsx"    # نام فایل اکسل؛ اگر در Colab نبود، پنجرهٔ آپلود باز می‌شود
+SHEET, B, SEED, N_JOBS = 0, 2000, 14031, -1     # B = تعداد بازنمونهٔ خودگردان (برای آزمایش سریع 200)
+LOW_LOADING = 0.40         # گویه‌هایی با |λ| کمتر از این مقدار در تحلیل حساسیت حذف می‌شوند
+OUT = "output"; PNG = f"{OUT}/png"; os.makedirs(PNG, exist_ok=True)
+
+# سازه‌ها و گویه‌ها (مطابق نمودار مدل)
+ITEMS = {"CA": [f"Q{i}" for i in range(1, 10)], "FM": [f"Q{i}" for i in range(10, 14)],
+         "ORG": [f"Z{i}" for i in range(1, 8)], "LEG": [f"Z{i}" for i in range(8, 14)],
+         "PRO": [f"Z{i}" for i in range(14, 21)], "POL": [f"Z{i}" for i in range(21, 25)]}
+EXO, ENDO = ["CA", "FM"], ["ORG", "LEG", "PRO", "POL"]
+FULL = {"CA": "Control Activities", "FM": "Financial Management", "ORG": "Organizational", "LEG": "Legal", "PRO": "Professional", "POL": "Political"}
+ALL_ITEMS = [i for k in ITEMS for i in ITEMS[k]]
+OWNER = {i: k for k in ITEMS for i in ITEMS[k]}
+# برچسب سطوح متغیرهای جمعیت‌شناختی (طبق جدول شما)
+LABELS = {"gender": {1: "Male", 2: "Female"},
+          "age": {1: "20–25 years", 2: "26–30 years", 3: "31–35 years", 4: "Over 35 years"},
+          "degree": {1: "Diploma", 2: "Bachelor's Degree", 3: "Master's Degree", 4: "Ph.D."},
+          "exp": {1: "Less than 5 years", 2: "6–10 years", 3: "11–15 years", 4: "Over 15 years"}}
+TITLE = {"gender": "Gender", "age": "Age", "degree": "Level of Education", "exp": "Professional Experience"}
+PATHS = [(e, x) for e in ENDO for x in EXO]            # هشت مسیر ساختاری: ENDO ~ EXO
+HYP = {(e, x): f"H{i + 1}" for i, (e, x) in enumerate(PATHS)}
+
+if not os.path.exists(DATA_PATH):
+    from google.colab import files
+    DATA_PATH = list(files.upload().keys())[0]
+df = pd.read_excel(DATA_PATH, sheet_name=SHEET); df.columns = [str(c).strip() for c in df.columns]
+ren = {c: {"gender": "gender", "age": "age", "degree": "degree", "experience": "exp", "exp": "exp"}.get(c.lower(), c) for c in df.columns}
+df = df.rename(columns=ren)
+miss = [c for c in ["gender", "age", "degree", "exp"] + ALL_ITEMS if c not in df.columns]
+assert not miss, f"ستون‌های ناموجود: {miss}"
+for c in ["gender", "age", "degree", "exp"] + ALL_ITEMS: df[c] = pd.to_numeric(df[c], errors="coerce")
+n_raw = len(df); bad = df[["gender", "age", "degree", "exp"] + ALL_ITEMS].isna().any(axis=1)
+df = df.loc[~bad].reset_index(drop=True)
+print(f"ردیف‌های اولیه {n_raw} | حذف‌شده (دادهٔ گمشده) {n_raw - len(df)} | نمونهٔ نهایی N = {len(df)}")
+print("دامنهٔ مقادیر گویه‌ها:", int(df[ALL_ITEMS].min().min()), "تا", int(df[ALL_ITEMS].max().max()))
+X = df[ALL_ITEMS].astype(float)
+comp = pd.DataFrame({k: X[v].mean(axis=1) for k, v in ITEMS.items()})        # سازه = میانگین گویه‌ها
+z = lambda x: (x - x.mean()) / x.std()
+R, TABLES = {"n_raw": int(n_raw), "n": int(len(df))}, {}
+num = lambda s: pd.to_numeric(s, errors="coerce")
+def stars(p): return "" if pd.isna(p) else "***" if p < .001 else "**" if p < .01 else "*" if p < .05 else "ns"
+
+def table(df_, key, title, heat=False):
+    """نمایش جدول زیبا + ذخیره در Excel و PNG."""
+    TABLES[key] = df_; d = df_.copy()
+    sty = d.style.format(precision=3, na_rep="–").set_caption(title).set_table_styles([
+        {"selector": "caption", "props": "font-size:14px;font-weight:bold;text-align:left;margin-bottom:6px"},
+        {"selector": "th", "props": "background-color:#2f4b7c;color:white;text-align:center;font-weight:600"},
+        {"selector": "td", "props": "text-align:center"}])
+    if heat: sty = sty.background_gradient(cmap="Blues", axis=None)
+    display(sty)
+    cell = d.reset_index() if not isinstance(d.index, pd.RangeIndex) else d
+    if "index" in cell.columns: cell = cell.rename(columns={"index": ""})
+    f_ = lambda v: f"{v:.3f}" if isinstance(v, (float, np.floating)) else str(v)
+    txt = cell.map(f_).values if hasattr(cell, "map") else cell.applymap(f_).values
+    fig, ax = plt.subplots(figsize=(max(5, 1.15 * (cell.shape[1] + 1)), 0.34 * (cell.shape[0] + 3))); ax.axis("off")
+    t = ax.table(cellText=txt, colLabels=[str(c) for c in cell.columns], loc="center", cellLoc="center")
+    t.auto_set_font_size(False); t.set_fontsize(8); t.auto_set_column_width(list(range(len(cell.columns)))); t.scale(1, 1.25)
+    for (r_, c_), cl in t.get_celld().items():
+        cl.set_edgecolor("#d0d7e2")
+        if r_ == 0: cl.set_facecolor("#2f4b7c"); cl.set_text_props(color="white", weight="bold")
+        elif r_ % 2 == 0: cl.set_facecolor("#f1f5fb")
+    ax.set_title(title, fontsize=10, weight="bold", loc="left")
+    fig.savefig(f"{PNG}/table_{key}.png", dpi=200, bbox_inches="tight"); plt.close(fig)
+
+def savefig(fig, name): fig.savefig(f"{PNG}/{name}.png", dpi=300, bbox_inches="tight"); plt.show()
+
+def describe(d):
+    return pd.DataFrame({"N": d.count(), "Mean": d.mean(), "SD": d.std(), "SE": d.sem(), "Median": d.median(), "Q1": d.quantile(.25), "Q3": d.quantile(.75),
+                         "Min": d.min(), "Max": d.max(), "Skewness": d.apply(stats.skew), "Kurtosis": d.apply(stats.kurtosis)})
+
+def describe_full(d):
+    t = describe(d); n = d.count()
+    t["Variance"] = d.var(); t["Range"] = d.max() - d.min(); t["IQR"] = t.Q3 - t.Q1; t["CV (%)"] = d.std() / d.mean() * 100
+    t["Mode"] = [d[c].mode().iloc[0] for c in d.columns]; t["Trimmed mean (5%)"] = [stats.trim_mean(d[c], .05) for c in d.columns]
+    t["CI95 low"], t["CI95 high"] = t.Mean - stats.t.ppf(.975, n - 1) * t.SE, t.Mean + stats.t.ppf(.975, n - 1) * t.SE
+    t["SE skew"] = np.sqrt(6 * n * (n - 1) / ((n - 2) * (n + 1) * (n + 3))); t["SE kurt"] = 2 * t["SE skew"] * np.sqrt((n ** 2 - 1) / ((n - 3) * (n + 5)))
+    t["z skew"], t["z kurt"] = t.Skewness / t["SE skew"], t.Kurtosis / t["SE kurt"]
+    return t
+
+# %% [code]
+# --- ۳) جدول‌های جمعیت‌شناختی ---
+rows = []
+for c in ["gender", "age", "degree", "exp"]:
+    vc = df[c].value_counts().sort_index(); cum = 0
+    for k, v in vc.items():
+        cum += v / len(df) * 100
+        rows.append({"Variable": TITLE[c], "Code": int(k), "Category": LABELS[c].get(int(k), f"code {int(k)}"), "Frequency": int(v), "Percent": v / len(df) * 100, "Cumulative %": cum})
+table(pd.DataFrame(rows), "T01_demographics", "Table 1. Demographic characteristics of respondents (frequency, percent)")
+dn = describe_full(df[["gender", "age", "degree", "exp"]].astype(float)); dn.index = [TITLE[c] for c in dn.index]
+table(dn, "T02_demographics_numeric", "Table 2. Descriptive statistics of coded demographic variables")
+R["n_by_demo"] = {c: {LABELS[c].get(int(k), str(k)): int(v) for k, v in df[c].value_counts().sort_index().items()} for c in LABELS}
+fig, ax = plt.subplots(1, 4, figsize=(17, 3.8))
+for a_, c in zip(ax, LABELS):
+    vc = df[c].value_counts().sort_index(); a_.bar([LABELS[c].get(int(k), str(k)) for k in vc.index], vc.values / len(df) * 100, color="#2f4b7c")
+    a_.set_title(TITLE[c]); a_.set_ylabel("%"); a_.tick_params(axis="x", rotation=25)
+fig.tight_layout(); savefig(fig, "fig01_demographics")
+
+# %% [code]
+# --- ۴) آمار توصیفی گویه‌ها و متغیرهای اصلی (سازه‌ها = میانگین گویه‌ها) ---
+it = describe(X); it.insert(0, "Construct", [OWNER[i] for i in it.index])
+table(it, "T03_items_descriptive", "Table 3. Descriptive statistics of items")
+cd = describe_full(comp); cd.insert(0, "Name", [FULL[k] for k in cd.index]); cd.insert(1, "Items", [len(ITEMS[k]) for k in cd.index])
+cd["Cronbach alpha"] = [len(ITEMS[k]) / (len(ITEMS[k]) - 1) * (1 - X[ITEMS[k]].var().sum() / X[ITEMS[k]].sum(axis=1).var()) for k in cd.index]
+table(cd, "T04_constructs_descriptive_full", "Table 4. Complete descriptive statistics of the main constructs (mean of items)")
+cc = comp.corr(); pv = comp.corr(method=lambda a, b: stats.pearsonr(a, b)[1])
+cm = cc.round(3).astype(str) + pv.map(lambda p: stars(p) if p < .05 else "")
+for i in range(len(cm)): cm.iloc[i, i] = "1"
+table(cm, "T05_construct_correlations", "Table 5. Pearson correlations between constructs")
+R["items"] = it.round(3).to_dict("index")
+
+# %% [code]
+# --- ۵) آزمون‌های نرمال بودن: همهٔ متغیرها + جدول جدا برای سازه‌ها (میانگین گویه‌ها) + ماردیا ---
+def normality(d):
+    rows = []
+    for c in d.columns:
+        x = d[c].dropna().values; ks_l = lilliefors(x, dist="norm"); ks = stats.kstest((x - x.mean()) / x.std(), "norm"); sw = stats.shapiro(x)
+        sk, ku = stats.skew(x), stats.kurtosis(x)
+        rows.append(dict(Variable=c, N=len(x), KS_stat=ks.statistic, KS_p=ks.pvalue, Lilliefors_stat=ks_l[0], Lilliefors_p=ks_l[1], SW_stat=sw.statistic, SW_p=sw.pvalue,
+                         Skewness=sk, z_skew=sk / np.sqrt(6 / len(x)), Kurtosis=ku, z_kurt=ku / np.sqrt(24 / len(x)),
+                         Normal=("Yes" if min(ks_l[1], sw.pvalue) >= .05 else "No")))
+    return pd.DataFrame(rows).set_index("Variable")
+NC = normality(comp); NC.index = [f"{k} – {FULL[k]}" for k in NC.index]
+table(NC, "T06_normality_constructs", "Table 6. Normality tests of constructs (mean of items): Kolmogorov–Smirnov, Lilliefors, Shapiro–Wilk")
+table(normality(pd.concat([X, df[["gender", "age", "degree", "exp"]].astype(float)], axis=1)), "T07_normality_items", "Table 7. Normality tests of items and coded demographics")
+R["normality_constructs"] = NC.round(4).to_dict("index")
+Zc = (X - X.mean()).values; S = np.cov(Zc.T, bias=True); Si = np.linalg.inv(S); n_, p_ = Zc.shape
+G = Zc @ Si @ Zc.T; b1 = (G ** 3).sum() / n_ ** 2; d2 = np.diag(G); b2 = (d2 ** 2).mean()
+sk_stat = n_ * b1 / 6; sk_df = p_ * (p_ + 1) * (p_ + 2) / 6; ku_z = (b2 - p_ * (p_ + 2)) / np.sqrt(8 * p_ * (p_ + 2) / n_)
+R["mardia"] = dict(skew=float(b1), skew_chi2=float(sk_stat), skew_df=float(sk_df), skew_p=float(stats.chi2.sf(sk_stat, sk_df)),
+                   kurt=float(b2), kurt_expected=float(p_ * (p_ + 2)), kurt_z=float(ku_z), kurt_p=float(2 * stats.norm.sf(abs(ku_z))))
+table(pd.DataFrame({"Statistic": [b1, b2], "Expected/df": [sk_df, p_ * (p_ + 2)], "Test value": [sk_stat, ku_z], "p": [R["mardia"]["skew_p"], R["mardia"]["kurt_p"]]},
+                   index=["Mardia skewness (chi2)", "Mardia kurtosis (z)"]), "T08_mardia", "Table 8. Multivariate normality (Mardia)")
+fig, ax = plt.subplots(2, 6, figsize=(20, 6.2))
+for i, k in enumerate(ITEMS):
+    ax[0, i].hist(comp[k], bins=14, color="#2f4b7c", alpha=.85, edgecolor="white", density=True)
+    xs = np.linspace(comp[k].min(), comp[k].max(), 100); ax[0, i].plot(xs, stats.norm.pdf(xs, comp[k].mean(), comp[k].std()), color="#d45087", lw=2); ax[0, i].set_title(k)
+    stats.probplot(comp[k], plot=ax[1, i]); ax[1, i].set_title(""); ax[1, i].get_lines()[0].set_color("#2f4b7c"); ax[1, i].get_lines()[1].set_color("#d45087")
+fig.suptitle("Distribution and Q–Q plots of constructs (mean of items)", weight="bold"); fig.tight_layout(); savefig(fig, "fig02_distributions")
+
+# %% [code]
+# --- ۶) CFA: بارها، پایایی، روایی همگرا و واگرا (Fornell–Larcker, HTMT, HTMT2) ---
+CFA = "".join(f"{k} =~ " + "+".join(v) + "\n" for k, v in ITEMS.items())
+cfa = Model(CFA); cfa.fit(X); ins = cfa.inspect(std_est=True)
+lo = ins[(ins.op == "~") & (ins.rval.isin(ITEMS))].copy(); lo["Est. Std"] = num(lo["Est. Std"])
+rows = []
+for _, r in lo.iterrows():
+    f = r.rval; own = r.lval; rest = [c for c in ITEMS[f] if c != own]; zp = num(pd.Series([r["p-value"]])).iloc[0]
+    rows.append({"Item": own, "Construct": f, "Std loading (λ)": r["Est. Std"], "Unstd loading": num(pd.Series([r["Estimate"]])).iloc[0],
+                 "SE": num(pd.Series([r["Std. Err"]])).iloc[0], "t / z": num(pd.Series([r["z-value"]])).iloc[0], "p": zp,
+                 "Sig.": stars(zp) if str(r["p-value"]) != "-" else "fixed", "λ²": r["Est. Std"] ** 2, "Error var (1−λ²)": 1 - r["Est. Std"] ** 2,
+                 "Item-total r (corrected)": X[own].corr(X[rest].sum(axis=1)),
+                 "Alpha if deleted": len(rest) / (len(rest) - 1) * (1 - X[rest].var().sum() / X[rest].sum(axis=1).var()) if len(rest) > 1 else np.nan})
+LD = pd.DataFrame(rows).set_index("Item").loc[ALL_ITEMS]
+table(LD, "T09_item_loadings", "Table 9. Measurement model: item loadings and coefficients (CFA)")
+weak = LD[LD["Std loading (λ)"].abs() < LOW_LOADING]
+table(weak[["Construct", "Std loading (λ)", "t / z", "p", "Sig.", "Item-total r (corrected)"]] if len(weak) else pd.DataFrame({"Result": [f"No item with |λ| < {LOW_LOADING}"]}),
+      "T10_weak_items", f"Table 10. Items with weak standardized loading (|λ| < {LOW_LOADING})")
+R["weak_items"] = list(weak.index)
+phi = pd.DataFrame(np.eye(len(ITEMS)), index=list(ITEMS), columns=list(ITEMS))
+for _, r in ins[(ins.op == "~~") & (ins.lval.isin(ITEMS)) & (ins.rval.isin(ITEMS)) & (ins.lval != ins.rval)].iterrows():
+    phi.loc[r.lval, r.rval] = phi.loc[r.rval, r.lval] = float(r["Est. Std"])
+rel = {}
+for f, cols in ITEMS.items():
+    l = LD[LD.Construct == f]["Std loading (λ)"].values; k = len(cols); others = [o for o in ITEMS if o != f]
+    ave = (l ** 2).mean(); cr = l.sum() ** 2 / (l.sum() ** 2 + (1 - l ** 2).sum()); msv = (phi.loc[f, others] ** 2).max(); asv = (phi.loc[f, others] ** 2).mean()
+    rel[f] = {"Items": k, "Min λ": l.min(), "Max λ": l.max(), "Cronbach α": k / (k - 1) * (1 - X[cols].var().sum() / X[cols].sum(axis=1).var()),
+              "CR (rho_c)": cr, "AVE": ave, "√AVE": np.sqrt(ave), "MSV": msv, "ASV": asv,
+              "Convergent (CR>.7, AVE>.5)": "Yes" if cr > .7 and ave >= .5 else "Borderline" if cr > .7 and ave > .45 else "No",
+              "Discriminant (AVE>MSV)": "Yes" if ave > msv else "No"}
+REL = pd.DataFrame(rel).T
+table(REL, "T11_reliability_validity", "Table 11. Reliability and convergent validity (α, CR, AVE, MSV, ASV)")
+FL = phi.round(3).astype(object).copy()
+for f in ITEMS: FL.loc[f, f] = f"{REL.loc[f, '√AVE']:.3f}"
+for i, a in enumerate(ITEMS):
+    for j, b_ in enumerate(ITEMS):
+        if j > i: FL.loc[a, b_] = ""
+table(FL, "T12_fornell_larcker", "Table 12. Fornell–Larcker criterion (diagonal = √AVE; below = latent correlations)")
+C = X.corr().abs()
+def block(a, b_): return C.loc[ITEMS[a], ITEMS[b_]].values
+def mono(a): m = block(a, a); return m[np.triu_indices(len(m), 1)]
+def htmt(a, b_): return block(a, b_).mean() / np.sqrt(mono(a).mean() * mono(b_).mean())
+def htmt2(a, b_): gm = lambda v: np.exp(np.log(v).mean()); return gm(block(a, b_).ravel()) / np.sqrt(gm(mono(a)) * gm(mono(b_)))
+H1 = pd.DataFrame({b_: {a: htmt(a, b_) if a != b_ else np.nan for a in ITEMS} for b_ in ITEMS})
+H2 = pd.DataFrame({b_: {a: htmt2(a, b_) if a != b_ else np.nan for a in ITEMS} for b_ in ITEMS})
+table(H1, "T13_HTMT", "Table 13. HTMT ratio (threshold < 0.85 strict / 0.90 liberal)", heat=True)
+table(H2, "T14_HTMT2", "Table 14. HTMT2 ratio (geometric-mean version; threshold < 0.85 / 0.90)", heat=True)
+cl = pd.DataFrame({f: {i: (X[i].corr(X[[c for c in ITEMS[f] if c != i]].mean(axis=1)) if OWNER[i] == f else X[i].corr(comp[f])) for i in ALL_ITEMS} for f in ITEMS})
+table(cl, "T15_cross_loadings", "Table 15. Item–construct correlations (own item removed from own construct)", heat=True)
+R["rel"] = {f: {k: (float(v) if not isinstance(v, str) else v) for k, v in d.items()} for f, d in REL.T.to_dict().items()}
+R["htmt_max"] = float(np.nanmax(H1.values)); R["htmt2_max"] = float(np.nanmax(H2.values)); R["latcorr"] = phi.round(3).to_dict()
+K = len(ITEMS)
+fig, ax = plt.subplots(1, 3, figsize=(18, 4.8)); w = .26; xs = np.arange(K)
+for k, (col, c) in enumerate([("Cronbach α", "#2f4b7c"), ("CR (rho_c)", "#a05195"), ("AVE", "#f95d6a")]): ax[0].bar(xs + (k - 1) * w, REL[col].astype(float), w, label=col, color=c)
+ax[0].axhline(.7, ls="--", c="grey", lw=1); ax[0].axhline(.5, ls=":", c="grey", lw=1); ax[0].set_xticks(xs, list(ITEMS)); ax[0].set_ylim(0, 1); ax[0].legend(frameon=False, ncol=3); ax[0].set_title("Reliability and AVE")
+for a_, M, t_ in [(ax[1], H1, "HTMT"), (ax[2], H2, "HTMT2")]:
+    a_.imshow(M.values.astype(float), cmap="Blues", vmin=0, vmax=1); a_.set_xticks(range(K), list(ITEMS)); a_.set_yticks(range(K), list(ITEMS)); a_.set_title(t_)
+    for i in range(K):
+        for j in range(K):
+            if i != j: a_.text(j, i, f"{M.values[i, j]:.2f}", ha="center", va="center", fontsize=8.5)
+    a_.spines[:].set_visible(False)
+fig.tight_layout(); savefig(fig, "fig03_reliability_validity")
+fig, ax = plt.subplots(figsize=(7.8, 6.4)); im = ax.imshow(phi.values, cmap="RdBu_r", vmin=-1, vmax=1)
+ax.set_xticks(range(K), list(ITEMS)); ax.set_yticks(range(K), list(ITEMS)); ax.spines[:].set_visible(False)
+for i in range(K):
+    for j in range(K): ax.text(j, i, f"{phi.values[i, j]:.2f}", ha="center", va="center", color="white" if abs(phi.values[i, j]) > .6 else "black")
+ax.set_title("Latent correlations (CFA)", weight="bold"); fig.colorbar(im, shrink=.8); savefig(fig, "fig04_latent_correlations")
+fig, ax = plt.subplots(figsize=(15, 4.6)); cols_ = {"CA": "#2f4b7c", "FM": "#665191", "ORG": "#a05195", "LEG": "#d45087", "PRO": "#f95d6a", "POL": "#ff7c43"}
+ax.bar(ALL_ITEMS, LD["Std loading (λ)"], color=[cols_[OWNER[i]] for i in ALL_ITEMS]); ax.axhline(LOW_LOADING, ls="--", c="grey"); ax.axhline(.7, ls=":", c="grey"); ax.axhline(0, c="k", lw=.8)
+ax.set_ylabel("Standardized loading"); ax.set_title("Item loadings by construct (dashed = weak-loading cut-off)", weight="bold"); ax.tick_params(axis="x", rotation=60)
+savefig(fig, "fig05_loadings")
+
+# %% [code]
+# --- ۷) برازش مدل‌ها، سوگیری روش مشترک، هم‌خطی (VIF / 1/VIF / R²) ---
+def srmr(m, data):
+    sig = m.calc_sigma()[0]; names = m.vars["observed"]; Sx = data[names].cov().values; sd = np.sqrt(np.diag(Sx))
+    res = (Sx - sig) / np.outer(sd, sd); tri = np.tril_indices(len(names)); return float(np.sqrt((res[tri] ** 2).mean()))
+def fitstats(m, data):
+    s = calc_stats(m).T["Value"]; g = lambda k: float(s[k]) if k in s.index else np.nan
+    return {"chi2": g("chi2"), "df": g("DoF"), "p": g("chi2 p-value"), "chi2/df": g("chi2") / g("DoF"), "CFI": g("CFI"), "TLI": g("TLI"), "NFI": g("NFI"),
+            "GFI": g("GFI"), "AGFI": g("AGFI"), "RMSEA": g("RMSEA"), "SRMR": srmr(m, data), "AIC": g("AIC"), "BIC": g("BIC"), "LogLik": g("LogLik")}
+def row(ii, l, o, r):
+    q = ii[(ii.lval == l) & (ii.op == o) & (ii.rval == r)].iloc[0]; g = lambda c: float(q[c]) if str(q[c]) not in ("-", "nan") else np.nan
+    return dict(b=g("Estimate"), beta=g("Est. Std"), se=g("Std. Err"), z=g("z-value"), p=g("p-value"))
+FIT = {"CFA (6-factor)": fitstats(cfa, X)}
+one = Model("G =~ " + "+".join(ALL_ITEMS)); one.fit(X); FIT["One-factor (Harman)"] = fitstats(one, X)
+try:
+    clf = Model(CFA + "M =~ " + "+".join(ALL_ITEMS) + "\n" + "\n".join(f"M ~~ 0*{f}" for f in ITEMS) + "\n"); clf.fit(X); FIT["Common latent factor (CLF)"] = fitstats(clf, X)
+    cci = clf.inspect(std_est=True); R["clf_var"] = float((num(cci[(cci.op == "~") & (cci.rval == "M")]["Est. Std"]) ** 2).mean() * 100)
+except Exception as ex: print("CLF اجرا نشد:", ex); R["clf_var"] = np.nan
+ev = np.sort(np.linalg.eigvalsh(X.corr().values))[::-1]; R["harman"] = float(ev[0] / ev.sum() * 100)
+table(pd.DataFrame({"Value": [R["harman"], FIT["One-factor (Harman)"]["CFI"], R["clf_var"]], "Criterion": ["< 50 %", "poor fit expected", "< 25 %"]},
+                   index=["Harman first factor (% variance)", "One-factor model CFI", "CLF shared method variance (%)"]), "T16_common_method_bias", "Table 16. Common method bias diagnostics")
+vo = []
+for f, cols in ITEMS.items():
+    Xc = sm.add_constant(X[cols])
+    for i, c in enumerate(cols, 1):
+        v = variance_inflation_factor(Xc.values, i); vo.append(dict(Item=c, Construct=f, VIF=v, **{"1/VIF (Tolerance)": 1 / v}, R2=1 - 1 / v))
+table(pd.DataFrame(vo).set_index("Item"), "T17_outer_VIF", "Table 17. Outer VIF of indicators (VIF, 1/VIF, R²)")
+cz = z(comp); vi, r2 = [], []
+for y in ENDO:
+    Xc = sm.add_constant(cz[EXO]); m_ = sm.OLS(cz[y], Xc).fit()
+    for i, c in enumerate(EXO, 1):
+        v = variance_inflation_factor(Xc.values, i); sub = [a for a in EXO if a != c]
+        f2 = (m_.rsquared - (sm.OLS(cz[y], sm.add_constant(cz[sub])).fit().rsquared)) / (1 - m_.rsquared)
+        vi.append({"Equation": y, "Predictor": c, "VIF": v, "1/VIF (Tolerance)": 1 / v, "R² (predictor | others)": 1 - 1 / v, "f² (effect size)": f2})
+    r2.append({"Endogenous": y, "R² (composite OLS)": m_.rsquared, "Adj. R²": m_.rsquared_adj, "F": m_.fvalue, "p (F)": m_.f_pvalue})
+VI = pd.DataFrame(vi); table(VI.set_index(["Equation", "Predictor"]), "T18_inner_VIF_f2", "Table 18. Inner VIF, tolerance (1/VIF), R² and f² per predictor")
+R["vif"] = {f"{a}|{b_}": float(v) for a, b_, v in zip(VI.Equation, VI.Predictor, VI.VIF)}
+
+# %% [code]
+# --- ۸) مدل ساختاری مکنون ---
+STRUCT = "".join(f"{e} ~ " + " + ".join(EXO) + "\n" for e in ENDO) + "CA ~~ FM\n"
+M_FULL = CFA + STRUCT
+sem = Model(M_FULL); sem.fit(X); si = sem.inspect(std_est=True); FIT["Structural model"] = fitstats(sem, X)
+thr = pd.DataFrame([{"chi2": np.nan, "df": np.nan, "p": "> .05", "chi2/df": "< 3", "CFI": "≥ .95", "TLI": "≥ .95", "NFI": "≥ .90", "GFI": "≥ .90", "AGFI": "≥ .90",
+                     "RMSEA": "≤ .06", "SRMR": "≤ .08", "AIC": "lower", "BIC": "lower", "LogLik": ""}], index=["Recommended threshold"])
+table(pd.concat([thr, pd.DataFrame(FIT).T]), "T19_model_fit", "Table 19. Model fit indices (CFA, structural model and diagnostic models)")
+pr = []
+for e, x in PATHS:
+    d = row(si, e, "~", x); pr.append({"Path": f"{x} → {e}", "Hypothesis": HYP[(e, x)], "Expected": "+", "b": d["b"], "SE": d["se"], "t (z)": d["z"], "p": d["p"], "Sig.": stars(d["p"]), "β": d["beta"],
+                                      "Decision": "Supported" if d["p"] < .05 and d["beta"] > 0 else "Not supported"})
+PT = pd.DataFrame(pr).set_index("Path"); table(PT, "T20_path_coefficients", "Table 20. Structural path coefficients (b, SE, t, p, β)")
+R["paths"] = {f"{e}~{x}": row(si, e, "~", x) for e, x in PATHS}
+cv = si[(si.op == "~~") & (si.lval == "CA") & (si.rval == "FM")]
+R["cov_CA_FM"] = row(si, "CA", "~~", "FM")
+rl = {}
+for f in ENDO:
+    q_ = si[(si.lval == f) & (si.op == "~~") & (si.rval == f)]; rl[f] = 1 - float(q_["Est. Std"].iloc[0])
+R["r2_latent"] = rl
+r2t = pd.DataFrame(r2).set_index("Endogenous"); r2t.insert(0, "R² (latent, SEM)", pd.Series(rl))
+table(r2t, "T21_R2", "Table 21. Explained variance (R²) of endogenous constructs")
+
+# %% [code]
+# --- ۹) نمودار معادلات ساختاری: (الف) ضرایب استاندارد (ب) آماره t و ستارهٔ معناداری ---
+def stack(groups, x, y0, step=.62, gap=.75):
+    boxes, ycen, y = {}, {}, y0
+    for g in groups:
+        ys = []
+        for _ in ITEMS[g]: boxes.setdefault(g, []).append((x, y)); ys.append(y); y -= step
+        ycen[g] = float(np.mean(ys)); y -= gap
+    return boxes, ycen, y
+BR, YR, yend = stack(ENDO, 15.6, 0); H_R = -yend
+_, _, yl_end = stack(EXO, 0.6, 0); H_L = -yl_end
+BL, YL, _ = stack(EXO, 0.6, -(H_R - H_L) / 2)
+BOX = {**BL, **BR}; POS = {**{k: (3.8, YL[k]) for k in EXO}, **{k: (12.0, YR[k]) for k in ENDO}}
+def arrow(ax, p, q_, lw=1.2, ls="-", rad=0, ms=10, c="black"):
+    ax.add_patch(FancyArrowPatch(p, q_, arrowstyle="-|>", mutation_scale=ms, lw=lw, ls=ls, color=c, connectionstyle=f"arc3,rad={rad}", zorder=2))
+def edge(c, t, a=1.3, b=.78):
+    dx, dy = t[0] - c[0], t[1] - c[1]; d = np.hypot(dx, dy); r_ = 1 / np.sqrt((dx / d / a) ** 2 + (dy / d / b) ** 2); return (c[0] + dx / d * r_, c[1] + dy / d * r_)
+def sem_diagram(mode, fname):
+    fig, ax = plt.subplots(figsize=(15, max(9, H_R * .62))); ax.set_xlim(-.4, 17.6); ax.set_ylim(-H_R - .8, 1.6); ax.axis("off")
+    for k, (x, y) in POS.items():
+        ax.add_patch(Ellipse((x, y), 2.6, 1.56, fc="white", ec="black", lw=1.4, zorder=3))
+        txt = FULL[k].replace(" ", "\n") + f"\n({k})" + (f"\nR² = {R['r2_latent'][k]:.3f}" if k in ENDO else "")
+        ax.text(x, y, txt, ha="center", va="center", fontsize=9.5, weight="bold", zorder=4)
+        for i, (bx, by) in enumerate(BOX[k]):
+            item = ITEMS[k][i]; ax.add_patch(Rectangle((bx - .45, by - .22), .9, .44, fc="#f3f3f3", ec="black", lw=1, zorder=3)); ax.text(bx, by, item, ha="center", va="center", fontsize=8.5, zorder=4)
+            s = edge((x, y), (bx, by)); e = (bx + (-.45 if bx > x else .45), by)
+            arrow(ax, s, e, lw=.8, ms=7, c="#333333"); rr = LD.loc[item]
+            lab = f"{rr['Std loading (λ)']:.2f}" if mode == "std" else ("fixed" if rr["Sig."] == "fixed" else f"{rr['t / z']:.1f}{rr['Sig.'] if rr['Sig.'] != 'ns' else ''}")
+            ax.text(s[0] + (e[0] - s[0]) * .55, s[1] + (e[1] - s[1]) * .55, lab, fontsize=7, ha="center", va="center", bbox=dict(fc="white", ec="none", pad=.4), zorder=5)
+    for e_, x_ in PATHS:
+        d = R["paths"][f"{e_}~{x_}"]; p0, p1 = POS[x_], POS[e_]; s, t = edge(p0, p1), edge(p1, p0); arrow(ax, s, t, lw=2.0, ms=13)
+        fr = .17 + .105 * ENDO.index(e_) + (.04 if x_ == "FM" else 0); lx, ly = s[0] + (t[0] - s[0]) * fr, s[1] + (t[1] - s[1]) * fr
+        lab = f"{d['beta']:.3f}{stars(d['p']).replace('ns', '')}" if mode == "std" else f"t={d['z']:.2f}{stars(d['p']).replace('ns', '')}"
+        ax.text(lx, ly, f"{HYP[(e_, x_)]}  {lab}", ha="center", va="center", fontsize=8.5, weight="bold", bbox=dict(fc="white", ec="none", pad=.5), zorder=5)
+    cvd = R["cov_CA_FM"]; (xa, ya), (xb, yb) = POS["CA"], POS["FM"]
+    ax.add_patch(FancyArrowPatch((xa - .6, ya - .78), (xb - .6, yb + .78), arrowstyle="<|-|>", mutation_scale=10, lw=1.4, color="#555", connectionstyle="arc3,rad=.45", zorder=2))
+    ax.text(xa - 2.0, (ya + yb) / 2, (f"r = {cvd['beta']:.2f}" if mode == "std" else f"t={cvd['z']:.2f}") + stars(cvd["p"]).replace("ns", ""), fontsize=8.5, color="#333", ha="center", va="center", bbox=dict(fc="white", ec="none", pad=.4))
+    ax.set_title("Estimated structural equation model — " + ("standardized coefficients (β)" if mode == "std" else "t-values with significance"), weight="bold", fontsize=13)
+    ax.text(-.2, -H_R - .6, "*** p<.001   ** p<.01   * p<.05   (no star = not significant).  Item labels: " + ("standardized loadings" if mode == "std" else "t-values (fixed = reference indicator)"), fontsize=8.5, color="#444")
+    savefig(fig, fname)
+sem_diagram("std", "fig06_SEM_standardized"); sem_diagram("t", "fig07_SEM_tvalues")
+
+# %% [code]
+# --- ۱۰) خودگردان‌سازی ضرایب مسیر (فاصله اطمینان درصدی ۹۵٪) ---
+def boot_once(seed):
+    rs = np.random.default_rng(seed); bd = X.iloc[rs.integers(0, len(X), len(X))].reset_index(drop=True)
+    try:
+        mb = Model(M_FULL); mb.fit(bd); ib = mb.inspect(std_est=True)
+        o = {}
+        for e_, x_ in PATHS: d = row(ib, e_, "~", x_); o[f"b|{e_}~{x_}"], o[f"beta|{e_}~{x_}"] = d["b"], d["beta"]
+        return o
+    except Exception: return None
+print(f"اجرای {B} بازنمونه ...")
+bt = pd.DataFrame([r for r in Parallel(n_jobs=N_JOBS)(delayed(boot_once)(int(s)) for s in np.random.SeedSequence(SEED).generate_state(B)) if r])
+R["boot_n"] = int(len(bt)); bt.describe().T.round(4).to_csv(f"{OUT}/bootstrap_summary.csv", encoding="utf-8-sig")
+bs = []
+for e_, x_ in PATHS:
+    d = R["paths"][f"{e_}~{x_}"]; lo_, hi_ = bt[f"beta|{e_}~{x_}"].quantile([.025, .975]); lb, hb = bt[f"b|{e_}~{x_}"].quantile([.025, .975])
+    bs.append({"Path": f"{x_} → {e_}", "Hypothesis": HYP[(e_, x_)], "β": d["beta"], "Boot SE (β)": bt[f"beta|{e_}~{x_}"].std(), "β CI95 low": lo_, "β CI95 high": hi_,
+               "b": d["b"], "b CI95 low": lb, "b CI95 high": hb, "Sig. (CI excludes 0)": "Yes ***" if lo_ * hi_ > 0 else "No"})
+BS = pd.DataFrame(bs).set_index("Path"); table(BS, "T22_bootstrap_paths", f"Table 22. Bootstrap confidence intervals of path coefficients (B = {R['boot_n']})")
+R["bootstrap"] = BS.round(4).to_dict("index")
+fig, ax = plt.subplots(figsize=(8.5, 5.4))
+for i, (idx, r_) in enumerate(BS[::-1].iterrows()):
+    ax.plot([r_["β CI95 low"], r_["β CI95 high"]], [i, i], c="#2f4b7c", lw=3); ax.scatter(r_["β"], i, c="#d45087", s=55, zorder=3)
+ax.axvline(0, c="grey", ls="--"); ax.set_yticks(range(len(BS)), [f"{k}  ({h})" for k, h in zip(BS.index[::-1], BS["Hypothesis"][::-1])]); ax.set_xlabel("Standardized β (95% bootstrap CI)")
+ax.set_title("Structural path coefficients", weight="bold"); savefig(fig, "fig08_path_forest")
+
+# %% [code]
+# --- ۱۱) مدل‌های رقیب و تحلیل حساسیت (DWLS، پرت‌ها، خطاهای همبسته، حذف گویه‌های ضعیف، متغیرهای کنترل) ---
+cand = {"M1": ("Proposed (all 8 paths)", STRUCT),
+        "M2": ("Control Activities only", "".join(f"{e} ~ CA\n" for e in ENDO) + "CA ~~ FM\n"),
+        "M3": ("Financial Management only", "".join(f"{e} ~ FM\n" for e in ENDO) + "CA ~~ FM\n"),
+        "M4": ("Null (no structural paths)", "CA ~~ FM\n")}
+cm_ = {}
+for k, (nm, body) in cand.items():
+    mm = Model(CFA + body); mm.fit(X); cm_[k] = {"Model": nm, **fitstats(mm, X)}
+CM = pd.DataFrame(cm_).T.set_index("Model").astype(float)
+CM["Δχ² vs M1"] = CM["chi2"] - CM["chi2"].iloc[0]; CM["Δdf vs M1"] = CM["df"] - CM["df"].iloc[0]
+CM["p(Δχ²)"] = [np.nan if d == 0 else float(stats.chi2.sf(abs(c), abs(d))) for c, d in zip(CM["Δχ² vs M1"], CM["Δdf vs M1"])]; CM["ΔBIC vs M1"] = CM["BIC"] - CM["BIC"].iloc[0]
+table(CM[["chi2", "df", "CFI", "TLI", "RMSEA", "SRMR", "AIC", "BIC", "Δχ² vs M1", "Δdf vs M1", "p(Δχ²)", "ΔBIC vs M1"]], "T23_competing_models", "Table 23. Competing structural models")
+R["models"] = CM.round(4).to_dict("index")
+sens = {"Base model (ML)": (FIT["Structural model"], si, len(X), "")}
+try:   # DWLS (مناسب دادهٔ رتبه‌ای/لیکرت)
+    md = Model(M_FULL); md.fit(X, obj="DWLS"); sens["DWLS (ordinal-robust)"] = (fitstats(md, X), md.inspect(std_est=True), len(X), "")
+except Exception as ex: print("DWLS اجرا نشد:", ex)
+try:   # حذف ۵٪ دورترین مشاهدات (ماهالانوبیس)
+    keep = d2 < np.quantile(d2, .95); mo = Model(M_FULL); mo.fit(X[keep].reset_index(drop=True)); sens["Outliers removed (5% Mahalanobis)"] = (fitstats(mo, X[keep]), mo.inspect(std_est=True), int(keep.sum()), "")
+except Exception as ex: print("حذف پرت اجرا نشد:", ex)
+try:   # آزادسازی ۴ بزرگ‌ترین خطای همبستهٔ درون‌سازه‌ای
+    names = cfa.vars["observed"]; Sx = X[names].cov().values; res = (Sx - cfa.calc_sigma()[0]) / np.sqrt(np.outer(np.diag(Sx), np.diag(Sx)))
+    pairs = sorted([(abs(res[i, j]), names[i], names[j]) for i in range(len(names)) for j in range(i) if OWNER[names[i]] == OWNER[names[j]]], reverse=True)[:4]
+    R["freed_errors"] = [f"{a} ~~ {b_}" for _, a, b_ in pairs]
+    mp = Model(M_FULL + "\n".join(f"{a} ~~ {b_}" for _, a, b_ in pairs) + "\n"); mp.fit(X); sens["Re-specified (4 correlated errors)"] = (fitstats(mp, X), mp.inspect(std_est=True), len(X), "; ".join(R["freed_errors"]))
+except Exception as ex: print("بازمشخص‌سازی اجرا نشد:", ex)
+if len(weak):   # حذف گویه‌های با بار ضعیف
+    try:
+        keep_items = {k: [i for i in v if i not in weak.index] for k, v in ITEMS.items()}
+        CFA2 = "".join(f"{k} =~ " + "+".join(v) + "\n" for k, v in keep_items.items()); X2 = X[[i for v in keep_items.values() for i in v]]
+        m2 = Model(CFA2 + STRUCT); m2.fit(X2); sens[f"Weak items removed (|λ|<{LOW_LOADING})"] = (fitstats(m2, X2), m2.inspect(std_est=True), len(X2), "removed: " + ", ".join(weak.index))
+    except Exception as ex: print("حذف گویه‌های ضعیف اجرا نشد:", ex)
+try:   # افزودن متغیرهای جمعیت‌شناختی به‌عنوان کنترل
+    Xc_ = X.copy()
+    for c in ["gender", "age", "degree", "exp"]: Xc_[c] = z(df[c].astype(float)).values
+    mc = Model(CFA + "".join(f"{e} ~ " + " + ".join(EXO + ["gender", "age", "degree", "exp"]) + "\n" for e in ENDO) + "CA ~~ FM\n"); mc.fit(Xc_)
+    sens["With demographic controls"] = (fitstats(mc, Xc_), mc.inspect(std_est=True), len(Xc_), "controls: gender, age, degree, experience")
+except Exception as ex: print("مدل با کنترل اجرا نشد:", ex)
+sr = []
+for nm, (ft, ii, nn, note) in sens.items():
+    def g(e_, x_):
+        try: d = row(ii, e_, "~", x_); return f"{d['beta']:.3f}{stars(d['p']).replace('ns', '')}"
+        except Exception: return "–"
+    sr.append({"Specification": nm, "N": nn, "CFI": ft["CFI"], "RMSEA": ft["RMSEA"], "SRMR": ft["SRMR"], **{f"{x_}→{e_}": g(e_, x_) for e_, x_ in PATHS}, "Note": note})
+SR = pd.DataFrame(sr).set_index("Specification"); table(SR, "T24_sensitivity", "Table 24. Sensitivity analysis: standardized path coefficients across specifications")
+R["sensitivity"] = SR.to_dict("index")
+fig, ax = plt.subplots(figsize=(13, 5)); pcols = [c for c in SR.columns if "→" in c]; w = .8 / len(SR); xs = np.arange(len(pcols))
+for k, (nm, rw) in enumerate(SR.iterrows()):
+    ax.bar(xs + (k - len(SR) / 2 + .5) * w, [float(str(rw[c]).rstrip("*s")) if rw[c] not in ("–",) else np.nan for c in pcols], w, label=nm.split(" (")[0])
+ax.axhline(0, c="k", lw=.8); ax.set_xticks(xs, pcols, rotation=20); ax.set_ylabel("Standardized β"); ax.legend(frameon=False, fontsize=8, ncol=2); ax.set_title("Stability of path coefficients across specifications", weight="bold")
+savefig(fig, "fig09_sensitivity")
+
+# %% [code]
+# --- ۱۲) ذخیرهٔ همهٔ جدول‌ها و نتایج + دانلود ---
+json.dump(R, open(f"{OUT}/results_internal_control.json", "w"), ensure_ascii=False, indent=1, default=lambda o: None if isinstance(o, float) and np.isnan(o) else str(o))
+with pd.ExcelWriter(f"{OUT}/internal_control_all_tables.xlsx") as xw:
+    for k, t_ in TABLES.items(): t_.to_excel(xw, sheet_name=k[:31])
+shutil.make_archive("output_results", "zip", OUT)
+print("جدول‌ها:", len(TABLES), "| نمودارها:", len([f for f in os.listdir(PNG) if f.startswith("fig")]), "| پوشهٔ", OUT)
+try:
+    from google.colab import files; files.download("output_results.zip")
+except ImportError: pass
