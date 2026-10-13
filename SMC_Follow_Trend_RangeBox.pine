@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V18.1 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V18.2 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -35,19 +35,20 @@ grp_bo           = "Real Breakout Settings"
 bo_c1_above_pct  = input.float(0.30, "C1 Candle % Beyond BOI incl. shadows - must exceed (Rule 2,3)", step=0.05, group=grp_bo)
 bo_c2_max_size   = input.float(0.30, "C2 Length % vs C1 - at most (Rule 3)", step=0.05, group=grp_bo)
 bo_c2_min_r1     = input.float(0.70, "C2 Length % vs C1 - at least (Rule 1, High-Low incl. shadows)", step=0.05, group=grp_bo)
-bo_vol_mode      = input.string("C2 Volume < C1 Volume", "Low Volume on C2 (Rule 2, 3)", options=["C2 Volume < C1 Volume", "C2 Volume < Average Volume", "Off"], group=grp_bo, tooltip="Rule 2 and 3 need low volume on C2. With no volume data on the symbol the test is skipped.")
+bo_vol_mode      = input.string("C2 is not an opposite Pin Bar", "Low Volume on C2 (Breakout & Pullback Rule 2, 3)", options=["C2 is not an opposite Pin Bar", "C2 Volume < C1 Volume", "C2 Volume < Average Volume", "Off"], group=grp_bo, tooltip="Default: an up-move C2 (low SELLING volume) must not be a Bearish Pin Bar (long upper shadow, body in the lower part); a down-move C2 (low BUYING volume) must not be a Bullish Pin Bar (long lower shadow, body in the upper part). The volume options are skipped when the symbol has no volume data.")
 bo_vol_len       = input.int(20, "Average Volume Length (for 'C2 Volume < Average Volume')", minval=2, group=grp_bo)
 
 // Real Pullback Settings
 grp_pb           = "Real Pullback Settings"
 pb_c2_min_size   = input.float(0.70, "PB Rule 1: C2 Length at least % of C1", step=0.05, group=grp_pb)
 pb_c2_max_r3     = input.float(0.30, "PB Rule 3: C2 Length at most % of C1 (Opposite)", step=0.05, group=grp_pb)
+pb_exit_out_pct  = input.float(0.50, "Range Exit Pullback: Marubozu C1 Length at least % outside the box", step=0.05, group=grp_pb)
 
 // Special three-candle patterns (Breakout AND Pullback)
 grp_tri          = "Special 3-Candle Patterns"
 useTri           = input.bool(true, "Use Special 3-Candle Patterns (A, B, C)", group=grp_tri)
 tri_min_pct      = input.float(0.50, "Candle Length at least % of Ref (largest of last 5 Marubozus)", step=0.05, group=grp_tri)
-tri_c_norm_pct   = input.float(0.50, "Pattern C: Normal candles (C1, C2) Length at least % of Ref", step=0.05, group=grp_tri)
+tri_c_norm_pct   = input.float(0.40, "Pattern C: Normal candles (C1, C2) Length at least % of Ref", step=0.05, group=grp_tri)
 tri_near_pct     = input.float(0.05, "Pattern B: C2 closes within % of C1's far end", step=0.01, group=grp_tri)
 showPatterns     = input.bool(false, "Show Pattern Markers (1,2,3 / P1 / A,B,C)", group=grp_tri, tooltip="Inspection aid: marks every completed pattern shape without the level test. Bullish below the candle, bearish above.")
 
@@ -200,11 +201,11 @@ if is_marubozu and is_bear
 // colour (bullish move: all bullish; bearish move: all bearish).
 // Every sized candle is at least 50% of Ref (largest of the 5 SAME-COLOUR
 // Marubozus before C1: bullish patterns vs bullish Marubozus, bearish vs bearish).
-//  A: Marubozu (>= 50% Ref) + Pin Bar + Marubozu (>= 50% Ref)
-//  B: Pin Bar + Marubozu OR Normal (no size test) + Marubozu (>= 50% Ref);
+//  A: Marubozu (>= 50% Ref) + Pin Bar or Doji + Marubozu (>= 50% Ref)
+//  B: Pin Bar or Doji + Marubozu OR Normal (no size test) + Marubozu (>= 50% Ref);
 //     C2 is an inside bar of C1, closes in the last 5% of C1 (towards the
 //     move), or closes beyond C1
-//  C: Normal + Normal + Marubozu (all three >= 50% Ref)
+//  C: Normal + Normal (>= 40% Ref) + Marubozu (>= 50% Ref)
 // C3 closes beyond the extreme (high / low) of C1 and C2.
 // They confirm a Real Breakout (with the level test in f_real_breakout) and a
 // Real Pullback (no level). The 3 main two-candle conditions are unchanged.
@@ -216,7 +217,7 @@ bool  tri_s0u  = not na(triRefUp) and c_range    >= tri_min_pct * triRefUp - eps
 bool  tri_s2d  = not na(triRefDn) and c_range[2] >= tri_min_pct * triRefDn - eps
 bool  tri_s0d  = not na(triRefDn) and c_range    >= tri_min_pct * triRefDn - eps
 bool  tri_in   = high[1] <= high[2] and low[1] >= low[2]
-// Pattern C: the two Normal candles need tri_c_norm_pct (50%) of Ref
+// Pattern C: the two Normal candles need tri_c_norm_pct (40%) of Ref
 bool  tri_n2u  = not na(triRefUp) and c_range[2] >= tri_c_norm_pct * triRefUp - eps
 bool  tri_n1u  = not na(triRefUp) and c_range[1] >= tri_c_norm_pct * triRefUp - eps
 bool  tri_n2d  = not na(triRefDn) and c_range[2] >= tri_c_norm_pct * triRefDn - eps
@@ -224,23 +225,25 @@ bool  tri_n1d  = not na(triRefDn) and c_range[1] >= tri_c_norm_pct * triRefDn - 
 
 // Bullish
 // SAME DIRECTION + SAME COLOUR: C1, C2 and C3 must ALL be bullish (Pin Bars included),
-// and a Pin Bar in a bullish pattern must be a Bullish Pin (dominant LOWER shadow).
+// and a Pin Bar in a bullish pattern must be a Bullish Pin (dominant LOWER shadow);
+// a Doji may take the Pin Bar's place (it must still be bullish).
 // A pattern with any bearish or doji (open == close) candle is rejected.
 bool tri_all_bull = is_bull[2] and is_bull[1] and is_bull
 bool tri_c3_up  = close > math.max(high[1], high[2])
 bool tri_near_up = close[1] >= high[2] - tri_near_pct * c_range[2] - eps
-bool triA_up = useTri and tri_all_bull and is_marubozu[2] and tri_s2u and is_bull_pin[1] and is_marubozu and tri_s0u and tri_c3_up
-bool triB_up = useTri and tri_all_bull and is_bull_pin[2] and (is_marubozu[1] or is_normal[1]) and (tri_in or tri_near_up) and is_marubozu and tri_s0u and tri_c3_up
+bool triA_up = useTri and tri_all_bull and is_marubozu[2] and tri_s2u and (is_bull_pin[1] or is_doji[1]) and is_marubozu and tri_s0u and tri_c3_up
+bool triB_up = useTri and tri_all_bull and (is_bull_pin[2] or is_doji[2]) and (is_marubozu[1] or is_normal[1]) and (tri_in or tri_near_up) and is_marubozu and tri_s0u and tri_c3_up
 bool triC_up = useTri and tri_all_bull and is_normal[2] and tri_n2u and is_normal[1] and tri_n1u and is_marubozu and tri_s0u and tri_c3_up
 
 // Bearish
 // SAME DIRECTION + SAME COLOUR: C1, C2 and C3 must ALL be bearish (Pin Bars included),
-// and a Pin Bar in a bearish pattern must be a Bearish Pin (dominant UPPER shadow).
+// and a Pin Bar in a bearish pattern must be a Bearish Pin (dominant UPPER shadow);
+// a Doji may take the Pin Bar's place (it must still be bearish).
 bool tri_all_bear = is_bear[2] and is_bear[1] and is_bear
 bool tri_c3_dn  = close < math.min(low[1], low[2])
 bool tri_near_dn = close[1] <= low[2] + tri_near_pct * c_range[2] + eps
-bool triA_dn = useTri and tri_all_bear and is_marubozu[2] and tri_s2d and is_bear_pin[1] and is_marubozu and tri_s0d and tri_c3_dn
-bool triB_dn = useTri and tri_all_bear and is_bear_pin[2] and (is_marubozu[1] or is_normal[1]) and (tri_in or tri_near_dn) and is_marubozu and tri_s0d and tri_c3_dn
+bool triA_dn = useTri and tri_all_bear and is_marubozu[2] and tri_s2d and (is_bear_pin[1] or is_doji[1]) and is_marubozu and tri_s0d and tri_c3_dn
+bool triB_dn = useTri and tri_all_bear and (is_bear_pin[2] or is_doji[2]) and (is_marubozu[1] or is_normal[1]) and (tri_in or tri_near_dn) and is_marubozu and tri_s0d and tri_c3_dn
 bool triC_dn = useTri and tri_all_bear and is_normal[2] and tri_n2d and is_normal[1] and tri_n1d and is_marubozu and tri_s0d and tri_c3_dn
 
 bool tri_up = triA_up or triB_up or triC_up
@@ -257,9 +260,14 @@ f_tri_at(level, dir) =>
             ok := (triA_dn and close[2] < level and close < level) or ((triB_dn or triC_dn) and close < level)
     ok
 
-// Low volume on C2 (Rule 2 and 3). No volume data on the symbol -> not tested.
+// Low volume on C2 (Rule 2 and 3 of the Real Breakout AND the Real Pullback).
+//  Default: C2 of an UP move (low SELLING volume) is not a Bearish Pin Bar;
+//           C2 of a DOWN move (low BUYING volume) is not a Bullish Pin Bar.
+//  Volume options: no volume data on the symbol -> not tested.
 float volAvg = ta.sma(volume, bo_vol_len)
-bool  bo_c2_low_vol = bo_vol_mode == "Off" or na(volume) or (bo_vol_mode == "C2 Volume < C1 Volume" ? (na(volume[1]) or volume < volume[1]) : (na(volAvg[1]) or volume < volAvg[1]))
+bool  c2_vol_low = na(volume) or (bo_vol_mode == "C2 Volume < C1 Volume" ? (na(volume[1]) or volume < volume[1]) : (na(volAvg[1]) or volume < volAvg[1]))
+bool  c2_low_sell = bo_vol_mode == "Off" or (bo_vol_mode == "C2 is not an opposite Pin Bar" ? not is_bear_pin : c2_vol_low)   // C2 of an up move
+bool  c2_low_buy  = bo_vol_mode == "Off" or (bo_vol_mode == "C2 is not an opposite Pin Bar" ? not is_bull_pin : c2_vol_low)   // C2 of a down move
 
 // =====================================================================
 // REAL BREAKOUT (3 Main Conditions) - used by market structure AND the Range Box
@@ -291,9 +299,9 @@ f_real_breakout(level, dir) =>
 
             float mid_c1 = (high[1] + low[1]) / 2.0
             // Rule 2: big bullish Marubozu + bullish candle (low volume) whose LOW stays above C1's 50%
-            bool r2 = is_big_maru[1] and is_bull[1] and is_bull and (low > mid_c1) and bo_c2_low_vol and c1_above_30
+            bool r2 = is_big_maru[1] and is_bull[1] and is_bull and (low > mid_c1) and c2_low_sell and c1_above_30
             // Rule 3: big bullish Marubozu + small bearish candle (<= 30% of C1, low volume) holding its upper half
-            bool r3 = is_big_maru[1] and is_bull[1] and is_bear and (c_range <= bo_c2_max_size * c_range[1] + eps) and (low > mid_c1) and bo_c2_low_vol and c1_above_30
+            bool r3 = is_big_maru[1] and is_bull[1] and is_bear and (c_range <= bo_c2_max_size * c_range[1] + eps) and (low > mid_c1) and c2_low_sell and c1_above_30
             ok := r1 or r2 or r3
 
         else if dir == -1
@@ -303,8 +311,8 @@ f_real_breakout(level, dir) =>
             bool c1_below_30 = c1_part_below > bo_c1_above_pct * c_range[1] + eps
 
             float mid_c1 = (high[1] + low[1]) / 2.0
-            bool r2 = is_big_maru[1] and is_bear[1] and is_bear and (high < mid_c1) and bo_c2_low_vol and c1_below_30
-            bool r3 = is_big_maru[1] and is_bear[1] and is_bull and (c_range <= bo_c2_max_size * c_range[1] + eps) and (high < mid_c1) and bo_c2_low_vol and c1_below_30
+            bool r2 = is_big_maru[1] and is_bear[1] and is_bear and (high < mid_c1) and c2_low_buy and c1_below_30
+            bool r3 = is_big_maru[1] and is_bear[1] and is_bull and (c_range <= bo_c2_max_size * c_range[1] + eps) and (high < mid_c1) and c2_low_buy and c1_below_30
             ok := r1 or r2 or r3
     // ...or one of the special three-candle patterns (A, B, C)
     bool triOk = f_tri_at(level, dir)
@@ -317,55 +325,58 @@ float mid_1 = (nz(high[1], high) + nz(low[1], low)) / 2.0
 
 // The three Real Pullback conditions (identical logic in up- and downtrends).
 // All sizes compare the TOTAL candle length (high - low), never the body.
-// Only these three conditions define a Real Pullback (no volume filter).
-// Rule 1: two consecutive counter-trend Marubozus; C2
-//         closes beyond C1's close and C2's length is at least 70% of C1's.
-// Rule 2: BIG counter-trend Marubozu + a small candle in the
-//         SAME direction whose far end stays short of C1's 50% level
-//         (bearish: C2 high < C1 mid; bullish: C2 low > C1 mid).
+// Rule 1: two consecutive counter-trend Marubozus; C2 closes beyond C1's
+//         LOW (bearish) / HIGH (bullish) and C2's length is at least 70% of C1's.
+// Rule 2: BIG counter-trend Marubozu + a candle (any size) in the SAME
+//         direction whose far end stays short of C1's 50% level
+//         (bearish: C2 high < C1 mid; bullish: C2 low > C1 mid), low volume on C2.
 // Rule 3: BIG counter-trend Marubozu + a small OPPOSITE candle
 //         whose length is 30% or less of C1's, with its far end short of
-//         C1's 50% level.
+//         C1's 50% level, low volume on C2.
 // BIG = larger than at least 3 of the 5 preceding Marubozu candles.
 
 // BEARISH PULLBACK (Counter-trend down in an Uptrend)
-bool pb_r1_dn = is_bear[1] and is_marubozu[1] and is_bear and is_marubozu and (c_range >= pb_c2_min_size * nz(c_range[1], c_range) - eps) and (close < nz(close[1], close))
-bool pb_r2_dn = is_bear[1] and is_big_maru[1] and is_bear and (high < mid_1)
-bool pb_r3_dn = is_bear[1] and is_big_maru[1] and is_bull and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range) + eps) and (high < mid_1)
+bool pb_r1_dn = is_bear[1] and is_marubozu[1] and is_bear and is_marubozu and (c_range >= pb_c2_min_size * nz(c_range[1], c_range) - eps) and (close < nz(low[1], low))
+bool pb_r2_dn = is_bear[1] and is_big_maru[1] and is_bear and (high < mid_1) and c2_low_buy
+bool pb_r3_dn = is_bear[1] and is_big_maru[1] and is_bull and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range) + eps) and (high < mid_1) and c2_low_buy
 
 // ...or a special three-candle pattern (A, B, C) against the trend.
 bool pb_pattern_down = pb_r1_dn or pb_r2_dn or pb_r3_dn or tri_dn
 
 // BULLISH PULLBACK (Counter-trend up in a Downtrend)
-bool pb_r1_up = is_bull[1] and is_marubozu[1] and is_bull and is_marubozu and (c_range >= pb_c2_min_size * nz(c_range[1], c_range) - eps) and (close > nz(close[1], close))
-bool pb_r2_up = is_bull[1] and is_big_maru[1] and is_bull and (low > mid_1)
-bool pb_r3_up = is_bull[1] and is_big_maru[1] and is_bear and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range) + eps) and (low > mid_1)
+bool pb_r1_up = is_bull[1] and is_marubozu[1] and is_bull and is_marubozu and (c_range >= pb_c2_min_size * nz(c_range[1], c_range) - eps) and (close > nz(high[1], high))
+bool pb_r2_up = is_bull[1] and is_big_maru[1] and is_bull and (low > mid_1) and c2_low_sell
+bool pb_r3_up = is_bull[1] and is_big_maru[1] and is_bear and (c_range <= pb_c2_max_r3 * nz(c_range[1], c_range) + eps) and (low > mid_1) and c2_low_sell
 
 bool pb_pattern_up = pb_r1_up or pb_r2_up or pb_r3_up or tri_up
 
 // Real Breakout SHAPES without the level test (used by the pattern markers).
 bool mk_r1_up = is_marubozu[1] and is_marubozu and is_bull[1] and is_bull and close > high[1] and c_range >= bo_c2_min_r1 * c_range[1] - eps
-bool mk_r2_up = is_big_maru[1] and is_bull[1] and is_bull and low > mid_1 and bo_c2_low_vol
-bool mk_r3_up = is_big_maru[1] and is_bull[1] and is_bear and (c_range <= bo_c2_max_size * c_range[1] + eps) and low > mid_1 and bo_c2_low_vol
+bool mk_r2_up = is_big_maru[1] and is_bull[1] and is_bull and low > mid_1 and c2_low_sell
+bool mk_r3_up = is_big_maru[1] and is_bull[1] and is_bear and (c_range <= bo_c2_max_size * c_range[1] + eps) and low > mid_1 and c2_low_sell
 bool mk_r1_dn = is_marubozu[1] and is_marubozu and is_bear[1] and is_bear and close < low[1] and c_range >= bo_c2_min_r1 * c_range[1] - eps
-bool mk_r2_dn = is_big_maru[1] and is_bear[1] and is_bear and high < mid_1 and bo_c2_low_vol
-bool mk_r3_dn = is_big_maru[1] and is_bear[1] and is_bull and (c_range <= bo_c2_max_size * c_range[1] + eps) and high < mid_1 and bo_c2_low_vol
+bool mk_r2_dn = is_big_maru[1] and is_bear[1] and is_bear and high < mid_1 and c2_low_buy
+bool mk_r3_dn = is_big_maru[1] and is_bear[1] and is_bull and (c_range <= bo_c2_max_size * c_range[1] + eps) and high < mid_1 and c2_low_buy
 bool shapeBoUp = mk_r1_up or mk_r2_up or mk_r3_up or tri_up
 bool shapeBoDn = mk_r1_dn or mk_r2_dn or mk_r3_dn or tri_dn
 
-// Real Pullback that BREAKS a range boundary against the range's leg:
-//   Rule 1: both candles close beyond the boundary
-//   Rule 2/3: the big Marubozu (C1 of the pattern) closes beyond the boundary
-//   3-candle patterns: same level test as for a Real Breakout (f_tri_at)
+// Real Pullback that BREAKS a range boundary against the range's leg (the
+// only way a pullback counts while a range box is active). ALL of:
+//  - both candles have left the box (close beyond the boundary);
+//  - C1 is a Marubozu against the trend (with the pullback) and at least 50%
+//    of its length (High - Low) is outside the box;
+//  - C2 is any candle (Doji, Pin Bar, Normal or Marubozu) closing beyond C1:
+//    bearish Close C2 < Low C1, bullish Close C2 > High C1.
 f_real_pullback_at(level, dir) =>
     bool ok = false
     if not na(level)
         if dir == -1
-            ok := (pb_r1_dn and close[1] < level and close < level) or ((pb_r2_dn or pb_r3_dn) and close[1] < level)
+            float outPart = math.max(0.0, math.min(high[1], level) - low[1])
+            ok := is_marubozu[1] and is_bear[1] and outPart >= pb_exit_out_pct * c_range[1] - eps and close[1] < level and close < level and close < low[1]
         else if dir == 1
-            ok := (pb_r1_up and close[1] > level and close > level) or ((pb_r2_up or pb_r3_up) and close[1] > level)
-    bool triOk = f_tri_at(level, dir)
-    ok or triOk
+            float outPart = math.max(0.0, high[1] - math.max(low[1], level))
+            ok := is_marubozu[1] and is_bull[1] and outPart >= pb_exit_out_pct * c_range[1] - eps and close[1] > level and close > level and close > high[1]
+    ok
 
 
 var int msTrendState = 0
@@ -517,12 +528,12 @@ if rangeActive
     //   up-leg box   -> above the ceiling
     //   down-leg box -> below the floor
     bool realBO = rangeDir == 1 ? boUpCeil : boDnFloor
-    // Scenario 1: the box closes by a Real Pullback only when the pullback BREAKS
-    // the box against its leg (a pullback pattern inside the box is range noise:
-    // no pullback, no CTS / BOS inside a range), or by a Real Breakout through the
-    // counter-side boundary.
+    // Scenario 1: a type 1-3 box closes against its leg ONLY by the range-exit
+    // Real Pullback (f_real_pullback_at: 2 candles out, Marubozu C1 >= 50% outside,
+    // C2 closing beyond C1). Anything else inside / around the box is range noise
+    // and the box keeps expanding (no pullback, no CTS / BOS inside a range).
     // Type 4 (FBO) box: its CTS side closes only by a Real Breakout.
-    bool realPB = rangeType == 4 ? (rangeDir == 1 ? boDnFloor : boUpCeil) : rangeDir == 1 ? (pbDnExit or boDnFloor) : (pbUpExit or boUpCeil)
+    bool realPB = rangeType == 4 ? (rangeDir == 1 ? boDnFloor : boUpCeil) : rangeDir == 1 ? pbDnExit : pbUpExit
     // Young box (at most 2 bars old) whose start candles complete a Real Pullback:
     // it was the pullback, not a range -> the box is removed.
     // "Start candles" = every candle up to the bar the box was confirmed on: a
@@ -708,8 +719,8 @@ bool is_confirmed = msStrictClose ? barstate.isconfirmed : true
 // Real Pullback for STRUCTURE.
 // A pullback pattern inside an active range counts only if it breaks that range;
 // start candles of a young box that complete a Real Pullback are that pullback.
-bool pbDnStruct = pb_pattern_down and (not rangeWasActive or pbDnExit or rngCancelDn)
-bool pbUpStruct = pb_pattern_up   and (not rangeWasActive or pbUpExit or rngCancelUp)
+bool pbDnStruct = (pb_pattern_down and (not rangeWasActive or rngCancelDn)) or (rangeWasActive and pbDnExit)
+bool pbUpStruct = (pb_pattern_up   and (not rangeWasActive or rngCancelUp)) or (rangeWasActive and pbUpExit)
 
 // Real Breakout tests, evaluated on every bar (levels are the previous bar's state)
 bool revDnBreak = f_real_breakout(msTrendState == 1 ? keyLevel : na, -1)
