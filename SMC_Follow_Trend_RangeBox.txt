@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V18.2 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V18.4 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -532,8 +532,10 @@ if rangeActive
     // Real Pullback (f_real_pullback_at: 2 candles out, Marubozu C1 >= 50% outside,
     // C2 closing beyond C1). Anything else inside / around the box is range noise
     // and the box keeps expanding (no pullback, no CTS / BOS inside a range).
-    // Type 4 (FBO) box: its CTS side closes only by a Real Breakout.
-    bool realPB = rangeType == 4 ? (rangeDir == 1 ? boDnFloor : boUpCeil) : rangeDir == 1 ? pbDnExit : pbUpExit
+    // Type 4 (FBO) box (V18.4, image 85): it never closes on the CTS side - price
+    // may fall far back below the CTS line; it ends only by a Real Breakout of its
+    // far side (or a CTS / trend change, see the FBO block).
+    bool realPB = rangeType == 4 ? false : rangeDir == 1 ? pbDnExit : pbUpExit
     // Young box (at most 2 bars old) whose start candles complete a Real Pullback:
     // it was the pullback, not a range -> the box is removed.
     // "Start candles" = every candle up to the bar the box was confirmed on: a
@@ -993,8 +995,11 @@ if fakeBreakoutStart
         outDnBars    := 0
         exHi         := na
         exLo         := na
+        // Drawn from the wave top / bottom that became the CTS line (V18.4, image 85);
+        // rangeLeftBar stays on the crossing candle for the "older than 2 bars" test.
+        int fbBoxLeft = fbDir == 1 ? uExtBar : dExtBar
         if rngShow
-            rangeBox := box.new(left=bar_index, top=boxTop, right=bar_index, bottom=boxBot, bgcolor=rngActiveColor, border_color=color.new(color.gray, 25), border_width=1, border_style=line.style_dotted)
+            rangeBox := box.new(left=f_x(na(fbBoxLeft) ? bar_index : fbBoxLeft), top=boxTop, right=bar_index, bottom=boxBot, bgcolor=rngActiveColor, border_color=color.new(color.gray, 25), border_width=1, border_style=line.style_dotted)
     if msShowFakeBO
         fbLabel := label.new(bar_index, fbLevel, "FBO", style=fbDir == 1 ? label.style_label_down : label.style_label_up, color=color.new(color.gray, 80), textcolor=color.gray, size=size.tiny, tooltip="Fake Breakout in progress: price beyond the CTS without any Real Breakout condition or 3-candle pattern")
 bool fakeBreakoutConfirmed = false
