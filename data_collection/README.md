@@ -17,3 +17,13 @@
 
 ## ترتیب
 python codal_collector.py list → fetch → parse
+
+## پایپ‌لاین کامل
+1. `python codal_collector.py list --from 1393/01/01 --to 1402/12/29` ← letters.csv
+2. `python codal_collector.py fetch` ← html صورت‌های مالی
+3. `python codal_collector.py parse` ← cells_*.csv
+4. فایل `data_out/symbols.csv` (ستون Symbol,InsCode) را بسازید؛ `python tsetmc_collector.py` ← صنعت، سهامداران، قیمت
+5. `python build_panel.py` ← غربالگری + همه متغیرها ← `panel.csv` و `panel.dta`
+
+شرایط غربالگری در `config.py` (SCREEN). منطق پارس و ساخت متغیرها فقط روی داده مصنوعی آزمون شده؛ اتصال به سایت‌ها آزمون نشده است.
+متغیرهایی که خودکار نیستند: AUDQ (اندازه/تخصص/دوره تصدی حسابرس)، STATE (مالکیت دولتی)، REL_REC، OVERDUE، PENALTY.

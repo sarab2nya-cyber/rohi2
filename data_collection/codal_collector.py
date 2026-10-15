@@ -16,6 +16,7 @@
 import argparse, json, re, sys, time, pathlib
 import requests, pandas as pd
 
+import config as C
 CONFIG = {
     "search_url": "https://search.codal.ir/api/search/v2/q",
     "base": "https://codal.ir",
