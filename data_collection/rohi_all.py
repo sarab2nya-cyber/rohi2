@@ -375,13 +375,18 @@ def build_main():
     print("متغیرهای دستی/نیمه‌خودکار: AUDQ، STATE، OVERDUE، PENALTY، DEF_BANK، REL_REC (از یادداشت‌ها)")
 
 
-# ====================== CLI ======================
-if __name__ == "__main__":
-    import glob
+# ====================== CLI / استفاده در Colab ======================
+def run(cmd, from_="1393/01/01", to="1402/12/29", limit=0):
+    """در Colab/Jupyter به‌جای خط فرمان: run('list'), run('fetch', limit=20), run('parse'),
+    run('symbols'), run('tse'), run('build')"""
+    a = types.SimpleNamespace(from_=from_, to=to, limit=limit)
+    {"list": lambda: cmd_list(a), "fetch": lambda: cmd_fetch(a), "parse": lambda: cmd_parse(a),
+     "symbols": make_symbols, "tse": tse_main, "build": build_main}[cmd]()
+
+if __name__ == "__main__" and "ipykernel" not in sys.modules:
     ap = argparse.ArgumentParser(); sp = ap.add_subparsers(dest="c", required=True)
     l = sp.add_parser("list"); l.add_argument("--from", dest="from_", default="1393/01/01"); l.add_argument("--to", default="1402/12/29")
     f = sp.add_parser("fetch"); f.add_argument("--limit", type=int, default=0)
     for n in ("parse", "symbols", "tse", "build"): sp.add_parser(n)
     a = ap.parse_args()
-    {"list": lambda: cmd_list(a), "fetch": lambda: cmd_fetch(a), "parse": lambda: cmd_parse(a),
-     "symbols": make_symbols, "tse": tse_main, "build": build_main}[a.c]()
+    run(a.c, getattr(a, "from_", "1393/01/01"), getattr(a, "to", "1402/12/29"), getattr(a, "limit", 0))
