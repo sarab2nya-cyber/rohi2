@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 """Instrument for the public-sector paper: items (Persian), origin class, references per scale; reference list (APA) and citation map."""
-import sys
-sys.path.insert(0, "../../fomo_two_papers/code")
 RB = "پژوهش‌محور (اقتباس‌شده)"; RM = "محقق‌ساخته (برگرفته از نظریه)"; MIX = "ترکیبی (بخشی اقتباس‌شده، بخشی محقق‌ساخته)"
 LIK = "لیکرت ۵‌درجه‌ای: ۱ = کاملاً مخالف … ۵ = کاملاً موافق"
 LAT = {

@@ -22,8 +22,12 @@ def pval(p):
     return LRI + fa(f"p = {p:.3f}") + PDI
 
 def S(expr):
-    """عبارت آماری (مثل β = −0.47, z = 8.4) درون ایزولهٔ LTR با ارقام فارسی"""
-    return LRI + fa(expr.replace("-", "−")) + PDI
+    """عبارت آماری: بازه‌ها درون ایزولهٔ LTR؛ سایر عبارت‌ها با واژه‌های فارسی («برابر»، «کمتر از») تا ترتیب نمایش در راست‌به‌چپ پایدار بماند"""
+    e = expr.replace("-", "−")
+    if "[" in e: return LRI + fa(e.replace(" ", "\u00a0")) + PDI
+    e = re.sub(r"\s*=\s*", " برابر ", e); e = re.sub(r"\s*<\s*", " کمتر از ", e); e = e.replace(",", "،")
+    e = re.sub(r"−(\d+(?:\.\d+)?)", lambda mo: LRI + "−" + mo.group(1) + PDI, e)
+    return fa(e)
 
 class Doc:
     def __init__(self, body_pt=13, body_font="B Nazanin", title_font="B Zar", latin="Times New Roman"):

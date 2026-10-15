@@ -26,10 +26,12 @@ class DocJ(Doc):
         else: self.para(text, jc="right", indent=False, size=23, bold=True, font=self.hf, before=160, after=40, keep=True)
     def title(self, text): self.para(text, jc="center", indent=False, size=28, bold=True, font=self.hf, after=120)
     def caption(self, text, size=20): self.para(text, jc="center", indent=False, size=size, bold=True, font=self.bf, after=60, before=120, keep=True)
-    def body(self, text, **kw): self.para(text, jc="both", indent=True, size=26, after=0, **kw)
+    def bodyp(self, text, **kw): self.para(text, jc="both", indent=True, size=26, after=0, **kw)
     def blank(self, size=22): self.para("", jc="center", indent=False, size=size, after=0)
     def reference(self, text, latin=False):
-        if latin: self.para(text, jc="left", indent=False, size=22, rtl=False, persian=False, font=self.lat, after=40)
+        if latin:
+            runs = "".join(Doc.runs(self, p, persian=False, size=22, font=self.lat, italic=(i % 2 == 1)) for i, p in enumerate(text.split("//")) if p)
+            self.parts.append(f'<w:p><w:pPr><w:spacing w:before="0" w:after="40" w:line="240" w:lineRule="auto"/><w:ind w:left="567" w:hanging="567"/><w:jc w:val="left"/></w:pPr>{runs}</w:p>')
         else: self.para(text, jc="both", indent=False, size=24, after=40)
     def save(self, path, title="Article"):
         W = ('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
