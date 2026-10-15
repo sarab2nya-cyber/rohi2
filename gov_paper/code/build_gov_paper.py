@@ -119,7 +119,7 @@ P("این پژوهش محدودیت‌هایی دارد. ماهیت مقطعی �
 d.heading("منابع")
 d.para("**منابع فارسی**", jc="right", indent=False, size=24, after=40)
 for k, v in sorted(G.FAR.items(), key=lambda kv: kv[1]["fa"]):
-    d.para(v["fa"].replace("//", ""), jc="both", indent=False, size=24, after=40)
+    d.para(__import__("re").sub(r"(?<!:)//", "", v["fa"]), jc="both", indent=False, size=24, after=40)
 body_txt = re.sub(r"<[^>]+>", "", " ".join(d.parts))
 fn_txt = " ".join(e for _, _, e in d.footnotes)
 used = [k for k in G.LAT if G.CITE[k][1] in fn_txt or G.CITE[k][0] in body_txt]

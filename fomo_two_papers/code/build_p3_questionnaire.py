@@ -4,7 +4,7 @@ from docbuilder import Doc, fa
 from docbuilder_en import DocEN
 import paper3_instrument as P
 OUT = os.path.join("..", "paper3"); os.makedirs(OUT, exist_ok=True)
-plain = lambda s: s.replace("//", "")
+plain = lambda s: __import__("re").sub(r"(?<!:)//", "", s)
 def cite(keys):
     out = []
     for k in keys:

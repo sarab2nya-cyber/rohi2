@@ -95,7 +95,10 @@ class Doc:
         self.para(text, jc="center", indent=False, size=size, bold=True, font=self.tf, after=60, before=120, keep=True)
 
     def reference(self, text, latin=False):
-        if latin: self.para(text, jc="left", indent=False, size=24, rtl=False, persian=False, font=self.lat, after=30)
+        if latin:
+            import re as _re
+            runs = "".join(Doc.runs(self, t_, persian=False, size=22, font=self.lat, italic=(i % 2 == 1)) for i, t_ in enumerate(_re.split(r"(?<!:)//", text)) if t_)
+            self.parts.append(f'<w:p><w:pPr><w:spacing w:before="0" w:after="40" w:line="240" w:lineRule="auto"/><w:ind w:left="567" w:hanging="567"/><w:jc w:val="left"/></w:pPr>{runs}</w:p>')
         else:
             self.para(text, jc="both", indent=False, size=24, after=60)
 

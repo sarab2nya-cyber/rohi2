@@ -138,7 +138,7 @@ P("**دلالت‌های نظری.** نخست، یافته‌ها نشان می�
 P("**هشدار تفسیری.** مدل‌ها همبستگی‌های شرطی را نشان می‌دهند و استنباط علّی نیازمند طرح‌های آزمایشی یا طولی است. هم‌چنین چون هر دو پاسخ با گزارش مدیران سنجیده شده، ممکن است مدیران پاسخ نمادین را کمتر از واقع اعلام کنند؛ با این حال ثبات نتایج در بررسی سوگیری روش مشترک و همبستگی مثبت باقی‌مانده دو پاسخ این نگرانی را کاهش می‌دهد.")
 P("محدودیت‌ها: طرح مقطعی و خوداظهاری، مقیاس‌های تازه‌ساخته، گروه‌بندی دوگانهٔ نهادها و تعداد کم نیمرخ‌ها. پیشنهاد می‌شود پژوهش‌های آینده از داده‌های چندمنبعی و عینی، طرح‌های طولی و آزمایش‌های میدانی (برای نمونه تغییر دادن هم‌زمان الزام و آموزش) استفاده کنند، اثر متقابل سه‌گانهٔ فشارها و نقش رهبری و ظرفیت سازمانی را بیازمایند و مقایسهٔ میان‌کشوری انجام دهند.")
 d.heading("منابع")
-for k, v in sorted(G.FAR.items(), key=lambda kv: kv[1]["fa"]): d.para(v["fa"].replace("//", ""), jc="both", indent=False, size=24, after=40)
+for k, v in sorted(G.FAR.items(), key=lambda kv: kv[1]["fa"]): d.para(__import__("re").sub(r"(?<!:)//", "", v["fa"]), jc="both", indent=False, size=24, after=40)
 body_txt = html.unescape(re.sub(r"<[^>]+>", "", " ".join(d.parts))); fn_txt = " ".join(e for _, _, e in d.footnotes)
 used = [k for k in G.LAT if G.CITE[k][1] in fn_txt or G.CITE[k][0] in body_txt]; print("LAT cited:", len(used), "uncited:", [k for k in G.LAT if k not in used])
 for k in sorted(used, key=lambda k: G.LAT[k].lower()): d.reference(G.LAT[k], latin=True)

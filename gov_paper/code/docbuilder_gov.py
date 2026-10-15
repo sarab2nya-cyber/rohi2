@@ -30,7 +30,7 @@ class DocJ(Doc):
     def blank(self, size=22): self.para("", jc="center", indent=False, size=size, after=0)
     def reference(self, text, latin=False):
         if latin:
-            runs = "".join(Doc.runs(self, p, persian=False, size=22, font=self.lat, italic=(i % 2 == 1)) for i, p in enumerate(text.split("//")) if p)
+            runs = "".join(Doc.runs(self, p, persian=False, size=22, font=self.lat, italic=(i % 2 == 1)) for i, p in enumerate(re.split(r"(?<!:)//", text)) if p)
             self.parts.append(f'<w:p><w:pPr><w:spacing w:before="0" w:after="40" w:line="240" w:lineRule="auto"/><w:ind w:left="567" w:hanging="567"/><w:jc w:val="left"/></w:pPr>{runs}</w:p>')
         else: self.para(text, jc="both", indent=False, size=24, after=40)
     def save(self, path, title="Article"):
