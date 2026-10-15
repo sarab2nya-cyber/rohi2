@@ -176,17 +176,6 @@ def cells_from_datasource(ds):
                                 "col": c.get("columnSequence"), "address": c.get("address"), "value": v})
     return pd.DataFrame(out)
 
-ITEMS = {  # واژه‌های کلیدی ردیف‌ها (برای تطبیق متنی با برچسب ردیف؛ پس از دیدن داده واقعی اصلاح کنید)
-    "TA": ["جمع دارایی‌ها", "جمع دارایی ها"],
-    "ST_INV": ["سرمایه‌گذاری‌های کوتاه‌مدت", "سرمایه گذاری های کوتاه مدت"],
-    "LT_INV": ["سرمایه‌گذاری‌های بلندمدت", "سرمایه گذاری های بلند مدت"],
-    "INV_PROP": ["املاک سرمایه‌گذاری"],
-    "LOAN_IN": ["دریافت تسهیلات مالی"],
-    "LOAN_REPAY": ["پرداخت اصل تسهیلات", "بازپرداخت اصل تسهیلات"],
-    "CFO": ["جریان خالص ورود (خروج) وجه نقد حاصل از فعالیت‌های عملیاتی", "جریان خالص ورود وجه نقد حاصل از فعالیت"],
-    "OVERDUE": ["سررسید گذشته", "سررسید‌ گذشته"],
-}
-
 def cmd_parse(a):
     d = CODAL_CFG["out"] / "html"; res = []
     for f in sorted(d.glob("*.html")):
@@ -203,12 +192,6 @@ def cmd_parse(a):
         res.append({"TracingNo": f.stem, "auditor_guess": m.group(1) if m else None, "n_cells": len(cells)})
     pd.DataFrame(res).to_csv(CODAL_CFG["out"] / "parsed_index.csv", index=False, encoding="utf-8-sig")
     print("پایان. سپس با ITEMS ردیف‌ها را به متغیر تبدیل و در استتا ادغام کنید.")
-
-def tsetmc_shareholders(inscode):
-    """سهامداران عمده؛ endpoint را در مرورگر تأیید کنید."""
-    r = get(f"https://cdn.tsetmc.com/api/Shareholder/GetInstrumentShareHolderLast/{inscode}")
-    return r.json() if r is not None else None
-
 
 # ====================== TSETMC ======================
 TH = {"User-Agent": "Mozilla/5.0 (research; academic use)"}
