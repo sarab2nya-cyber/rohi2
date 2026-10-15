@@ -7,6 +7,7 @@ import fig_gov2
 HERE = os.path.dirname(os.path.abspath(__file__)); OUT = os.path.join(HERE, "..", "paper2", "output"); DEL = os.path.join(HERE, "..", "deliverables"); os.makedirs(DEL, exist_ok=True)
 R = json.load(open(os.path.join(OUT, "results_gov2.json"))); n = R["n"]; PA = R["paths"]; CD = R["cond"]; REL = R["rel"]; Mo = R["models"]
 fig_gov2.build_all(OUT, R)
+import fig_gov2_full; FULL = os.path.join(OUT, 'fa2_fig_full_en.png'); fig_gov2_full.build(FULL)
 FG = lambda k: os.path.join(OUT, f"fa2_fig{k}.png")
 m = lambda x, k=2: num(x, k)
 def pv(p): return "p < 0.001" if p < .001 else f"p = {p:.3f}"
@@ -86,7 +87,7 @@ rows = [("اثر اصلی", "فشار الزامی ← اجرای ماهوی", "
 rws = [(a, b, m(PA[k]["b"]), f"{PA[k]['se']:.2f}", m(PA[k]["beta"]), "<0.001" if PA[k]["p"] < .001 else f"{PA[k]['p']:.3f}", h) for a, b, k, h in rows]
 rws.append(("همبستگی باقی‌مانده", "اجرای ماهوی ↔ انطباق نمادین", m(R["resid_cov"]["b"]), f"{R['resid_cov']['se']:.2f}", m(R["resid_cov"]["beta"]), f"{R['resid_cov']['p']:.3f}", "فرضیهٔ ۳"))
 d.table("جدول ۲. برآورد مسیرهای ساختاری", ["نوع", "مسیر", "b", "SE", "β", "p", "فرضیه"], rws, widths=[1100, 2900, 600, 600, 600, 750, 900], size=20)
-d.figure(FG(2), "شکل ۲. مدل برآوردشده (ضرایب استاندارد؛ ∗ معنادار در سطح ۰٫۰۵، ∗∗ سطح ۰٫۰۱، ∗∗∗ سطح ۰٫۰۰۱)", width_cm=15.5)
+d.landscape_figure(FULL, "شکل ۲. مدل برآوردشده با همهٔ گویه‌ها: بارهای عاملی استاندارد (λ) و ضرایب مسیر استاندارد (β) (∗ p<0.05، ∗∗ p<0.01، ∗∗∗ p<0.001)", 23.5)
 P(f"**اثرهای اصلی.** فشار الزامی ({bz('SUB~COE')}) و فشار هنجاری ({bz('SUB~NOR')}) اجرای ماهوی را افزایش دادند و فشار تقلیدی اثر معناداری بر آن نداشت ({bz('SUB~MIM')}). انطباق نمادین با فشار الزامی ({bz('SYM~COE')}) و تقلیدی ({bz('SYM~MIM')}) افزایش و با فشار هنجاری ({bz('SYM~NOR')}) کاهش یافت. این الگو با مبنای نظری سازگار است و زمینه را برای آزمون پیکربندی فراهم می‌کند.")
 P(f"**فرضیهٔ ۱ و ۲.** اثر متقابل الزامی × هنجاری بر اجرای ماهوی مثبت و معنادار بود ({bz('SUB~INCN')}) و اثر متقابل الزامی × تقلیدی بر انطباق نمادین نیز ({bz('SYM~INCM')}). هر دو فرضیه تأیید شد. اندازهٔ اثر متقابل‌ها کوچک تا متوسط ({S('f² = ' + m(R['f2_int']['SUB'],3))} و {S('f² = ' + m(R['f2_int']['SYM'],3))}) است و افزودن آن‌ها ضریب تعیین اجرای ماهوی را به {m(R['r2']['SUB'])} و انطباق نمادین را به {m(R['r2']['SYM'])} رساند.")
 rows = []

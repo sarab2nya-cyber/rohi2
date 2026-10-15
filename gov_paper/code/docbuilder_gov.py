@@ -33,12 +33,16 @@ class DocJ(Doc):
             runs = "".join(Doc.runs(self, p, persian=False, size=22, font=self.lat, italic=(i % 2 == 1)) for i, p in enumerate(re.split(r"(?<!:)//", text)) if p)
             self.parts.append(f'<w:p><w:pPr><w:spacing w:before="0" w:after="40" w:line="240" w:lineRule="auto"/><w:ind w:left="567" w:hanging="567"/><w:jc w:val="left"/></w:pPr>{runs}</w:p>')
         else: self.para(text, jc="both", indent=False, size=24, after=40)
+    def _sect(self, landscape=False):
+        if landscape:
+            return ('<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="450" w:right="1000" w:bottom="900" w:left="1000" w:header="0" w:footer="0" w:gutter="0"/><w:bidi/></w:sectPr>')
+        return ('<w:sectPr><w:headerReference w:type="even" r:id="rIdHe"/><w:headerReference w:type="default" r:id="rIdHd"/>'
+                '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="450" w:right="2552" w:bottom="3033" w:left="2552" w:header="0" w:footer="0" w:gutter="0"/>'
+                '<w:pgNumType w:start="1"/><w:bidi/></w:sectPr>')
     def save(self, path, title="Article"):
         W = ('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
              'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"')
-        sect = ('<w:sectPr><w:headerReference w:type="even" r:id="rIdHe"/><w:headerReference w:type="default" r:id="rIdHd"/>'
-                '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="450" w:right="2552" w:bottom="3033" w:left="2552" w:header="0" w:footer="0" w:gutter="0"/>'
-                '<w:pgNumType w:start="1"/><w:bidi/></w:sectPr>')
+        sect = self._sect(False)
         document = f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document {W}><w:body>{"".join(self.parts)}{sect}</w:body></w:document>'
         fn = ['<w:footnote w:type="separator" w:id="-1"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:separator/></w:r></w:p></w:footnote>',
               '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>']
@@ -54,7 +58,7 @@ class DocJ(Doc):
                   '<w:style w:type="paragraph" w:styleId="Header"><w:name w:val="header"/><w:basedOn w:val="Normal"/></w:style>'
                   '<w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style></w:styles>')
         settings = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-                    '<w:zoom w:percent="100"/><w:defaultTabStop w:val="709"/><w:evenAndOddHeaders/><w:characterSpacingControl w:val="doNotCompress"/>'
+                    '<w:view w:val="print"/><w:zoom w:percent="100"/><w:defaultTabStop w:val="709"/><w:evenAndOddHeaders/><w:characterSpacingControl w:val="doNotCompress"/>'
                     '<w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr><w:themeFontLang w:val="en-US" w:bidi="fa-IR"/></w:settings>')
         ct = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
               '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>'

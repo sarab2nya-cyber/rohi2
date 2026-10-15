@@ -8,6 +8,7 @@ HERE = os.path.dirname(os.path.abspath(__file__)); OUT = os.path.join(HERE, ".."
 R = json.load(open(os.path.join(OUT, "results_gov.json"))); E = json.load(open(os.path.join(OUT, "gov_sem_extra.json")))
 n = R["n"]; PA = R["paths"]; IN = R["indirect"]; REL = R["rel"]; Mo = R["models"]
 F.build_all(OUT, R, E)
+import fig_gov_full; FULL = os.path.join(OUT, 'en_fig2_full.png'); fig_gov_full.build(FULL)
 FIGN = {1: "en_fig1_conceptual", 2: "en_fig2_paths", 3: "en_fig3_loadings", 4: "en_fig4_slopes", 5: "en_fig5_forest"}
 fig = lambda k: os.path.join(OUT, FIGN[k] + ".png")
 f2 = lambda x, k=2: f"{x:.{k}f}".replace("-", "−")
@@ -99,7 +100,7 @@ d.table("Table 2. Reliability and convergent validity", ["Construct", "Items", "
 d.heading("4.3 Structural model", 2)
 s = R["sem"]
 d.para(f"The full structural model fitted well: χ²({s['df']:.0f}) = {s['chi2']:.1f}, {pE(s['p'])}; CFI = {s['cfi']:.3f}, TLI = {s['tli']:.3f}, RMSEA = {s['rmsea']:.3f}, SRMR = {s['srmr']:.3f}. Figure 2 shows the standardized path coefficients and Table 3 reports unstandardized and standardized estimates with the verdict on each hypothesis.")
-d.figure(fig(2), "Figure 2. Estimated structural model with standardized path coefficients (β) and latent R². Latent variables are ellipses; dashed orange arrows are interaction (moderation) terms.", 15.8)
+d.landscape_figure(FULL, "Figure 2. Estimated structural model with all 34 indicators: standardized loadings (λ) and standardized path coefficients (β), with latent R². Latent variables are ellipses, indicators are boxes; dashed orange arrows are latent interaction (moderation) terms.", 23.5)
 lab = [("SUB~COE", "H1", "Coercive → Substantive implementation"), ("SYM~COE", "H2", "Coercive → Symbolic compliance"), ("SUB~NOR", "H3", "Normative → Substantive implementation"), ("SYM~NOR", "H4", "Normative → Symbolic compliance"),
        ("SYM~MIM", "H5", "Mimetic → Symbolic compliance"), ("USE~SUB", "H6", "Substantive impl. → Usefulness"), ("USE~SYM", "H7", "Symbolic compliance → Usefulness"), ("ACC~SUB", "H8", "Substantive impl. → Accountability"),
        ("ACC~SYM", "H9", "Symbolic compliance → Accountability"), ("ACC~USE", "H10", "Usefulness → Accountability"), ("USE~INTS", "H11", "Maturity × Subst. impl. → Usefulness"), ("SYM~INTC", "H12", "Maturity × Coercive → Symbolic compliance"),

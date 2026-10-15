@@ -11,7 +11,8 @@ CFA = "".join(f"{k} =~ " + "+".join(f"{k}{j}" for j in range(1, n+1)) + "\n" for
 EXO = ["TBP", "ECL", "CON", "INTT"]
 COV = "".join(f"{a} ~~ {b}\n" for i, a in enumerate(EXO) for b in EXO[i+1:]) + "INTM ~~ TBP\nINTM ~~ ECL\nINTM ~~ CON\nINTM ~~ INTT\n"
 M = CFA + "INTT =~ IT1+IT2+IT3+IT4\nINTM =~ IM1+IM2+IM3+IM4\n" + "MD ~ TBP + ECL + CON + INTT\nSIL ~ MD + ECL + CON + TBP + INTM\n" + COV
-m = Model(M); m.fit(dfc); iu = m.inspect()
+m = Model(M); m.fit(dfc); iu = m.inspect(); isd = m.inspect(std_est=True)
 out = {"paths_unstd": {f"{r.lval}~{r.rval}": dict(b=float(r.Estimate), se=float(r["Std. Err"])) for _, r in iu[(iu.op == "~") & (iu.lval.isin(["MD", "SIL"]))].iterrows()},
+       "loadings_std": {r.lval: float(r["Est. Std"]) for _, r in isd[(isd.op == "~") & (isd.rval.isin(list(FAC)))].iterrows()},
        "loadings_unstd": {r.lval: float(r.Estimate) for _, r in iu[(iu.op == "~") & (iu.rval.isin(list(FAC)))].iterrows()}}
 json.dump(out, open(os.path.join(OUT, "eth_sem_extra.json"), "w"), indent=1); print("ok")
