@@ -9,8 +9,8 @@ R = json.load(open(os.path.join(OUT, "results_gov.json"))); n = R["n"]; PA = R["
 m = lambda x, k=2: f"{x:.{k}f}".replace("-", "−")
 b = lambda k: m(PA[k]["beta"])
 c = R["cfa"]; s = R["sem"]; Mo = R["models"]
-TITLE_FA = "از انطباق نمادین تا اجرای ماهوی: نقش فشارهای نهادی و بلوغ نظام اطلاعاتی در اثرگذاری اصلاحات مالی بر پاسخگویی دستگاه‌های اجرایی"
-TITLE_EN = "From Symbolic Compliance to Substantive Implementation: Institutional Pressures, Information-System Maturity and the Accountability Effects of Public-Sector Financial Reforms"
+TITLE_FA = "ظاهر یا ماهیت؟ فشارهای نهادی و پاسخگویی در اصلاحات مالی دستگاه‌های اجرایی"
+TITLE_EN = "Form or Substance? Institutional Pressures and Accountability in Public-Sector Financial Reforms"
 # ------------------------------------------------------------ Persian extended abstract
 f = Doc(body_pt=12, body_font="B Mitra", title_font="B Titr")
 f.title(TITLE_FA); f.para("چکیدهٔ گسترده", jc="center", indent=False, bold=True, size=26, after=100)

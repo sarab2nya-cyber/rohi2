@@ -33,7 +33,7 @@ def Cn(k):
     f_, e_, y_ = G.CITE[k]; mk = "" if e_ in d.seen else f"[[fn:{e_}]]"; d.seen.add(e_); return f"{f_}{mk} ({y_})"
 T = d.t
 def P(text, **kw): d.bodyp(text, **kw)
-TITLE = "از انطباق نمادین تا اجرای ماهوی: نقش فشارهای نهادی و بلوغ نظام اطلاعاتی در اثرگذاری اصلاحات مالی بر پاسخگویی دستگاه‌های اجرایی"
+TITLE = "ظاهر یا ماهیت؟ فشارهای نهادی و پاسخگویی در اصلاحات مالی دستگاه‌های اجرایی"
 # ================================================================ title page
 d.title(TITLE); d.blank(22)
 ABS = (f"هدف این پژوهش بررسی این است که فشارهای نهادی (الزامی، هنجاری و تقلیدی) چگونه دستگاه‌های اجرایی را به اجرای ماهوی یا انطباق نمادین بودجه‌ریزی عملیاتی و گزارشگری تعهدی سوق می‌دهند، این دو مسیر از طریق سودمندی اطلاعات گزارش‌شده چه اثری بر پاسخگویی مالی دارند و بلوغ نظام اطلاعاتی مالی چه نقشی در این فرایند ایفا می‌کند. "
@@ -124,7 +124,7 @@ body_txt = re.sub(r"<[^>]+>", "", " ".join(d.parts))
 fn_txt = " ".join(e for _, _, e in d.footnotes)
 used = [k for k in G.LAT if G.CITE[k][1] in fn_txt or G.CITE[k][0] in body_txt]
 unused = [k for k in G.LAT if k not in used]; print("LAT cited:", len(used), "uncited:", unused)
-EN_T = "From Symbolic Compliance to Substantive Implementation: Institutional Pressures, Information-System Maturity and the Accountability Effects of Public-Sector Financial Reforms"
+EN_T = "Form or Substance? Institutional Pressures and Accountability in Public-Sector Financial Reforms"
 d.heading("References")
 for k in sorted(list(used) + list(G.FAR), key=lambda k: (G.LAT[k] if k in G.LAT else G.FAR[k]["en"]).lower()):
     d.reference(G.LAT[k] if k in G.LAT else G.FAR[k]["en"], latin=True)
