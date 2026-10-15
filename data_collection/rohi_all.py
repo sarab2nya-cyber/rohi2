@@ -138,6 +138,8 @@ def cmd_list(a):
         print(f"صفحه {page}: {len(letters)} نامه، جمع {len(rows)} از {j.get('Total')}")
         if page >= int(j.get("Page", page)): break
         page += 1; time.sleep(CODAL_CFG["sleep"])
+    if not rows:
+        sys.exit("هیچ نامه‌ای دریافت نشد: احتمالاً دسترسی به codal.ir از این شبکه مسدود است (Colab). روی رایانه‌ای در ایران اجرا کنید.")
     df = pd.DataFrame(rows)
     df.to_csv(CODAL_CFG["out"] / "letters.csv", index=False, encoding="utf-8-sig")
     print("ذخیره شد:", CODAL_CFG["out"] / "letters.csv", len(df))
