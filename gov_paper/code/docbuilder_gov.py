@@ -48,14 +48,15 @@ class DocJ(Doc):
               '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>']
         for n, mark, en in self.footnotes:
             rp = f'<w:rPr><w:rFonts w:ascii="{self.lat}" w:hAnsi="{self.lat}" w:cs="{self.lat}"/><w:sz w:val="18"/><w:szCs w:val="18"/>'
-            fn.append(f'<w:footnote w:id="{n}"><w:p><w:pPr><w:bidi w:val="0"/><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="left"/></w:pPr>'
-                      f'<w:r>{rp}</w:rPr><w:t xml:space="preserve">{mark}. </w:t></w:r><w:r>{rp}</w:rPr><w:t xml:space="preserve">{escape(en)}</w:t></w:r></w:p></w:footnote>')
+            fn.append(f'<w:footnote w:id="{n}"><w:p><w:pPr><w:pStyle w:val="FootnoteText"/><w:bidi w:val="0"/><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="left"/></w:pPr>'
+                      f'<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r><w:r>{rp}</w:rPr><w:t xml:space="preserve">. {escape(en)}</w:t></w:r></w:p></w:footnote>')
         footnotes = f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes {W}>{"".join(fn)}</w:footnotes>'
         styles = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
                   f'<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="{self.lat}" w:hAnsi="{self.lat}" w:cs="{self.bf}"/><w:sz w:val="{self.body}"/><w:szCs w:val="{self.body}"/>'
                   '<w:lang w:val="en-US" w:bidi="fa-IR"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:bidi/></w:pPr></w:pPrDefault></w:docDefaults>'
                   '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
                   '<w:style w:type="paragraph" w:styleId="Header"><w:name w:val="header"/><w:basedOn w:val="Normal"/></w:style>'
+                  '<w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style>'
                   '<w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style></w:styles>')
         settings = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
                     '<w:view w:val="print"/><w:zoom w:percent="100"/><w:defaultTabStop w:val="709"/><w:evenAndOddHeaders/><w:characterSpacingControl w:val="doNotCompress"/>'
