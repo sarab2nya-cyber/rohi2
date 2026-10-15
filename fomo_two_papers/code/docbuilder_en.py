@@ -7,7 +7,8 @@ class DocEN(Doc):
     def __init__(self, body_pt=12):
         super().__init__(body_pt=body_pt, body_font="Times New Roman", title_font="Times New Roman")
     def runs(self, text, persian=False, **kw):
-        parts = text.split("//"); out = []
+        import re as _re
+        parts = _re.split(r"(?<!:)//", text); out = []
         for i, p in enumerate(parts):
             if p: out.append(Doc.runs(self, p, persian=False, **{**kw, "italic": (i % 2 == 1) or kw.get("italic", False)}))
         return "".join(out)

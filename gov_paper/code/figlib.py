@@ -8,11 +8,8 @@ from bidi.algorithm import get_display
 plt.rcParams["font.family"] = "DejaVu Sans"
 PD = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 def fa(s, digits=True):
-    out = []
-    for line in s.split("\n"):
-        t = get_display(arabic_reshaper.reshape(line))
-        out.append(t.translate(PD) if digits else t)
-    return "\n".join(out)
+    """متن فارسی برای matplotlib: حرف‌چینی و جهت‌یابی را خود matplotlib (Raqm) انجام می‌دهد؛ تنها ارقام تبدیل می‌شوند."""
+    return s.translate(PD) if digits else s
 def num(x, nd=2):
     t = f"{abs(x):.{nd}f}".translate(PD)
     return ("−" if x < 0 else "") + t

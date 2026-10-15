@@ -35,6 +35,12 @@ LAT = {
 "maccallum1996": "MacCallum, R. C., Browne, M. W., & Sugawara, H. M. (1996). Power analysis and determination of sample size for covariance structure modeling. //Psychological Methods, 1//(2), 130–149. https://doi.org/10.1037/1082-989X.1.2.130",
 "igolkina2020": "Igolkina, A. A., & Meshcheryakov, G. (2020). semopy: A Python package for structural equation modeling. //Structural Equation Modeling, 27//(6), 952–963. https://doi.org/10.1080/10705511.2019.1704289",
 "podsakoff2003": "Podsakoff, P. M., MacKenzie, S. B., Lee, J.-Y., & Podsakoff, N. P. (2003). Common method biases in behavioral research: A critical review of the literature and recommended remedies. //Journal of Applied Psychology, 88//(5), 879–903. https://doi.org/10.1037/0021-9010.88.5.879",
+"greenwood2011": "Greenwood, R., Raynard, M., Kodeih, F., Micelotta, E. R., & Lounsbury, M. (2011). Institutional complexity and organizational responses. //Academy of Management Annals, 5//(1), 317–371. https://doi.org/10.1080/19416520.2011.590299",
+"mizruchi1999": "Mizruchi, M. S., & Fein, L. C. (1999). The social construction of organizational knowledge: A study of the uses of coercive, mimetic, and normative isomorphism. //Administrative Science Quarterly, 44//(4), 653–683. https://doi.org/10.2307/2667051",
+"kostova2002": "Kostova, T., & Roth, K. (2002). Adoption of an organizational practice by subsidiaries of multinational corporations: Institutional and relational effects. //Academy of Management Journal, 45//(1), 215–233. https://doi.org/10.5465/3069293",
+"spurk2020": "Spurk, D., Hirschi, A., Wang, M., Valero, D., & Kauffeld, S. (2020). Latent profile analysis: A review and “how to” guide of its application within vocational behavior research. //Journal of Vocational Behavior, 120//, 103445. https://doi.org/10.1016/j.jvb.2020.103445",
+"cheung2002": "Cheung, G. W., & Rensvold, R. B. (2002). Evaluating goodness-of-fit indexes for testing measurement invariance. //Structural Equation Modeling, 9//(2), 233–255. https://doi.org/10.1207/S15328007SEM0902_5",
+"chen2007": "Chen, F. F. (2007). Sensitivity of goodness of fit indexes to lack of measurement invariance. //Structural Equation Modeling, 14//(3), 464–504. https://doi.org/10.1080/10705510701301834",
 "lawshe1975": "Lawshe, C. H. (1975). A quantitative approach to content validity. //Personnel Psychology, 28//(4), 563–575. https://doi.org/10.1111/j.1744-6570.1975.tb01393.x",
 "polit2006": "Polit, D. F., & Beck, C. T. (2006). The content validity index: Are you sure you know what's being reported? Critique and recommendations. //Research in Nursing & Health, 29//(5), 489–497. https://doi.org/10.1002/nur.20147",
 }
@@ -60,7 +66,8 @@ CITE = {
 "moore1995": ("مور", "Moore", 1995), "fornell1981": ("فورنل و لارکر", "Fornell & Larcker", 1981), "hu1999": ("هو و بنتلر", "Hu & Bentler", 1999),
 "henseler2015": ("هنسلر، رینگل و سارستدت", "Henseler, Ringle, & Sarstedt", 2015), "marsh2004": ("مارش، ون و هائو", "Marsh, Wen, & Hau", 2004), "little2006": ("لیتل، بووایرد و ویدمن", "Little, Bovaird, & Widaman", 2006),
 "preacher2008": ("پریچر و هیز", "Preacher & Hayes", 2008), "hayes2015": ("هیز", "Hayes", 2015), "maccallum1996": ("مک‌کالوم، براون و سوگاوارا", "MacCallum, Browne, & Sugawara", 1996),
-"igolkina2020": ("ایگولکینا و مشچریاکوف", "Igolkina & Meshcheryakov", 2020), "podsakoff2003": ("پوداساکف و همکاران", "Podsakoff et al.", 2003), "lawshe1975": ("لاوشه", "Lawshe", 1975), "polit2006": ("پولیت و بک", "Polit & Beck", 2006)}
+"igolkina2020": ("ایگولکینا و مشچریاکوف", "Igolkina & Meshcheryakov", 2020), "podsakoff2003": ("پوداساکف و همکاران", "Podsakoff et al.", 2003), "greenwood2011": ("گرینوود و همکاران", "Greenwood et al.", 2011), "mizruchi1999": ("میزروچی و فاین", "Mizruchi & Fein", 1999), "kostova2002": ("کوستووا و راث", "Kostova & Roth", 2002),
+"spurk2020": ("اسپورک و همکاران", "Spurk et al.", 2020), "cheung2002": ("چونگ و رنسولد", "Cheung & Rensvold", 2002), "chen2007": ("چن", "Chen", 2007), "lawshe1975": ("لاوشه", "Lawshe", 1975), "polit2006": ("پولیت و بک", "Polit & Beck", 2006)}
 for k, v in FAR.items(): CITE[k] = v["cite"]
 
 VARS = [
