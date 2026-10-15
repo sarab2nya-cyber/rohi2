@@ -26,6 +26,7 @@ CODAL_PARAMS = {"Audited": "true", "AuditorRef": "-1", "Category": "1", "Childs"
                 "TracingNo": "-1", "search": "true"}
 TSE = "https://cdn.tsetmc.com/api"
 TSE_ENDPOINTS = {
+    "search": TSE + "/Instrument/GetInstrumentSearch/{q}",
     "instrument": TSE + "/Instrument/GetInstrumentInfo/{ins}",
     "shareholders": TSE + "/Shareholder/GetInstrumentShareHolderLast/{ins}",
     "prices": TSE + "/ClosingPrice/GetClosingPriceDailyList/{ins}/0",

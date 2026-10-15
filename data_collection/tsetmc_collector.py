@@ -17,6 +17,18 @@ def get(url):
             print("خطا", e, file=sys.stderr)
         time.sleep(2 ** (i + 1))
 
+def make_symbols():
+    """از Symbolهای letters.csv، کد InsCode را با جست‌وجوی TSETMC می‌سازد (endpoint تأیید شود)."""
+    sy = sorted(pd.read_csv(C.OUT / "letters.csv")["Symbol"].dropna().unique())
+    rows = []
+    for q in sy:
+        j = get(C.TSE_ENDPOINTS["search"].format(q=q))
+        for it in (j or {}).get("instrumentSearch", [])[:1]:
+            rows.append({"Symbol": q, "InsCode": it.get("insCode"), "name": it.get("lVal30")})
+        time.sleep(C.SLEEP)
+    pd.DataFrame(rows).to_csv(C.OUT / "symbols.csv", index=False, encoding="utf-8-sig")
+    print("symbols.csv:", len(rows), "از", len(sy), "- موارد جاافتاده را دستی کامل کنید")
+
 def main():
     sy = pd.read_csv(C.OUT / "symbols.csv", dtype=str)
     inst, hold, px = [], [], []
@@ -41,4 +53,5 @@ def main():
     for name, rows in (("instruments", inst), ("holders", hold), ("prices", px)):
         pd.DataFrame(rows).to_csv(C.OUT / f"tse_{name}.csv", index=False, encoding="utf-8-sig")
     print("پایان")
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    make_symbols() if "symbols" in sys.argv else main()
