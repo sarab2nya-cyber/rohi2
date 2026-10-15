@@ -139,7 +139,7 @@ def parse_report(t):
     d["auditor_firm_raw"] = c.most_common(1)[0][0] if c else None
     lines = [l.strip() for l in t.split("\n") if l.strip()]
     d["signature_block"] = " | ".join(lines[-12:])      # شریک/حسابدار رسمی را دستی از اینجا تأیید کنید
-    dates = DATE.findall(t)
+    dates = DATE.findall(t) or [(y, m, dd) for dd, m, y in re.findall(r"(\d{1,2})/(\d{1,2})/(1[34]\d{2})", t)]
     d["report_date"] = "/".join(dates[-1]) if dates else None
     d["n_dates"] = len(dates)
     for k, pat in FLAGS.items():
