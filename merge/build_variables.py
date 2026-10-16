@@ -15,6 +15,7 @@ import numpy as np, pandas as pd
 Y0, Y1 = 1394, 1404                       # ۱۳۹۴ = سال پایه (برای تأخیرها)، ۱۳۹۵–۱۴۰۴ = ده سال تحلیل
 ANA0 = Y0 + 1
 MIN_RUN = 3
+MIN_YEARS = 9                             # حداقل سال‌های حضور از ۱۱ (۱۱ = پنل کاملاً متوازن)
 INCLUDE_FARA = False                      # فقط بورس تهران؛ برای افزودن فرابورس: --include-fara
 FIN_IND = None                            # صنایع خارج از فهرست اکسل اصلی = مالی/سرمایه‌گذاری/...
 HOLDING_IND = "چندرشته ای صنعتی"          # هلدینگ‌های صنعتی (سرمایه‌گذاری برای آنها دارایی عملیاتی است)
@@ -149,11 +150,20 @@ def main(a):
     # حضور در همه سال‌های ۱۳۹۰–۱۴۰۴ (پنل متوازن)؛ شرط اصلی نمونه
     need_years = set(range(Y0, Y1 + 1))
     cnt_years = df.loc[alive].groupby("firm_id")["year"].nunique()
-    sens = pd.DataFrame([{"حداقل سال‌های حاضر (از ۱۱)": k, "شرکت": int((cnt_years >= k).sum()),
-                          "ردیف شرکت‌-سال (واقعی)": int(df.loc[alive & df["firm_id"].isin(cnt_years[cnt_years >= k].index)].shape[0])} for k in range(Y1 - Y0 + 1, 5, -1)])
-    yrs_by_firm = df.loc[alive].groupby("firm_id")["year"].apply(set)
-    ok = {fid for fid, ys in yrs_by_firm.items() if need_years <= ys}
-    step(f"۹) حضور در همه سال‌های {Y0}–{Y1} (شرط اصلی نمونه)", f"شرکت باید در هر {Y1 - Y0 + 1} سال، پس از گام‌های قبل (بورس تهران، غیرمالی، صورت‌های کامل و حسابرسی‌شده) ردیف داشته باشد؛ بقیه کاملاً حذف", df["firm_id"].isin(ok))
+    def longest_run(ys):
+        ys = sorted(ys); best = cur = 1
+        for p_, q_ in zip(ys[:-1], ys[1:]): cur = cur + 1 if q_ == p_ + 1 else 1; best = max(best, cur)
+        return best
+    run_len = df.loc[alive].groupby("firm_id")["year"].apply(lambda y: longest_run(set(y)))
+    last_ok = df.loc[alive & (df["year"] == Y1)].groupby("firm_id").size()
+    sens = pd.DataFrame([{"حداقل سال‌های حاضر (از %d)" % (Y1 - Y0 + 1): k, "شرکت (غیرمتوالی)": int((cnt_years >= k).sum()),
+                          "ردیف (غیرمتوالی)": int(df.loc[alive & df["firm_id"].isin(cnt_years[cnt_years >= k].index)].shape[0]),
+                          "شرکت (متوالی)": int((run_len >= k).sum()),
+                          "شرکت (غیرمتوالی + حاضر در %d)" % Y1: int(((cnt_years >= k) & cnt_years.index.isin(last_ok.index)).sum())} for k in range(Y1 - Y0 + 1, 4, -1)])
+    ok = set(cnt_years[cnt_years >= MIN_YEARS].index)
+    nyears = Y1 - Y0 + 1
+    step(f"۹) حضور در حداقل {MIN_YEARS} سال از {nyears} سال {Y0}–{Y1} (شرط اصلی نمونه)", f"شرکت باید پس از گام‌های قبل (بورس تهران، غیرمالی، صورت‌های کامل و حسابرسی‌شده) در حداقل {MIN_YEARS} سال ردیف داشته باشد (نه لزوماً متوالی)" + ("؛ پنل کاملاً متوازن" if MIN_YEARS >= nyears else ""), df["firm_id"].isin(ok))
+    df["n_years_firm"] = df["firm_id"].map(cnt_years); df["longest_run_firm"] = df["firm_id"].map(run_len)
     n_all = alive.copy(); df["in_common_sample"] = n_all.astype(int)
     # نمونه‌های اختصاصی هر مقاله
     alive_c = alive.copy()
@@ -191,6 +201,32 @@ def main(a):
     master = df[df["in_common_sample"] == 1].copy()
     drop = [c for c in master.columns if c in ("mktcap_rial", "ta_l1", "ta_f1", "rev_l1", "NONOP_l1", "CFO_0", "CFO_l1", "CFO_f1", "dWC")]
     master = master.drop(columns=drop)
+
+    # ---------------- اکسل کامل صورت‌های مالی شرکت‌های نمونه (همه ستون‌های رهاورد، به تفکیک صورت) ----------------
+    orig = [str(c) for c in raw.columns]
+    rawp = raw.copy(); rawp.columns = [f"c{i}" for i in range(len(orig))]
+    flags = master[["firm_id", "year", "A1_sample", "A2_sample", "base_year"]].rename(columns={"firm_id": "c1", "year": "c2"})
+    rawp["c1"] = pd.to_numeric(rawp["c1"], errors="coerce"); rawp["c2"] = pd.to_numeric(rawp["c2"], errors="coerce")
+    sel = rawp.merge(flags, on=["c1", "c2"], how="inner").sort_values(["c1", "c2"])
+    def clean(names):
+        out, seen = [], set()
+        for n_ in names:
+            b = re.sub(r"\.\d+$", "", n_); b = b if b not in seen else n_
+            seen.add(b); out.append(b)
+        return out
+    keycols = [0, 1, 2, 5, 8]; keynames = ["company", "firm_id", "year", "industry", "ticker"]
+    def block(lo, hi):
+        idx = list(range(lo, hi + 1)); d = sel[[f"c{i}" for i in keycols] + [f"c{i}" for i in idx]].copy()
+        d.columns = keynames + clean([orig[i] for i in idx]); return d
+    sheets = {"Balance_Sheet": block(7, 155), "Income_Statement": block(163, 287), "Cash_Flow": block(296, 363),
+              "Financial_Ratios": block(370, 404), "Stock_Returns": block(406, 425)}
+    ids = sel[["c0", "c1", "c2", "c5", "c7", "c8", "A1_sample", "A2_sample", "base_year"]].copy()
+    ids.columns = ["company", "firm_id", "year", "industry", "market", "ticker", "A1_sample", "A2_sample", "base_year"]
+    fs_path = str(a.out).replace("analysis_", "financial_statements_")
+    with pd.ExcelWriter(fs_path, engine="openpyxl") as w:
+        ids.to_excel(w, sheet_name="Firm_Years", index=False)
+        for k, d in sheets.items(): d.to_excel(w, sheet_name=k, index=False)
+    print("صورت‌های مالی کامل:", fs_path, {k: d.shape for k, d in sheets.items()})
     # ---------------- گزارش و فرهنگ‌نامه ----------------
     rep = pd.DataFrame(log)
     exc = pd.DataFrame(excl, columns=["شرکت", "firm_id", "year", "گام حذف"])
@@ -262,5 +298,6 @@ NA = [
 ]
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--panel", required=True); ap.add_argument("--out", default="analysis_1394_1404.xlsx"); ap.add_argument("--include-fara", action="store_true")
-    args = ap.parse_args(); INCLUDE_FARA = args.include_fara
+    ap.add_argument("--min-years", type=int, default=9)
+    args = ap.parse_args(); INCLUDE_FARA = args.include_fara; MIN_YEARS = args.min_years
     main(args)
