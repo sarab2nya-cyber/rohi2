@@ -251,16 +251,16 @@ class Tse:
         if dt < self.min_interval: time.sleep(self.min_interval - dt)
         self.last = time.time()
         self.err = None
-        for i in range(4):
+        for i in range(5):
             try:
-                r = self.s.get(url, timeout=(10, 60))
+                r = requests.get(url, headers={**UA, "Connection": "close"}, timeout=(20, 90))
                 if r.status_code == 200:
                     try: return r.json()
                     except Exception: self.err = "پاسخ JSON نبود: " + r.text[:80].replace("\n", " "); time.sleep(5 * (i + 1)); continue
                 self.err = f"HTTP {r.status_code}"
                 if r.status_code in (403, 429, 500, 502, 503, 504): time.sleep(15 * (i + 1)); continue
                 return None
-            except Exception as ex: self.err = str(ex)[:100]; time.sleep(5 * (i + 1))
+            except Exception as ex: self.err = str(ex)[:100]; self.log(f"    … تی‌اس‌ای‌سی پاسخ نداد ({type(ex).__name__})، تلاش {i + 1}/5"); time.sleep(10 * (i + 1))
         return None
     def find(self, ticker):
         j = self.get(f"{TSE}/Instrument/GetInstrumentSearch/{requests.utils.quote(ticker)}")
