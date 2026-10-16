@@ -250,13 +250,17 @@ class Tse:
         dt = time.time() - self.last
         if dt < self.min_interval: time.sleep(self.min_interval - dt)
         self.last = time.time()
-        for i in range(3):
+        self.err = None
+        for i in range(4):
             try:
                 r = self.s.get(url, timeout=(10, 60))
-                if r.status_code == 200: return r.json()
-                if r.status_code == 429: time.sleep(30 * (i + 1)); continue
+                if r.status_code == 200:
+                    try: return r.json()
+                    except Exception: self.err = "پاسخ JSON نبود: " + r.text[:80].replace("\n", " "); time.sleep(5 * (i + 1)); continue
+                self.err = f"HTTP {r.status_code}"
+                if r.status_code in (403, 429, 500, 502, 503, 504): time.sleep(15 * (i + 1)); continue
                 return None
-            except Exception: time.sleep(3 * (i + 1))
+            except Exception as ex: self.err = str(ex)[:100]; time.sleep(5 * (i + 1))
         return None
     def find(self, ticker):
         j = self.get(f"{TSE}/Instrument/GetInstrumentSearch/{requests.utils.quote(ticker)}")
@@ -362,7 +366,8 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
     st = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {"symbol": sym, "company": company, "firm_id": int(firm_id)}
     def save(): json.dump(st, open(path, "w", encoding="utf-8"), ensure_ascii=False)
     # --- ۱) TSETMC (بدون کپچا) ---
-    if "tse" not in st:
+    if not st.get("_daily") and st.get("tse", {}).get("error") != "نماد پیدا نشد":
+        st.pop("tse", None)
         it = tse.find(sym)
         if it:
             ins = it["insCode"]; info = tse.info(ins); daily = tse.daily(ins)
@@ -372,6 +377,8 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
                          "holders_snapshot": [{"name": h.get("shareHolderName"), "pct": h.get("perOfShares"), "shares": h.get("numberOfShares"), "date": h.get("dEven")} for h in tse.holders(ins)]}
             st["_daily"] = [[r["dEven"], r.get("pClosing"), r.get("priceYesterday"), r.get("priceMin"), r.get("priceMax"), r.get("zTotTran"), r.get("qTotTran5J"), r.get("qTotCap")] for r in daily]
             st["_ind_code"] = icode
+            if not daily or not info:
+                log(f"  ⚠ TSETMC پاسخ خالی داد ({tse.err}) — بعداً دوباره تلاش می‌شود"); st.pop("tse", None); st.pop("_daily", None); return st
             st["tse"]["info_raw"] = info                                   # همهٔ فیلدهای اطلاعات نماد
             try: st["tse"]["identity_raw"] = tse.identity(ins)
             except Exception: pass
@@ -379,7 +386,10 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
             except Exception: st["_share_change"] = []
             try: st["_client"] = [{k: r.get(k) for k in ("recDate", "buy_CountI", "buy_CountN", "buy_I_Volume", "buy_N_Volume", "sell_CountI", "sell_CountN", "sell_I_Volume", "sell_N_Volume")} for r in tse.client_type(ins)]
             except Exception: st["_client"] = []
-        else: st["tse"] = {"error": "نماد پیدا نشد"}
+        else:
+            log(f"  ⚠ نماد پیدا نشد ({tse.err})")
+            if tse.err: return st
+            st["tse"] = {"error": "نماد پیدا نشد"}
         save(); log(f"  TSETMC ✓ {sym} ({st['tse'].get('sector')}), روز معاملاتی: {len(st.get('_daily', []))}")
     if args.stage == "tse": return st
     # --- ۲) کدال: فهرست نامه‌ها ---
