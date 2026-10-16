@@ -251,16 +251,16 @@ class Tse:
         if dt < self.min_interval: time.sleep(self.min_interval - dt)
         self.last = time.time()
         self.err = None
-        for i in range(5):
+        for i in range(3):
             try:
-                r = requests.get(url, headers={**UA, "Connection": "close"}, timeout=(20, 90))
+                r = requests.get(url, headers={**UA, "Connection": "close"}, timeout=(10, 45))
                 if r.status_code == 200:
                     try: return r.json()
                     except Exception: self.err = "پاسخ JSON نبود: " + r.text[:80].replace("\n", " "); time.sleep(5 * (i + 1)); continue
                 self.err = f"HTTP {r.status_code}"
                 if r.status_code in (403, 429, 500, 502, 503, 504): time.sleep(15 * (i + 1)); continue
                 return None
-            except Exception as ex: self.err = str(ex)[:100]; self.log(f"    … تی‌اس‌ای‌سی پاسخ نداد ({type(ex).__name__})، تلاش {i + 1}/5"); time.sleep(10 * (i + 1))
+            except Exception as ex: self.err = str(ex)[:100]; self.log(f"    … تی‌اس‌ای‌سی پاسخ نداد ({type(ex).__name__})، تلاش {i + 1}/3"); time.sleep(10 * (i + 1))
         return None
     def find(self, ticker):
         j = self.get(f"{TSE}/Instrument/GetInstrumentSearch/{requests.utils.quote(ticker)}")
@@ -384,7 +384,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
             except Exception: pass
             try: st["_share_change"] = tse.share_change(ins)               # تاریخچهٔ افزایش سرمایه/تغییر تعداد سهام
             except Exception: st["_share_change"] = []
-            try: st["_client"] = [{k: r.get(k) for k in ("recDate", "buy_CountI", "buy_CountN", "buy_I_Volume", "buy_N_Volume", "sell_CountI", "sell_CountN", "sell_I_Volume", "sell_N_Volume")} for r in tse.client_type(ins)]
+            try: st["_client"] = [] if args.no_client else [{k: r.get(k) for k in ("recDate", "buy_CountI", "buy_CountN", "buy_I_Volume", "buy_N_Volume", "sell_CountI", "sell_CountN", "sell_I_Volume", "sell_N_Volume")} for r in tse.client_type(ins)]
             except Exception: st["_client"] = []
         else:
             log(f"  ⚠ نماد پیدا نشد ({tse.err})")
@@ -418,7 +418,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
     st["done"] = True; save(); return st
 
 def build(out_dir, args):
-    rows = {}; ev_rows = []; mem_rows = []; hold = []
+    rows = {}; ev_rows = []; mem_rows = []; hold = []; BT = Tse()
     for fn in sorted(os.listdir(os.path.join(out_dir, "firms"))):
         st = json.load(open(os.path.join(out_dir, "firms", fn), encoding="utf-8")); sym, fid = st["symbol"], st["firm_id"]
         L = st.get("letters", []); tse = st.get("tse", {})
@@ -451,7 +451,7 @@ def build(out_dir, args):
             dd = [dict(zip(["dEven", "pClosing", "priceYesterday", "priceMin", "priceMax", "zTotTran", "qTotTran5J", "qTotCap"], r)) for r in daily]
             mk = pd.Series(dtype=float)
             try:
-                T = Tse(); mkt_idx = T.index_hist(TEDPIX); ind_idx = T.index_hist(st["_ind_code"]) if st.get("_ind_code") else None
+                mkt_idx = BT.index_hist(TEDPIX); ind_idx = BT.index_hist(st["_ind_code"]) if st.get("_ind_code") else None
             except Exception: mkt_idx = ind_idx = None
             for fy in range(args.fy_from, args.fy_to + 1):
                 ps = j2g(fy - 1, fye_md[0], fye_md[1]) if True else None
@@ -500,6 +500,8 @@ def main():
     ap.add_argument("--max-requests", type=int, default=150, help="سقف درخواست کدال در هر دسته، سپس استراحت"); ap.add_argument("--build", action="store_true")
     ap.add_argument("--stage", choices=["tse", "codal", "all"], default="all", help="tse = فقط بازار (بدون کدال)؛ codal = بازار+کدال")
     ap.add_argument("--part", default="1/1", help="برای تقسیم کدال به چند مرحله: k/n مثلاً 2/5 یعنی بخش دوم از پنج بخش")
+    ap.add_argument("--workers", type=int, default=6, help="تعداد رشته‌های هم‌زمان برای مرحلهٔ tse")
+    ap.add_argument("--no-client", action="store_true", default=True, help="حقیقی/حقوقی را نگیر (تا آدرس درست پیدا شود)")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
@@ -508,6 +510,14 @@ def main():
     pk, pn = (int(x) for x in args.part.split("/")); sz = -(-len(S) // pn); S = S.iloc[(pk - 1) * sz: pk * sz]; print(f"بخش {pk}/{pn}: {len(S)} شرکت | مرحله: {args.stage}")
     codal, tse = Codal(args.min_interval, args.max_requests), Tse()
     t0 = time.time(); wait_min = args.wait_start
+    if args.stage == "tse":
+        from concurrent.futures import ThreadPoolExecutor
+        def work(item):
+            i, r = item; sym = norm(r["Symbol"]); fid = int(float(r.get("firm_id", i))); T = Tse(min_interval=0.3)
+            try: process_firm(sym, r.get("company", ""), fid, args, None, T, args.out, lambda m, sym=sym: print(f"[{sym}]{m}"))
+            except Exception as ex: print(f"[{sym}] ⚠ خطا: {type(ex).__name__} {str(ex)[:100]}")
+        with ThreadPoolExecutor(args.workers) as ex: list(ex.map(work, list(S.iterrows())))
+        print("زمان: %.0f دقیقه" % ((time.time() - t0) / 60)); return build(args.out, args)
     try:
         for i, r in S.iterrows():
             sym = norm(r["Symbol"]); fid = int(float(r.get("firm_id", i)))
