@@ -20,12 +20,22 @@ def log(*a):
     try: print(s)
     except UnicodeEncodeError: print(s.encode("ascii", "replace").decode())
 
-def get(url, params=None, stream=False, timeout=40):
+def get(url, params=None, stream=False, timeout=25):
+    log("   ... در حال اتصال:", url[:80]); t0 = time.time()
     try:
-        r = requests.get(url, params=params, headers=H, timeout=timeout, stream=stream)
-        return r
+        r = requests.get(url, params=params, headers=H, timeout=(10, timeout), stream=stream)
+        log("   ... پاسخ در %.1f ثانیه" % (time.time() - t0)); return r
+    except requests.exceptions.ConnectTimeout:
+        log("   خطا: ConnectTimeout (۱۰ ثانیه) → سایت از شبکه شما در دسترس نیست (فیلترشکن روشن؟ یا مسدود)")
+    except requests.exceptions.ReadTimeout:
+        log("   خطا: ReadTimeout → اتصال برقرار شد ولی سایت جواب نداد/کند است")
+    except requests.exceptions.SSLError as e:
+        log("   خطا: SSL →", str(e)[:120])
+    except requests.exceptions.ConnectionError as e:
+        log("   خطا: ConnectionError →", str(e)[:150])
     except Exception as e:
-        log("   خطا:", type(e).__name__, str(e)[:150]); return None
+        log("   خطا:", type(e).__name__, str(e)[:150])
+    return None
 
 def save(name, data, binary=False):
     p = os.path.join(OUT, name)
@@ -34,7 +44,7 @@ def save(name, data, binary=False):
 
 log("=== تشخیص اتصال ===", time.strftime("%Y-%m-%d %H:%M:%S"), "نماد:", SYM)
 for u in ("https://codal.ir", "https://search.codal.ir", "https://cdn.tsetmc.com", "https://old.tsetmc.com"):
-    r = get(u, timeout=20); log("پینگ", u, "->", r.status_code if r is not None else "ناموفق")
+    r = get(u, timeout=15); log("پینگ", u, "->", r.status_code if r is not None else "ناموفق")
 
 # ---------------- کدال: جست‌وجو ----------------
 log("\n=== کدال: جست‌وجوی نامه‌ها ===")
