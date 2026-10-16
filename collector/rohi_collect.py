@@ -103,9 +103,11 @@ def parse_title(title):
 class Blocked(Exception): pass
 
 class Codal:
-    def __init__(self, min_interval=7.0, max_requests=700, log=print):
+    def __init__(self, min_interval=7.0, max_requests=700, log=print, cookie=None, user_agent=None):
         self.min_interval, self.max_requests, self.n, self.last, self.log = min_interval, max_requests, 0, 0.0, log
         self.s = requests.Session(); self.s.headers.update(UA)
+        if user_agent: self.s.headers["User-Agent"] = user_agent
+        if cookie: self.s.headers["Cookie"] = cookie
     def _wait(self):
         dt = time.time() - self.last; need = self.min_interval * random.uniform(1.0, 1.5)
         if dt < need: time.sleep(need - dt)
@@ -623,6 +625,20 @@ def build(out_dir, args):
             if (fid, fy) in rows:
                 for cat, n in c.items(): rows[(fid, fy)]["ev_n_" + cat] = n
                 rows[(fid, fy)]["ev_n_letters"] = sum(c.values())
+        # تأخیر انتشار و تجدید ارائه (از فهرست نامه‌ها)
+        lag = collections.defaultdict(dict)
+        for x in L:
+            p = parse_title(x["title"]); jd = jdate(x["pub"])
+            if lcode(x["code"]) != "ن-10" or not (p["annual"] and p["fiscal_year"] and p["fye"] and jd) or p["other_company"]: continue
+            fy_ = p["fiscal_year"]; fy_t = tuple(int(v) for v in p["fye"].split("/")); gp, ge = j2g(*jd), j2g(*fy_t)
+            days = (pd.Timestamp(*gp) - pd.Timestamp(*ge)).days; d_ = lag[fy_]
+            if p["amendment"]: d_["amend_n"] = d_.get("amend_n", 0) + 1
+            else:
+                k = "lag_audited" if p["audited"] else "lag_unaudited"
+                if k not in d_ or days < d_[k]: d_[k] = days
+        for fy_, d_ in lag.items():
+            if (fid, fy_) in rows:
+                rows[(fid, fy_)].update(fs_report_lag_audited=d_.get("lag_audited"), fs_report_lag_unaudited=d_.get("lag_unaudited"), fs_amend_n=d_.get("amend_n", 0), fs_amend_any=int(d_.get("amend_n", 0) > 0))
         # اکسل
         for fy, e in st.get("excel", {}).items():
             if (fid, int(fy)) in rows and "f" in e: rows[(fid, int(fy))].update(e["f"])
@@ -696,6 +712,9 @@ def main():
     ap.add_argument("--no-docs", dest="docs", action="store_false"); ap.add_argument("--docs-from", type=int, default=1394, help="اسناد از این سال مالی")
     ap.add_argument("--files-dir", default="codal_files", help="پوشهٔ فایل‌های خام کدال: <firm>/<سال>/...")
     ap.add_argument("--reparse", action="store_true", help="فقط از روی فایل‌های ذخیره‌شده دوباره بخوان (بدون هیچ درخواست به کدال)")
+    ap.add_argument("--interactive", action="store_true", help="با کپچا/۴۲۹ بایست تا خودتان در مرورگر حل کنید و Enter بزنید")
+    ap.add_argument("--cookie", default=None, help="رشتهٔ Cookie مرورگر شما (پس از حل کپچا) برای codal.ir")
+    ap.add_argument("--user-agent", default=None, help="User-Agent همان مرورگر (اگر کوکی می‌دهید)")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
@@ -707,7 +726,7 @@ def main():
     if args.build: return build(args.out, args)
     S = pd.read_csv(args.symbols, dtype=str, encoding="utf-8-sig"); S = S.head(args.pilot) if args.pilot else S
     pk, pn = (int(x) for x in args.part.split("/")); sz = -(-len(S) // pn); S = S.iloc[(pk - 1) * sz: pk * sz]; print(f"بخش {pk}/{pn}: {len(S)} شرکت | مرحله: {args.stage}")
-    codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests)), Tse()
+    codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests, cookie=args.cookie, user_agent=args.user_agent)), Tse()
     t0 = time.time(); wait_min = args.wait_start
     if args.stage == "tse":
         from concurrent.futures import ThreadPoolExecutor
@@ -725,6 +744,10 @@ def main():
                 try: process_firm(sym, r.get("company", ""), fid, args, codal, tse, args.out, print); wait_min = args.wait_start; break
                 except Blocked as e:
                     if (time.time() - t0) / 3600 > args.max_hours: raise
+                    if args.interactive and "سقف" not in str(e):
+                        print(f"\n⏸ {e}\n  → در مرورگر codal.ir را باز کنید، کپچا را حل کنید و چند صفحه را باز کنید؛ بعد اینجا Enter بزنید (یا q + Enter برای توقف).")
+                        if input("  Enter = ادامه: ").strip().lower() == "q": raise
+                        codal.n = 0; continue
                     capped = "سقف" in str(e)
                     w = args.burst_rest if capped else wait_min
                     print(f"\n⏸ {e}  → استراحت {w:.0f} دقیقه و ادامهٔ خودکار ({time.strftime('%H:%M')})"); time.sleep(w * 60)
