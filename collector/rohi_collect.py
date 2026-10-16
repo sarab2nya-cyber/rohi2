@@ -366,20 +366,33 @@ def pdf_text(data, max_pages=60):
         rd = PdfReader(io.BytesIO(data)); return norm("\n".join((p.extract_text() or "") for p in rd.pages[:max_pages]))
     except Exception: return None
 
-def doc_text(codal, u):
-    """متن یک سند کدال؛ (متن, وضعیت). در صورت پاسخ مشکوک/خالی Blocked می‌دهد تا برنامه استراحت کند."""
+def _text_of(data):
+    if data[:4] == b"%PDF":
+        t = pdf_text(data); return (t, "pdf_ok") if t and len(t) > 200 else (t, "pdf_بدون_متن")
+    t = norm(re.sub(r"<[^>]+>", " ", data.decode("utf-8", "replace")))
+    return (t, "html_ok") if len(t) > 200 else (t, "html_کوتاه")
+
+def doc_text(codal, u, base=None):
+    """متن یک سند؛ اگر base داده شود فایل خام روی دیسک ذخیره/از دیسک خوانده می‌شود (base بدون پسوند). (متن, وضعیت)"""
+    if base:
+        for ext in (".pdf", ".html"):
+            if os.path.exists(base + ext) and os.path.getsize(base + ext) > 0: return _text_of(open(base + ext, "rb").read())
+    if codal is None: return None, "فایل_موجود_نیست"
     if not u: return None, "بدون_آدرس"
     u = str(u); cands = [u] if u.startswith("http") else [CODAL + "/" + u.lstrip("/")] + ([CODAL + "/Reports/" + u.lstrip("/")] if "Reports" not in u else [])
     for c in cands:
         r = codal.get(c)
         if r is None or r.status_code != 200: continue
         data = r.content
-        if data[:4] == b"%PDF":
-            t = pdf_text(data); return (t, "pdf_ok") if t and len(t) > 200 else (t, "pdf_بدون_متن")
-        if len(data) < 3000: raise Blocked("پاسخ سند خالی/مشکوک (%d بایت) — احتمالاً محدودیت." % len(data))
-        t = norm(re.sub(r"<[^>]+>", " ", data.decode("utf-8", "replace")))
-        return (t, "html_ok") if len(t) > 200 else (t, "html_کوتاه")
+        if data[:4] != b"%PDF" and len(data) < 3000: raise Blocked("پاسخ سند خالی/مشکوک (%d بایت) — احتمالاً محدودیت." % len(data))
+        if base:
+            os.makedirs(os.path.dirname(base), exist_ok=True); open(base + (".pdf" if data[:4] == b"%PDF" else ".html"), "wb").write(data)
+        return _text_of(data)
     return None, "دریافت_نشد"
+
+def file_base(args, st, fy, kind, no):
+    d = os.path.join(args.files_dir, "%s_%s" % (st["firm_id"], re.sub(r'[\\/:*?"<>|]', "_", st["symbol"])), str(fy))
+    return os.path.join(d, "%s_%s" % (kind, no))
 
 def _cnt(pat, t): return len(re.findall(pat, t))
 
@@ -433,6 +446,7 @@ def fye_of(letters):
         if p["annual"] and p["audited"] and p["fye"]: mds[tuple(int(v) for v in p["fye"].split("/")[1:])] += 1
     return mds.most_common(1)[0][0] if mds else (12, 29)
 
+RETRY = {"فایل_موجود_نیست", "دریافت_نشد"}
 def collect_docs(st, cand, args, codal, log, save):
     docs = st.setdefault("docs", {}); letters = st["letters"]; fye_md = fye_of(letters)
     by = {"board": collections.defaultdict(list), "ic": collections.defaultdict(list)}
@@ -443,15 +457,15 @@ def collect_docs(st, cand, args, codal, log, save):
     for fy in range(max(args.fy_from, args.docs_from), args.fy_to + 1):
         d = docs.setdefault(str(fy), {})
         # گزارش حسابرس (از PDF صورت مالی حسابرسی‌شدهٔ سالانه)
-        if "audit" not in d and cand.get(fy):
+        if (("audit" not in d) or d["audit"].get("audit_status") in RETRY) and cand.get(fy):
             lst = sorted(cand[fy], key=lambda px: norm(px[1]["pub"]), reverse=True); lst.sort(key=lambda px: (px[0]["consolidated"], px[0]["amendment"]))
-            x = lst[0][1]; t, stt = doc_text(codal, x.get("pdf"))
+            x = lst[0][1]; t, stt = doc_text(codal, x.get("pdf"), file_base(args, st, fy, "audit_FS", x["no"]))
             d["audit"] = {**(audit_features(t) if t else {}), "audit_status": stt, "audit_src_no": x["no"]}; save(); log(f"  حسابرس FY{fy}: {stt} | اظهارنظر={d['audit'].get('audit_opinion')} | {d['audit'].get('audit_firm')}")
-        if "board" not in d and by["board"].get(fy):
-            x = sorted(by["board"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = doc_text(codal, x.get("pdf"))
+        if (("board" not in d) or d["board"].get("br_status") in RETRY) and by["board"].get(fy):
+            x = sorted(by["board"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = doc_text(codal, x.get("pdf"), file_base(args, st, fy, "board_report", x["no"]))
             d["board"] = {**(text_features(t, "br") if t else {}), "br_status": stt, "br_src_no": x["no"]}; save(); log(f"  گزارش هیئت‌مدیره FY{fy}: {stt}")
-        if "ic" not in d and by["ic"].get(fy):
-            x = sorted(by["ic"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = doc_text(codal, x.get("pdf"))
+        if (("ic" not in d) or d["ic"].get("ic_status") in RETRY) and by["ic"].get(fy):
+            x = sorted(by["ic"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = doc_text(codal, x.get("pdf"), file_base(args, st, fy, "internal_control", x["no"]))
             d["ic"] = {**(ic_features(t) if t else {}), "ic_status": stt, "ic_src_no": x["no"]}; save(); log(f"  کنترل داخلی FY{fy}: {stt}")
 
 # ------------------------------------------------------------------ هماهنگ‌کننده
@@ -465,8 +479,9 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
     path = os.path.join(out_dir, "firms", f"{re.sub(r'[^0-9A-Za-z_]', '_', sym) or 'x'}_{firm_id}.json")
     st = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {"symbol": sym, "company": company, "firm_id": int(firm_id)}
     def save(): json.dump(st, open(path, "w", encoding="utf-8"), ensure_ascii=False)
+    if args.reparse: st.pop("excel", None); st.pop("docs", None)
     # --- ۱) TSETMC (بدون کپچا) ---
-    if not st.get("_daily") and st.get("tse", {}).get("error") != "نماد پیدا نشد":
+    if tse is not None and not st.get("_daily") and st.get("tse", {}).get("error") != "نماد پیدا نشد":
         st.pop("tse", None)
         it = tse.find(sym)
         if it:
@@ -494,6 +509,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
     if args.stage == "tse": return st
     # --- ۲) کدال: فهرست نامه‌ها ---
     if "letters" not in st:
+        if codal is None: return st
         L = codal.list_letters(sym, args.fy_from, args.fy_to)
         st["letters"] = [{"no": x.get("TracingNo"), "code": x.get("LetterCode"), "title": x.get("Title"), "pub": x.get("PublishDateTime"), "excel": x.get("ExcelUrl"), "url": x.get("Url"), "pdf": x.get("PdfUrl")} for x in L]
         save(); log(f"  کدال: {len(L)} نامه")
@@ -509,11 +525,16 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
         lst.sort(key=lambda px: norm(px[1]["pub"]), reverse=True)            # جدیدترین اول
         lst.sort(key=lambda px: (px[0]["consolidated"], px[0]["amendment"]))  # پایدار: غیرتلفیقی، بدون اصلاحیه
         best = lst[0][1]
-        html = codal.excel(best["excel"])
+        xb = file_base(args, st, fy, "FS_excel", best["no"]) + ".xls"; html = None
+        if os.path.exists(xb) and os.path.getsize(xb) > 0: html = open(xb, "rb").read().decode("utf-8", "replace")
+        elif codal is not None:
+            html = codal.excel(best["excel"])
+            if html: os.makedirs(os.path.dirname(xb), exist_ok=True); open(xb, "wb").write(html.encode("utf-8"))
+        else: codal_err = "فایل_موجود_نیست"
         if html:
             f, members = parse_excel(html); f.update(source_no=best["no"], source_title=norm(best["title"])[:120]); st["excel"][str(fy)] = {"f": f, "members": members}
             log(f"  اکسل FY{fy}: هیئت {f.get('bd_size')}، کارکنان {f.get('staff_prod')}/{f.get('staff_nonprod')}، تفسیری={f.get('interp_report')}")
-        else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد: " + str(codal.excel_err), "source_no": best["no"], "title": norm(best["title"])[:100]}; log(f"  ⚠ اکسل FY{fy} خوانده نشد ({codal.excel_err})")
+        else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد: " + str(codal.excel_err if codal is not None else "فایل موجود نیست"), "source_no": best["no"], "title": norm(best["title"])[:100]}; log(f"  ⚠ اکسل FY{fy} خوانده نشد ({codal.excel_err if codal is not None else "فایل موجود نیست"})")
         save()
     if args.docs: collect_docs(st, cand, args, codal, log, save)
     st["done"] = True; save(); return st
@@ -613,6 +634,8 @@ def main():
     ap.add_argument("--no-client", action="store_true", default=True, help="حقیقی/حقوقی را نگیر (تا آدرس درست پیدا شود)")
     ap.add_argument("--docs", action="store_true", default=True, help="گزارش حسابرس/هیئت‌مدیره/کنترل داخلی را هم بگیر (PDF؛ درخواست زیاد)")
     ap.add_argument("--no-docs", dest="docs", action="store_false"); ap.add_argument("--docs-from", type=int, default=1394, help="اسناد از این سال مالی")
+    ap.add_argument("--files-dir", default="codal_files", help="پوشهٔ فایل‌های خام کدال: <firm>/<سال>/...")
+    ap.add_argument("--reparse", action="store_true", help="فقط از روی فایل‌های ذخیره‌شده دوباره بخوان (بدون هیچ درخواست به کدال)")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
@@ -624,7 +647,7 @@ def main():
     if args.build: return build(args.out, args)
     S = pd.read_csv(args.symbols, dtype=str, encoding="utf-8-sig"); S = S.head(args.pilot) if args.pilot else S
     pk, pn = (int(x) for x in args.part.split("/")); sz = -(-len(S) // pn); S = S.iloc[(pk - 1) * sz: pk * sz]; print(f"بخش {pk}/{pn}: {len(S)} شرکت | مرحله: {args.stage}")
-    codal, tse = Codal(args.min_interval, args.max_requests), Tse()
+    codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests)), Tse()
     t0 = time.time(); wait_min = args.wait_start
     if args.stage == "tse":
         from concurrent.futures import ThreadPoolExecutor
