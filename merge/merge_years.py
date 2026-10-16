@@ -9,11 +9,11 @@
 
 قواعد:
  - ردیف‌ها: اجتماع شرکت‌های ترازنامه/سود و زیان/جریان نقد/نسبت‌ها (کلید: نام شرکت نرمال‌شده).
- - صنایعی که در اکسل اصلی نیستند (بانک، بیمه، سرمایه‌گذاری، واسطه‌گری مالی، برق، سلامت) حذف می‌شوند (--keep-all برای نگه‌داشتن).
+ - هیچ شرکتی حذف نمی‌شود (پیش‌فرض). ستون industry_in_main_list=0 یعنی صنعت در اکسل اصلی نبوده (بانک/بیمه/سرمایه‌گذاری/...)؛ حذف فقط با --drop-financial.
  - بلوک‌های بازده: مجموعه اول = ۱۲ ماهه، مجموعه دوم = ۱۶ ماهه (۱۴۰۴: فقط سالانه؛ مجموعه دوم خالی).
  - شناسه شرکت (ستون «شرکت») از اکسل اصلی؛ شرکت‌های جدید شناسه جدید می‌گیرند.
 """
-import argparse, re, sys, pathlib
+import argparse, re, sys, pathlib, difflib
 import numpy as np, pandas as pd
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import ssml
@@ -42,6 +42,7 @@ def run(a):
     name2id = m.drop_duplicates("_n").set_index("_n")["شرکت"].to_dict()
     name2sym = m.drop_duplicates("_n", keep="last").set_index("_n")["Symbol"].to_dict()
     tick2n = m.sort_values("Year").drop_duplicates("_t", keep="last").set_index("_t")["_n"].to_dict()
+    main_ind = m.dropna(subset=["صنعت"]).sort_values("Year").drop_duplicates("_n", keep="last").assign(_i=lambda d: d["صنعت"].map(N)).set_index("_n")["_i"].to_dict()
     ind_ok = set(m["صنعت"].dropna().map(N))
     ind_codes = m.dropna(subset=["صنعت"]).assign(_i=lambda d: d["صنعت"].map(N)).drop_duplicates("_i").set_index("_i")[["کد صنعت جزئی", "کدصنعت کلی"]]
     ind_cls = m.dropna(subset=["صنعت"]).assign(_i=lambda d: d["صنعت"].map(N)).drop_duplicates("_i").set_index("_i")["طبقه"].to_dict()
@@ -82,11 +83,19 @@ def run(a):
             r = {}
             tick = next((T[k].loc[n, "_t"] for k in ("balance", "income", "cashflow") if n in T[k].index and T[k].loc[n, "_t"]), None)
             nn = n
-            if n not in name2id and tick in tick2n: nn = tick2n[tick]; rep.append({"year": y, "company": n, "industry": ind, "action": f"matched_by_ticker→{nn}"})
+            if n not in name2id and tick in tick2n:
+                cand = tick2n[tick]
+                cand_ind = main_ind.get(cand)
+                sim = difflib.SequenceMatcher(None, n, cand).ratio()
+                same_ind = (ind is None) or (cand_ind is None) or (N(ind) == cand_ind)
+                if same_ind and (sim >= 0.35 or ind is not None):      # نماد مشترک + صنعت یکسان (یا نام شبیه)
+                    nn = cand; rep.append({"year": y, "company": n, "industry": ind, "action": f"matched_by_ticker→{nn}"})
+                else:
+                    rep.append({"year": y, "company": n, "industry": ind, "action": f"ticker_match_rejected(→{cand})"})
             cid = name2id.get(nn)
             if cid is None: cid = next_id; name2id[nn] = cid; next_id += 1; rep.append({"year": y, "company": n, "industry": ind, "action": "new_company"})
             first = next((T[k].loc[n] for k in ("balance", "income", "cashflow", "ratios") if n in T[k].index), None)
-            r["Symbol"] = name2sym.get(nn, first["شرکت"]); r["شرکت"] = cid; r["Year"] = y
+            r["Symbol"] = name2sym.get(nn, first["شرکت"]); r["source_name"] = first["شرکت"]; r["شرکت"] = cid; r["Year"] = y
             if ind in ind_codes.index: r["کد صنعت جزئی"], r["کدصنعت کلی"] = ind_codes.loc[ind]
             r["صنعت"] = ind; r["طبقه"] = ret.loc[n, "طبقه"] if n in ret.index else ind_cls.get(ind)
             if ind is None: rep.append({"year": y, "company": n, "industry": None, "action": "industry_missing"})
@@ -112,18 +121,19 @@ def run(a):
             rows.append(r)
         out.append(pd.DataFrame(rows))
     new = pd.concat(out, ignore_index=True)
-    new = new.reindex(columns=cols + ["data_source", "new_company", "industry_missing"])
+    new = new.reindex(columns=cols + ["data_source", "new_company", "industry_missing", "industry_in_main_list", "source_name"])
     for c in num_cols: new[c] = pd.to_numeric(new[c], errors="coerce")
     new["data_source"] = "new_" + new["Year"].astype(int).astype(str)
     flags = pd.DataFrame(rep)
     new["data_source"] = "new_" + new["Year"].astype(int).astype(str)
     new["new_company"] = 0; new["industry_missing"] = 0
+    new["industry_in_main_list"] = new["صنعت"].map(lambda v: int(N(v) in ind_ok) if pd.notna(v) else np.nan)
     if len(flags):
         key = new["Symbol"].map(N) + "|" + new["Year"].astype(int).astype(str)
         for act, col in (("new_company", "new_company"), ("industry_missing", "industry_missing")):
             ks = set(flags.loc[flags.action == act, "company"].map(N) + "|" + flags.loc[flags.action == act, "year"].astype(str))
             new[col] = key.isin(ks).astype(int)
-    m["data_source"] = "main"; m["new_company"] = 0; m["industry_missing"] = 0
+    m["data_source"] = "main"; m["new_company"] = 0; m["industry_missing"] = 0; m["industry_in_main_list"] = 1; m["source_name"] = m["Symbol"]
     final = pd.concat([m.drop(columns=["_n", "_t"]), new], ignore_index=True).sort_values(["شرکت", "Year"]).reset_index(drop=True)
     assert not final.duplicated(["Symbol", "Year"]).any(), "کلید تکراری"
     final.to_excel(a.out, index=False)
@@ -134,5 +144,6 @@ def run(a):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--main", required=True); ap.add_argument("--raw", default="raw")
-    ap.add_argument("--out", default="panel_1380_1404.xlsx"); ap.add_argument("--keep-all", action="store_true")
-    run(ap.parse_args())
+    ap.add_argument("--out", default="panel_1380_1404.xlsx"); ap.add_argument("--drop-financial", action="store_true", help="فقط اگر بخواهید صنایع خارج از اکسل اصلی حذف شوند (پیش‌فرض: هیچ شرکتی حذف نمی‌شود)")
+    a = ap.parse_args(); a.keep_all = not a.drop_financial
+    run(a)
