@@ -393,6 +393,7 @@ def doc_text(codal, u, base=None):
     return None, "دریافت_نشد"
 
 def file_base(args, st, fy, kind, no):
+    if getattr(args, "no_save", False): return None
     d = os.path.join(args.files_dir, "%s_%s" % (st["firm_id"], re.sub(r'[\\/:*?"<>|]', "_", st["symbol"])), str(fy))
     return os.path.join(d, "%s_%s" % (kind, no))
 
@@ -407,19 +408,20 @@ def attachment_texts(codal, x, base_dir, prefix):
     """پیوست‌های یک نامه (صفحهٔ Attachment.aspx): فایل‌ها را ذخیره و متنشان را برمی‌گرداند. صفحهٔ پیوست هم برای اشکال‌یابی ذخیره می‌شود."""
     ls = letter_serial(x)
     if not ls: return "", "بدون_شناسه_پیوست", []
-    page_path = os.path.join(base_dir, prefix + "_attachment_page.html"); texts, files = [], []
-    if os.path.exists(page_path): html = open(page_path, "rb").read().decode("utf-8", "replace")
+    page_path = os.path.join(base_dir, prefix + "_attachment_page.html") if base_dir else None; texts, files = [], []
+    if page_path and os.path.exists(page_path): html = open(page_path, "rb").read().decode("utf-8", "replace")
     else:
         if codal is None: return "", "فایل_موجود_نیست", []
         r = codal.get(CODAL + "/Reports/Attachment.aspx?LetterSerial=" + ls)
         if r is None or r.status_code != 200: return "", "دریافت_نشد", []
-        html = r.text; os.makedirs(base_dir, exist_ok=True); open(page_path, "wb").write(html.encode("utf-8"))
+        html = r.text
+        if page_path: os.makedirs(base_dir, exist_ok=True); open(page_path, "wb").write(html.encode("utf-8"))
     links = []
     for m in re.finditer(r"""(?:href|src|data-url|data-href)\s*=\s*["']([^"']+)["']""", html):
         u = m.group(1).replace("&amp;", "&")
         if re.search(r"DownloadFile|\.pdf|\.xls|\.doc|\.zip|\.rar|GetFile|Attachment/Get|Download", u, re.I) and "Attachment.aspx?LetterSerial" not in u and u not in links: links.append(u)
     for k, u in enumerate(links[:8]):
-        stem = os.path.join(base_dir, "%s_att%d" % (prefix, k + 1)); t, stt = doc_text(codal, u if u.startswith("http") else (u if u.startswith("/") else "/" + u), stem)
+        stem = os.path.join(base_dir, "%s_att%d" % (prefix, k + 1)) if base_dir else None; t, stt = doc_text(codal, u if u.startswith("http") else (u if u.startswith("/") else "/" + u), stem)
         files.append((u, stt))
         if t: texts.append(t)
     return "\n".join(texts), ("پیوست_ok" if texts else ("پیوست_بدون_لینک" if not links else "پیوست_بدون_متن")), files
@@ -523,11 +525,11 @@ def collect_docs(st, cand, args, codal, log, save):
             rep, nts = split_fs_pdf(t); d["audit"] = {**(audit_features(rep) if t else {}), **(notes_features(nts) if len(nts) > 500 else {}), "audit_status": stt, "audit_src_no": x["no"]}; save(); log(f"  حسابرس FY{fy}: {stt} | اظهارنظر={d['audit'].get('audit_opinion')} | {d['audit'].get('audit_firm')}")
         if (("board" not in d) or d["board"].get("br_status") in RETRY) and by["board"].get(fy):
             x = sorted(by["board"][fy], key=lambda z: norm(z["pub"]))[-1]; fb = file_base(args, st, fy, "board_report", x["no"]); t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
-            if not t: t, stt, _ = attachment_texts(codal, x, os.path.dirname(fb), "board_report_%s" % x["no"])
+            if not t: t, stt, _ = attachment_texts(codal, x, os.path.dirname(fb) if fb else None, "board_report_%s" % x["no"])
             d["board"] = {**(text_features(t, "br") if t else {}), "br_status": stt, "br_src_no": x["no"]}; save(); log(f"  گزارش هیئت‌مدیره FY{fy}: {stt}")
         if (("ic" not in d) or d["ic"].get("ic_status") in RETRY) and by["ic"].get(fy):
             x = sorted(by["ic"][fy], key=lambda z: norm(z["pub"]))[-1]; fb = file_base(args, st, fy, "internal_control", x["no"]); t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
-            if not t: t, stt, _ = attachment_texts(codal, x, os.path.dirname(fb), "internal_control_%s" % x["no"])
+            if not t: t, stt, _ = attachment_texts(codal, x, os.path.dirname(fb) if fb else None, "internal_control_%s" % x["no"])
             d["ic"] = {**(ic_features(t) if t else {}), "ic_status": stt, "ic_src_no": x["no"]}; save(); log(f"  کنترل داخلی FY{fy}: {stt}")
 
 # ------------------------------------------------------------------ هماهنگ‌کننده
@@ -587,11 +589,11 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
         lst.sort(key=lambda px: norm(px[1]["pub"]), reverse=True)            # جدیدترین اول
         lst.sort(key=lambda px: (px[0]["consolidated"], px[0]["amendment"]))  # پایدار: غیرتلفیقی، بدون اصلاحیه
         best = lst[0][1]
-        xb = file_base(args, st, fy, "FS_excel", best["no"]) + ".xls"; html = None
-        if os.path.exists(xb) and os.path.getsize(xb) > 0: html = open(xb, "rb").read().decode("utf-8", "replace")
+        xb0 = file_base(args, st, fy, "FS_excel", best["no"]); xb = (xb0 + ".xls") if xb0 else None; html = None
+        if xb and os.path.exists(xb) and os.path.getsize(xb) > 0: html = open(xb, "rb").read().decode("utf-8", "replace")
         elif codal is not None:
             html = codal.excel(best["excel"])
-            if html: os.makedirs(os.path.dirname(xb), exist_ok=True); open(xb, "wb").write(html.encode("utf-8"))
+            if html and xb: os.makedirs(os.path.dirname(xb), exist_ok=True); open(xb, "wb").write(html.encode("utf-8"))
         else: codal_err = "فایل_موجود_نیست"
         if html:
             f, members = parse_excel(html); f.update(source_no=best["no"], source_title=norm(best["title"])[:120]); st["excel"][str(fy)] = {"f": f, "members": members}
@@ -715,6 +717,7 @@ def main():
     ap.add_argument("--interactive", action="store_true", help="با کپچا/۴۲۹ بایست تا خودتان در مرورگر حل کنید و Enter بزنید")
     ap.add_argument("--cookie", default=None, help="رشتهٔ Cookie مرورگر شما (پس از حل کپچا) برای codal.ir")
     ap.add_argument("--user-agent", default=None, help="User-Agent همان مرورگر (اگر کوکی می‌دهید)")
+    ap.add_argument("--no-save", action="store_true", help="فایل‌ها را روی دیسک ذخیره نکن؛ فقط در حافظه بخوان و برو بعدی")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
