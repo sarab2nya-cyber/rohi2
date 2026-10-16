@@ -457,18 +457,29 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--symbols", default="my_symbols.csv"); ap.add_argument("--out", default="out"); ap.add_argument("--fy-from", type=int, default=1394); ap.add_argument("--fy-to", type=int, default=1404)
     ap.add_argument("--pilot", type=int, default=0, help="فقط N شرکت اول"); ap.add_argument("--min-interval", type=float, default=7.0, help="حداقل فاصله درخواست‌های کدال (ثانیه)")
-    ap.add_argument("--max-requests", type=int, default=700, help="سقف درخواست کدال در هر اجرا"); ap.add_argument("--build", action="store_true")
+    ap.add_argument("--max-requests", type=int, default=150, help="سقف درخواست کدال در هر دسته، سپس استراحت"); ap.add_argument("--build", action="store_true")
+    ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
+    ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
     if args.build: return build(args.out, args)
     S = pd.read_csv(args.symbols, dtype=str, encoding="utf-8-sig"); S = S.head(args.pilot) if args.pilot else S
     codal, tse = Codal(args.min_interval, args.max_requests), Tse()
-    t0 = time.time()
-    for i, r in S.iterrows():
-        sym = norm(r["Symbol"]); fid = int(float(r.get("firm_id", i)))
-        print(f"[{i + 1}/{len(S)}] {sym} ({r.get('company', '')})")
-        try: process_firm(sym, r.get("company", ""), fid, args, codal, tse, args.out, print)
-        except Blocked as e:
-            print("\n⛔ توقف:", e, "\nپیشرفت ذخیره شد. ۱ ساعت (یا تا فردا) صبر کنید، در مرورگر codal.ir کپچا را (در صورت نیاز) حل کنید و دوباره همین دستور را اجرا کنید."); break
-    print("زمان: %.0f دقیقه | درخواست‌های کدال: %d" % ((time.time() - t0) / 60, codal.n)); build(args.out, args)
+    t0 = time.time(); wait_min = args.wait_start
+    try:
+        for i, r in S.iterrows():
+            sym = norm(r["Symbol"]); fid = int(float(r.get("firm_id", i)))
+            print(f"[{i + 1}/{len(S)}] {sym} ({r.get('company', '')})")
+            while True:
+                try: process_firm(sym, r.get("company", ""), fid, args, codal, tse, args.out, print); wait_min = args.wait_start; break
+                except Blocked as e:
+                    if (time.time() - t0) / 3600 > args.max_hours: raise
+                    capped = "سقف" in str(e)
+                    w = args.burst_rest if capped else wait_min
+                    print(f"\n⏸ {e}  → استراحت {w:.0f} دقیقه و ادامهٔ خودکار ({time.strftime('%H:%M')})"); time.sleep(w * 60)
+                    codal.n = 0
+                    if not capped: wait_min = min(wait_min * 1.5, args.wait_max)
+    except Blocked as e: print("\n⛔ پایان بر اثر سقف زمانی:", e)
+    except KeyboardInterrupt: print("\nقطع شد توسط کاربر؛ پیشرفت ذخیره است.")
+    print("زمان: %.0f دقیقه" % ((time.time() - t0) / 60)); build(args.out, args)
 
 if __name__ == "__main__": main()
