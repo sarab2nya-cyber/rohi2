@@ -90,11 +90,6 @@ foreach y in 1403 1404 {
             continue
         }
         capture drop $YEAR
-        * ستون‌های تکراری بین فایل‌ها (به جز نماد) را با پسوند نوع صورت یکتا کنید
-        quietly ds $SYM, not
-        foreach v of varlist `r(varlist)' {
-            capture confirm variable `v'
-        }
         bysort $SYM: keep if _n == 1                  // اگر نماد تکراری بود (خطا ؟) فقط اولی
         tempfile part_`y'_`first'
         save `part_`y'_`first''
@@ -176,4 +171,4 @@ foreach v of varlist `r(varlist)' {
 compress
 save "$OUT/panel_1380_1404.dta", replace
 export excel using "$OUT/panel_1380_1404.xlsx", firstrow(variables) replace
-di as txt "پایان: " _N " ردیف، " r(N) " "
+di as txt "پایان: " _N " ردیف"
