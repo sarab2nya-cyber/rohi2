@@ -12,7 +12,8 @@
 import argparse, re, sys
 import numpy as np, pandas as pd
 
-Y0, Y1 = 1390, 1404                       # بازه تحلیل (سال‌های قبل از ۱۳۹۰ فقط برای تأخیرها)
+Y0, Y1 = 1394, 1404                       # ۱۳۹۴ = سال پایه (برای تأخیرها)، ۱۳۹۵–۱۴۰۴ = ده سال تحلیل
+ANA0 = Y0 + 1
 MIN_RUN = 3
 INCLUDE_FARA = False                      # فقط بورس تهران؛ برای افزودن فرابورس: --include-fara
 FIN_IND = None                            # صنایع خارج از فهرست اکسل اصلی = مالی/سرمایه‌گذاری/...
@@ -115,6 +116,7 @@ def main(a):
     df["DEF_Z"] = np.where(df["ZSCORE"].notna(), (df["ZSCORE"] < 1.1).astype(float), np.nan)
     for c in ("DEF_141", "DEF_Z", "ROA", "LOSS", "ZSCORE"): df["F_" + c] = lead(df, c)
     df["F_DEF_ANY"] = np.where(df["F_DEF_141"].notna() | df["F_DEF_Z"].notna(), np.fmax(df["F_DEF_141"].fillna(0), df["F_DEF_Z"].fillna(0)), np.nan)
+    df["base_year"] = (df["year"] == Y0).astype(int)
     df["tse_only"] = (df["market"] == "بورس تهران").astype(int)
     df["audited_flag"] = np.where(df["audited"].astype(str) == "خیر", 0, 1)
 
@@ -134,7 +136,7 @@ def main(a):
                 "ردیف باقی‌مانده": len(df), "شرکت باقی‌مانده": int(df["firm_id"].nunique()), "شرکت‌های حذف‌شده در این گام": 0})
     mk = ["بورس تهران", "فرابورس"] if INCLUDE_FARA else ["بورس تهران"]
     step("۱) بورسی بودن (ملاک اصلی)", "بازار همان سال = " + " یا ".join(mk) + "؛ فرابورس و ردیف بدون بازار قابل‌شناسایی حذف" if not INCLUDE_FARA else "بازار = بورس تهران یا فرابورس", df["market"].isin(mk))
-    step("۲) بازه تحلیل ۱۳۹۰–۱۴۰۴", "سال‌های قبل از ۱۳۹۰ حذف (فقط برای تأخیرها استفاده شده‌اند)", df["year"].between(Y0, Y1))
+    step(f"۲) بازه {Y0}–{Y1} (سال پایه + ۱۰ سال)", f"سال‌های قبل از {Y0} حذف (فقط برای ساخت تأخیرها استفاده شده‌اند)", df["year"].between(Y0, Y1))
     step("۳) دسترسی به صورت‌های مالی", "ترازنامه موجود (جمع دارایی، بدهی و حقوق صاحبان سهام) و دارایی > ۰", df[["ta", "tl", "equity"]].notna().all(axis=1) & (df["ta"] > 0))
     step("۴) صورت سود و زیان موجود", "درآمد، سود عملیاتی و سود خالص موجود", df[["revenue", "ebit", "net_income"]].notna().all(axis=1))
     step("۵) صورت‌های حسابرسی‌شده", "حذف ردیف‌هایی که «حسابرسی شده = خیر» (نوع «مجمع» حسابرسی‌شده فرض می‌شود)", df["audited_flag"] == 1)
@@ -147,35 +149,35 @@ def main(a):
     # حضور در همه سال‌های ۱۳۹۰–۱۴۰۴ (پنل متوازن)؛ شرط اصلی نمونه
     need_years = set(range(Y0, Y1 + 1))
     cnt_years = df.loc[alive].groupby("firm_id")["year"].nunique()
-    sens = pd.DataFrame([{"حداقل سال‌های حاضر (از ۱۵)": k, "شرکت": int((cnt_years >= k).sum()),
-                          "ردیف شرکت‌-سال (واقعی)": int(df.loc[alive & df["firm_id"].isin(cnt_years[cnt_years >= k].index)].shape[0])} for k in range(15, 7, -1)])
+    sens = pd.DataFrame([{"حداقل سال‌های حاضر (از ۱۱)": k, "شرکت": int((cnt_years >= k).sum()),
+                          "ردیف شرکت‌-سال (واقعی)": int(df.loc[alive & df["firm_id"].isin(cnt_years[cnt_years >= k].index)].shape[0])} for k in range(Y1 - Y0 + 1, 5, -1)])
     yrs_by_firm = df.loc[alive].groupby("firm_id")["year"].apply(set)
     ok = {fid for fid, ys in yrs_by_firm.items() if need_years <= ys}
-    step("۹) حضور در همه سال‌های ۱۳۹۰–۱۴۰۴ (شرط اصلی نمونه)", f"شرکت باید در هر ۱۵ سال، پس از گام‌های قبل (بورس تهران، غیرمالی، صورت‌های کامل و حسابرسی‌شده) ردیف داشته باشد؛ بقیه کاملاً حذف", df["firm_id"].isin(ok))
+    step(f"۹) حضور در همه سال‌های {Y0}–{Y1} (شرط اصلی نمونه)", f"شرکت باید در هر {Y1 - Y0 + 1} سال، پس از گام‌های قبل (بورس تهران، غیرمالی، صورت‌های کامل و حسابرسی‌شده) ردیف داشته باشد؛ بقیه کاملاً حذف", df["firm_id"].isin(ok))
     n_all = alive.copy(); df["in_common_sample"] = n_all.astype(int)
     # نمونه‌های اختصاصی هر مقاله
     alive_c = alive.copy()
     a1_cols = ["LOAN", "NONOP", "SIZE", "LEV", "ROA", "CFO_TA", "CASH_TA", "TANG", "GROW", "MTB"]
-    step("۱۰-الف) مقاله ۱: صورت جریان نقد و تسهیلات", "LOAN قابل‌محاسبه (جریان نقد و دارایی سال قبل موجود)", df["LOAN"].notna())
+    step("۱۰-الف) مقاله ۱: صورت جریان نقد و تسهیلات", f"LOAN قابل‌محاسبه؛ سال پایه {Y0} کنار گذاشته می‌شود (فقط برای تأخیر)", df["LOAN"].notna() & (df["year"] >= ANA0))
     step("۱۱-الف) مقاله ۱: NONOP و کنترل‌ها", "NONOP و ‌SIZE, LEV, ROA, CFO_TA, CASH_TA, TANG, GROW موجود (MTB اختیاری)", df[["NONOP", "SIZE", "LEV", "ROA", "CFO_TA", "CASH_TA", "TANG", "GROW"]].notna().all(axis=1))
     loans_any = df.loc[alive].groupby("firm_id")[["loan_in_f", "loan_repay_f"]].apply(lambda g: (g.abs().sum().sum() > 0))
     step("۱۲-الف) مقاله ۱: وام‌گیرنده", "شرکت حداقل در یک سال دریافت یا بازپرداخت تسهیلات داشته", df["firm_id"].map(loans_any).fillna(False).astype(bool))
     df["A1_sample"] = alive.astype(int)
     alive = alive_c.copy()
     a2_core = ["CR", "QR", "WC", "LEV", "ROA", "CFO_TD", "TNW", "ZSCORE", "CASH_TA"]
-    step("۱۰-ب) مقاله ۲: معیارهای قرارداد", "CR, QR, WC, LEV, ROA, CFO_TD, TNW, ZSCORE, CASH_TA موجود", df[a2_core].notna().all(axis=1))
+    step("۱۰-ب) مقاله ۲: معیارهای قرارداد", f"CR, QR, WC, LEV, ROA, CFO_TD, TNW, ZSCORE, CASH_TA موجود؛ سال پایه {Y0} کنار گذاشته می‌شود", df[a2_core].notna().all(axis=1) & (df["year"] >= ANA0))
     step("۱۱-ب) مقاله ۲: متغیر وابسته سال بعد", "F_DEF_141 موجود (سال t+1 وجود دارد؛ ۱۴۰۴ طبیعتاً حذف)", df["F_DEF_141"].notna())
     df["A2_sample"] = alive.astype(int)
-    def strict(flag, need):
-        ok_rows = df[need].notna().all(axis=1) & (df["in_common_sample"] == 1)
+    def strict(flag, need, years):
+        ok_rows = df[need].notna().all(axis=1) & (df["in_common_sample"] == 1) & df["year"].isin(years)
         cnt = df[ok_rows].groupby("firm_id")["year"].nunique()
-        firms = set(cnt[cnt == len(need_years)].index)
+        firms = set(cnt[cnt == len(years)].index)
         return df["firm_id"].isin(firms) & (df["in_common_sample"] == 1)
-    df["A1_balanced"] = strict("A1", ["LOAN", "NONOP", "SIZE", "LEV", "ROA", "CFO_TA", "CASH_TA", "TANG", "GROW"]).astype(int)
-    df["A2_balanced"] = strict("A2", a2_core + ["F_DEF_141"]).astype(int)   # ۱۴۰۴ طبیعتاً F_DEF ندارد → عملاً ۱۳۹۰–۱۴۰۳
-    df["A2_balanced_1390_1403"] = 0
-    ok2 = df[(df["in_common_sample"] == 1) & df[a2_core + ["F_DEF_141"]].notna().all(axis=1)].groupby("firm_id")["year"].apply(lambda y: set(range(Y0, Y1)) <= set(y))
-    df.loc[df["firm_id"].map(ok2).fillna(False).astype(bool) & (df["in_common_sample"] == 1), "A2_balanced_1390_1403"] = 1
+    df["A1_balanced"] = strict("A1", ["LOAN", "NONOP", "SIZE", "LEV", "ROA", "CFO_TA", "CASH_TA", "TANG", "GROW"], range(ANA0, Y1 + 1)).astype(int)
+    df["A2_balanced"] = strict("A2", a2_core + ["F_DEF_141"], range(ANA0, Y1)).astype(int)   # ۱۴۰۴ F_DEF ندارد → ۱۳۹۵–۱۴۰۳
+    df["A2_balanced_1395_1403"] = 0
+    ok2 = df[(df["in_common_sample"] == 1) & df[a2_core + ["F_DEF_141"]].notna().all(axis=1)].groupby("firm_id")["year"].apply(lambda y: set(range(ANA0, Y1)) <= set(y))
+    df.loc[df["firm_id"].map(ok2).fillna(False).astype(bool) & (df["in_common_sample"] == 1), "A2_balanced_1395_1403"] = 1
 
     # وینزورایز (۱٪/۹۹٪) روی نمونه مشترک
     cont = ["LOAN", "NONOP", "DIV", "OPINV", "SIZE", "LEV", "ROA", "ROA_NI", "CFO_TA", "CASH_TA", "TANG", "GROW", "MTB", "Q", "ICR", "LEV_INT", "DIV_PAYOUT",
@@ -208,7 +210,7 @@ def main(a):
     pd.set_option("display.width", 250); pd.set_option("display.max_colwidth", 60)
     print(rep[["گام", "معیار غربالگری", "ردیف قبل", "حذف‌شده (ردیف)", "ردیف باقی‌مانده", "شرکت باقی‌مانده"]].to_string(index=False))
     print("مشترک:", len(master), "ردیف،", master.firm_id.nunique(), "شرکت ؛ A1:", int(master.A1_sample.sum()), "؛ A2:", int(master.A2_sample.sum()))
-    print("متوازن سخت‌گیرانه: A1 =", master.loc[master.A1_balanced == 1, "firm_id"].nunique(), "شرکت ؛ A2 (۱۳۹۰–۱۴۰۳) =", master.loc[master.A2_balanced_1390_1403 == 1, "firm_id"].nunique(), "شرکت")
+    print("متوازن سخت‌گیرانه: A1 =", master.loc[master.A1_balanced == 1, "firm_id"].nunique(), "شرکت ؛ A2 (۱۳۹۵–۱۴۰۳) =", master.loc[master.A2_balanced_1395_1403 == 1, "firm_id"].nunique(), "شرکت")
     return df, master, rep
 
 DICT = [
