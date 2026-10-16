@@ -439,6 +439,8 @@ def build(out_dir, args):
         for h in tse.get("holders_snapshot", []): hold.append({"firm_id": fid, "symbol": sym, **h})
     df = pd.DataFrame(list(rows.values())).sort_values(["firm_id", "fiscal_year"])
     # مشتقات: عدم تغییر مدیرعامل، تغییر تعداد کارکنان، خطای پیش‌بینی فروش
+    for c in ("ceo_name", "fc_sales_est", "fc_sales_last_actual"):
+        if c not in df: df[c] = np.nan
     df["ceo_nochange"] = (df.groupby("firm_id")["ceo_name"].shift(1) == df["ceo_name"]).astype("float").where(df["ceo_name"].notna() & df.groupby("firm_id")["ceo_name"].shift(1).notna())
     if "fc_sales_est" in df:
         df["fc_sales_error"] = (df["fc_sales_last_actual"] - df.groupby("firm_id")["fc_sales_est"].shift(1)) / df.groupby("firm_id")["fc_sales_est"].shift(1).abs()
