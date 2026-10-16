@@ -1,0 +1,472 @@
+# -*- coding: utf-8 -*-
+"""
+rohi_collect.py — جمع‌آوری یک‌مرحله‌ای و جریانی داده‌های کدال + TSETMC برای شرکت‌های نمونه (۱۳۹۴–۱۴۰۴)
+
+ • به ازای هر شرکت، همه‌چیز در یک عبور: TSETMC (بازار) + فهرست نامه‌های کدال (رویدادها) + اکسل صورت مالی سالانه
+   حسابرسی‌شده (هیئت مدیره، کمیته‌ها، مدیرعامل، کارکنان، فروش صادراتی، وضعیت ارزی، برآوردها).
+ • هیچ سندی روی دیسک نگه داشته نمی‌شود (فقط جدول ویژگی‌ها).
+ • مؤدب و کپچا-آگاه: فاصله بین درخواست‌های کدال، سقف روزانه، و توقف فوری در صورت کپچا/۴۲۹ (دور زدن نمی‌کند).
+ • ادامه‌پذیر: هر شرکت/نامه پس از پردازش ثبت می‌شود؛ اجرای دوباره از همان‌جا ادامه می‌دهد.
+
+اجرا (ویندوز، فیلترشکن خاموش):
+   python rohi_collect.py --symbols my_symbols.csv --pilot 3          # آزمایشی: ۳ شرکت
+   python rohi_collect.py --symbols my_symbols.csv                    # اجرای کامل (ادامه‌پذیر)
+   python rohi_collect.py --build                                     # ساخت جدول نهایی از نتایج ذخیره‌شده
+فایل my_symbols.csv: ستون‌های Symbol (نماد) ,company ,firm_id
+نصب: pip install requests pandas numpy lxml openpyxl
+"""
+import argparse, csv, io, json, math, os, random, re, sys, time, unicodedata, collections
+import numpy as np, pandas as pd, requests
+
+CODAL_SEARCH = "https://search.codal.ir/api/search/v2/q"; CODAL = "https://codal.ir"; TSE = "https://cdn.tsetmc.com/api"
+UA = {"User-Agent": "Mozilla/5.0 (research; academic use)", "Accept": "*/*"}
+_DIG = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+def norm(s):
+    s = unicodedata.normalize("NFKC", str(s)).translate(_DIG)
+    s = s.replace("ي", "ی").replace("ك", "ک").replace("‌", " ").replace("‏", "").replace("\xa0", " ")
+    return re.sub(r"\s+", " ", s).strip()
+
+def num(x):
+    s = norm(x).replace(",", "").replace("٬", "")
+    neg = s.startswith("(") and s.endswith(")"); s = s.strip("()")
+    try: v = float(s); return -v if neg else v
+    except ValueError: return None
+
+# ------------------------------------------------------------------ تاریخ شمسی/میلادی
+def g2j(gy, gm, gd):
+    gdm = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+    gy2 = gy + 1 if gm > 2 else gy
+    days = 355666 + 365 * gy + (gy2 + 3) // 4 - (gy2 + 99) // 100 + (gy2 + 399) // 400 + gd + gdm[gm - 1]
+    jy = -1595 + 33 * (days // 12053); days %= 12053
+    jy += 4 * (days // 1461); days %= 1461
+    if days > 365: jy += (days - 1) // 365; days = (days - 1) % 365
+    jm = 1 + days // 31 if days < 186 else 7 + (days - 186) // 30
+    jd = 1 + days % 31 if days < 186 else 1 + (days - 186) % 30
+    return jy, jm, jd
+
+def j2g(jy, jm, jd):
+    jy += 1595
+    days = -355668 + 365 * jy + (jy // 33) * 8 + ((jy % 33) + 3) // 4 + jd + ((jm - 1) * 31 if jm < 7 else (jm - 7) * 30 + 186)
+    gy = 400 * (days // 146097); days %= 146097
+    if days > 36524:
+        days -= 1; gy += 100 * (days // 36524); days %= 36524
+        if days >= 365: days += 1
+    gy += 4 * (days // 1461); days %= 1461
+    if days > 365: gy += (days - 1) // 365; days = (days - 1) % 365
+    gd = days + 1
+    sal = [0, 31, 29 if (gy % 4 == 0 and gy % 100 != 0) or gy % 400 == 0 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    gm = 0
+    while gm < 13 and gd > sal[gm]: gd -= sal[gm]; gm += 1
+    return gy, gm, gd
+
+def jdate(s):
+    m = re.search(r"(1[34]\d{2})/(\d{1,2})/(\d{1,2})", norm(s))
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+
+def to_ord(y, m, d):  # ترتیب‌پذیر
+    return y * 10000 + m * 100 + d
+
+# ------------------------------------------------------------------ عنوان نامه‌ها
+CODES = {  # LetterCode → دسته
+ "ن-10": "fs", "ن-11": "board_report", "ن-12": "internal_control", "ن-13": "dividend", "ن-30": "monthly", "ن-41": "audit_committee_unit",
+ "ن-45": "board_change", "ن-86": "nomination_committee", "ن-20": "material_info", "ن-21": "clarify_rumor", "ن-22": "clarify_price", "ن-26": "fs_explain",
+ "ن-23": "conference", "ب-9": "conference_need", "ن-50": "agm_invite", "ن-51": "agm_summary", "ن-52": "agm_decision", "ن-42": "agm_register",
+ "ن-53": "agm_invite", "ن-54": "agm_invite", "ن-55": "agm_decision", "ن-56": "egm_invite", "ن-57": "egm_decision", "ن-58": "agm_cancel",
+ "ن-60": "capinc", "ن-61": "capinc", "ن-62": "capinc", "ن-67": "capinc", "ن-81": "shareholder_info", "ن-74": "energy_cost", "ن-84": "land_buildings",
+ "ن-69": "share_transfer", "ن-43": "articles", "ن-80": "address_change", "س-5": "trading_halt", "س-7": "trading_halt",
+}
+def lcode(c):
+    c = norm(c).split("،")[0].strip().replace("ف ", ""); return c
+def classify(code, title):
+    c = lcode(code); t = norm(title)
+    if c in CODES: return CODES[c]
+    if c.startswith("ب-"): return "regulator_warning"
+    if c.startswith("س-"): return "trading_halt"
+    if "کمیته ریسک" in t: return "risk_committee"
+    if "کمیته حسابرسی" in t: return "audit_committee_unit"
+    if "کمیته" in t: return "committee_other"
+    return "other"
+
+def parse_title(title):
+    t = norm(title); d = {}
+    m = re.search(r"منتهی به (\d{4}/\d{2}/\d{2})", t); d["fye"] = m.group(1) if m else None
+    d["fiscal_year"] = int(m.group(1)[:4]) if m else None
+    d["interim"] = int(bool(re.search(r"میان ?دوره|دوره (3|6|9) ماهه", t)))
+    d["audited"] = int("حسابرسی شده" in t); d["unaudited"] = int("حسابرسی نشده" in t)
+    d["consolidated"] = int("تلفیقی" in t); d["amendment"] = int("اصلاحیه" in t)
+    d["other_company"] = int(bool(re.search(r"\(شرکت [^)]+\)", t)))
+    d["annual"] = int(("سال مالی" in t or "دوره 12 ماهه" in t) and not d["interim"])
+    return d
+
+# ------------------------------------------------------------------ مشتری مؤدب کدال
+class Blocked(Exception): pass
+
+class Codal:
+    def __init__(self, min_interval=7.0, max_requests=700, log=print):
+        self.min_interval, self.max_requests, self.n, self.last, self.log = min_interval, max_requests, 0, 0.0, log
+        self.s = requests.Session(); self.s.headers.update(UA)
+    def _wait(self):
+        dt = time.time() - self.last; need = self.min_interval * random.uniform(1.0, 1.5)
+        if dt < need: time.sleep(need - dt)
+        self.last = time.time()
+    def get(self, url, params=None, stream=False, expect_json=False):
+        if self.n >= self.max_requests: raise Blocked("سقف درخواست این اجرا (%d) تمام شد؛ دوباره اجرا کنید (ادامه می‌دهد)." % self.max_requests)
+        self._wait(); self.n += 1
+        try: r = self.s.get(url, params=params, timeout=(10, 40), stream=stream)
+        except Exception as e: self.log("   خطای شبکه:", type(e).__name__); return None
+        ct = r.headers.get("Content-Type", "")
+        if r.status_code == 429: raise Blocked("کدال ۴۲۹ داد (محدودیت نرخ).")
+        if "html" in ct and not stream and ("تأیید کاربر" in r.text[:8000] or "captcha" in r.text[:8000].lower()): raise Blocked("کدال کپچا نشان داد.")
+        return r
+    def search(self, symbol, fy_from, fy_to, page):
+        p = {"Symbol": symbol, "Length": "-1", "LetterType": "-1", "Category": "-1", "PageNumber": str(page), "search": "true", "Publisher": "false",
+             "Mains": "true", "Childs": "true", "TracingNo": "-1", "AuditorRef": "-1", "CompanyState": "0", "CompanyType": "-1",
+             "FromDate": f"{fy_from}/01/01", "ToDate": f"{fy_to + 1}/12/29"}
+        r = self.get(CODAL_SEARCH, params=p)
+        if r is None or r.status_code != 200: return None
+        try: return r.json()
+        except Exception: raise Blocked("پاسخ جست‌وجو JSON نبود (احتمالاً محدودیت).")
+    def list_letters(self, symbol, fy_from, fy_to):
+        out, page = [], 1
+        while True:
+            j = self.search(symbol, fy_from, fy_to, page)
+            if j is None: break
+            L = j.get("Letters") or []; out += L
+            if not L or page >= int(j.get("Page", page)): break
+            page += 1
+        return out
+    def excel(self, url):
+        r = self.get(url, stream=True)
+        if r is None or r.status_code != 200: return None
+        data = r.content
+        return data.decode("utf-8", "replace") if data[:20].lstrip().lower().startswith((b"<html", b"<!doc", b"<?xml")) or b"<table" in data[:5000] else None
+
+# ------------------------------------------------------------------ پارس اکسل کدال (HTML-xls)
+def split_sections(html_text):
+    parts = re.split(r"<h3>\s*(.*?)\s*</h3>", html_text, flags=re.S)
+    return [(norm(re.sub(r"<[^>]+>", " ", parts[i])), parts[i + 1]) for i in range(1, len(parts) - 1, 2)]
+
+def read_tables(body):
+    try: tabs = pd.read_html(io.StringIO(body))
+    except Exception: return []
+    out = []
+    for t in tabs:
+        t = t.copy()
+        t.columns = [" ".join(norm(x) for x in (c if isinstance(c, tuple) else (c,)) if not str(x).startswith("Unnamed")).strip() for c in t.columns]
+        out.append(t)
+    return out
+
+def txt(body): return norm(re.sub(r"<[^>]+>", " ", body))
+
+def find_col(df, *keys):
+    for c in df.columns:
+        if all(k in norm(c) for k in keys): return c
+    return None
+
+def parse_excel(html_text):
+    """خروجی: dict ویژگی‌ها + فهرست اعضای هیئت‌مدیره"""
+    f = {}; members = []
+    secs = split_sections(html_text)
+    f["xl_sections"] = len(secs); f["interp_report"] = int(any("گزارش تفسیر" in t for t, _ in secs))
+    full = txt(html_text)
+    for title, body in secs:
+        tabs = read_tables(body); T = txt(body)
+        if "اعضا" in title and "هیئت" in norm(title).replace("ئ", "ئ"):
+            for df in tabs:
+                role = find_col(df, "سمت"); ex = find_col(df, "موظف"); edu = find_col(df, "مقطع"); maj = find_col(df, "رشته"); nm = find_col(df, "نماینده", "جدید"); nm2 = find_col(df, "نام عضو", "جدید"); idc = find_col(df, "ثبت")
+                if role is None or ex is None: continue
+                if len(df) and not all(str(v) for v in df[role]): continue
+                members = []
+                for _, r in df.iterrows():
+                    if not isinstance(r[role], str): continue
+                    members.append({"role": norm(r[role]), "exec": norm(r[ex]), "edu": norm(r[edu]) if edu else "", "major": norm(r[maj]) if maj else "",
+                                    "member": norm(r[nm2]) if nm2 else "", "rep": norm(r[nm]) if nm and isinstance(r[nm], str) else "", "id": norm(r[idc]) if idc else ""})
+        # جزئیات اعضا: تاریخ عضویت، مالکیت، عضویت همزمان، حضور در جلسات
+        for df in tabs:
+            c_date = find_col(df, "تاریخ عضویت"); c_nonex = find_col(df, "غیرموظف"); c_own = find_col(df, "مالکیت"); c_inter = find_col(df, "همزمان")
+            if c_date and c_inter:
+                f["bd_detail_rows"] = len(df); f["bd_interlock_n"] = int(sum(norm(v) in ("بلی", "بله") for v in df[c_inter]))
+                own = [num(v) for v in df[c_own]] if c_own else []; f["bd_own_sum_shares"] = float(sum(x for x in own if x))
+                ca = find_col(df, "کمیته حسابرسی"); cb = [c for c in df.columns if "هیات مدیره" in c and "حضور" in c]
+                if ca: v = [num(x) for x in df[ca]]; f["ac_attend_total"] = float(sum(x for x in v if x)); f["ac_members_attending"] = int(sum(1 for x in v if x))
+                dates = [jdate(x) for x in df[c_date] if jdate(x)]
+                if dates: f["bd_tenure_min_year"] = min(d[0] for d in dates)
+            # مدیرعامل
+            c_resume = find_col(df, "سوابق"); c_edu2 = find_col(df, "تحصیلات"); c_nm = find_col(df, "نام و نام")
+            if c_resume and c_edu2 and c_nm and len(df):
+                f["ceo_name"] = norm(df[c_nm].iloc[0]); f["ceo_edu"] = norm(df[c_edu2].iloc[0]); f["ceo_resume_len"] = len(norm(df[c_resume].iloc[0]))
+                o = find_col(df, "مالکیت"); f["ceo_own_shares"] = num(df[o].iloc[0]) if o else None
+            # کارکنان
+            c0 = df.columns[0] if len(df.columns) else None
+            if c0 is not None and df[c0].astype(str).str.contains("تعداد پرسنل").any():
+                for _, r in df.iterrows():
+                    k = norm(r[c0]); vals = [num(v) for v in r.iloc[1:]]; vals = [v for v in vals if v is not None]
+                    if "غیر تولیدی" in k and vals: f["staff_nonprod"] = vals[-2] if len(vals) >= 2 else vals[-1]
+                    elif "تولیدی" in k and vals: f["staff_prod"] = vals[-2] if len(vals) >= 2 else vals[-1]
+            # فروش صادراتی/داخلی
+            if c0 is not None:
+                col0 = df[c0].astype(str).map(norm)
+                for key, nm_ in (("جمع فروش صادراتی", "export_total_row"), ("جمع فروش داخلی", "domestic_total_row")):
+                    rows = df[col0.str.contains(key)]
+                    if len(rows):
+                        vals = [num(v) for v in rows.iloc[0, 1:]]; f[nm_] = json.dumps([v for v in vals if v is not None])
+                if col0.str.contains("فروش صادراتی").any(): f["export_section"] = 1
+                # جدول چندساله: مبلغ فروش و برآورد
+                for key, nm_ in (("مبلغ فروش", "fc_sales"), ("سود خالص", "fc_ni"), ("سود هر سهم", "fc_eps"), ("سود ناخالص", "fc_gp"), ("سود عملیاتی", "fc_ebit")):
+                    rows = df[col0.str.fullmatch(key + r"( .*)?") ]
+                    if len(rows) and any("برآورد" in c for c in df.columns):
+                        est_cols = [c for c in df.columns if "برآورد" in c]; cur_cols = [c for c in df.columns if "برآورد" not in c and "شرح" not in c]
+                        f[nm_ + "_est"] = num(rows.iloc[0][est_cols[-1]]); f[nm_ + "_last_actual"] = num(rows.iloc[0][cur_cols[-1]]) if cur_cols else None
+        # وضعیت ارزی (جدول)
+        if "وضعیت ارزی" in T and "fx_section" not in f: f["fx_section"] = 1
+        m = re.search(r"تعداد جلسات هیات مدیره برگزار شده[^۰-۹0-9]{0,60}?(\d+)\s*جلسه", T); f["bd_meetings"] = int(m.group(1)) if m else f.get("bd_meetings")
+        for key, nm_ in (("کمیته حسابرسی", "ac_meetings"), ("کمیته انتصابات", "nom_meetings"), ("کمیته ریسک", "risk_meetings")):
+            m = re.search(r"تعداد جلسات " + key + r" برگزار شده[^0-9]{0,60}?(\d+)\s*جلسه", T)
+            if m: f[nm_] = int(m.group(1))
+    # عضو هیئت‌مدیره: ویژگی‌ها
+    if members:
+        n = len(members); ne = [m for m in members if "غیر" in m["exec"]]
+        f["bd_size"] = n; f["bd_nonexec_n"] = len(ne); f["bd_exec_n"] = n - len(ne); f["bd_nonexec_ratio"] = len(ne) / n
+        f["bd_phd_n"] = sum("دکترا" in m["edu"] for m in members); f["bd_msc_n"] = sum("ارشد" in m["edu"] for m in members)
+        f["bd_bsc_n"] = sum(("کارشناسی" in m["edu"] and "ارشد" not in m["edu"]) for m in members)
+        for k, pat in {"fin": r"مالی|حسابدار|حسابرس|اقتصاد|بانک", "eng": r"مهندس|صنایع|مکانیک|برق|شیمی|عمران|نفت|معدن|فیزیک", "mgmt": r"مدیریت|بازرگانی", "law": r"حقوق"}.items():
+            f["bd_major_%s_n" % k] = sum(bool(re.search(pat, m["major"])) for m in members)
+        f["bd_legal_members_n"] = sum(len(re.sub(r"\D", "", m["id"])) >= 11 for m in members)
+        chair = [m for m in members if "رئیس هیئت" in m["role"] and "نایب" not in m["role"]]
+        f["chair_name"] = (chair[0]["rep"] or chair[0]["member"]) if chair else None
+        f["ceo_is_member"] = int(any("مدیر عامل" in m["role"] or "مدیرعامل" in m["role"] for m in members))
+        if f.get("ceo_name") and f.get("chair_name"): f["ceo_chair_duality"] = int(norm(f["ceo_name"]) == norm(f["chair_name"]))
+    f["fx_text_mentions"] = len(re.findall(r"ارز مرجع|ارز نیمایی|ارز ترجیحی|ارز توافقی|نرخ نیما", full))
+    f["export_text_mentions"] = len(re.findall(r"صادر", full))
+    return f, members
+
+# ------------------------------------------------------------------ TSETMC: بازار
+class Tse:
+    def __init__(self, min_interval=1.0, log=print):
+        self.s = requests.Session(); self.s.headers.update(UA); self.min_interval, self.last, self.log = min_interval, 0.0, log
+        self._idx_list = None; self._idx_cache = {}
+    def get(self, url):
+        dt = time.time() - self.last
+        if dt < self.min_interval: time.sleep(self.min_interval - dt)
+        self.last = time.time()
+        for i in range(3):
+            try:
+                r = self.s.get(url, timeout=(10, 60))
+                if r.status_code == 200: return r.json()
+                if r.status_code == 429: time.sleep(30 * (i + 1)); continue
+                return None
+            except Exception: time.sleep(3 * (i + 1))
+        return None
+    def find(self, ticker):
+        j = self.get(f"{TSE}/Instrument/GetInstrumentSearch/{requests.utils.quote(ticker)}")
+        items = (j or {}).get("instrumentSearch") or []
+        t = norm(ticker)
+        for it in items:
+            if norm(it.get("lVal18AFC", "")) == t: return it
+        return items[0] if items else None
+    def info(self, ins): return ((self.get(f"{TSE}/Instrument/GetInstrumentInfo/{ins}") or {}).get("instrumentInfo")) or {}
+    def daily(self, ins): return (self.get(f"{TSE}/ClosingPrice/GetClosingPriceDailyList/{ins}/0") or {}).get("closingPriceDaily") or []
+    def holders(self, ins): return (self.get(f"{TSE}/Shareholder/GetInstrumentShareHolderLast/{ins}") or {}).get("shareHolder") or []
+    def index_list(self):
+        if self._idx_list is None: self._idx_list = (self.get(f"{TSE}/Index/GetIndexB1LastAll/All/1") or {}).get("indexB1") or []
+        return self._idx_list
+    def index_hist(self, code):
+        if code not in self._idx_cache:
+            rows = (self.get(f"{TSE}/Index/GetIndexB2History/{code}") or {}).get("indexB2") or []
+            s = pd.Series({int(r["dEven"]): float(r["xNivInuClMresIbs"]) for r in rows if r.get("xNivInuClMresIbs") is not None}).sort_index()
+            self._idx_cache[code] = s
+        return self._idx_cache[code]
+    def industry_code(self, sector_code):
+        c = norm(sector_code).strip().zfill(2)
+        for it in self.index_list():
+            if norm(it.get("lVal30", "")).startswith(c + "-"): return it.get("insCode"), it.get("lVal30")
+        return None, None
+
+TEDPIX = "32097828799138957"
+
+def _to_dt(d): d = int(d); return pd.Timestamp(year=d // 10000, month=d // 100 % 100, day=d % 100)
+
+def _weekly(series_by_date):
+    s = series_by_date.copy(); s.index = pd.to_datetime(s.index.map(lambda d: _to_dt(d)))
+    return s
+
+def _ols(y, X):
+    X1 = np.column_stack([np.ones(len(y)), X]); b, *_ = np.linalg.lstsq(X1, y, rcond=None); e = y - X1 @ b
+    r2 = 1 - (e @ e) / max(((y - y.mean()) @ (y - y.mean())), 1e-12); return b, e, r2
+
+def market_vars(daily, w_start, w_end, mkt_idx, ind_idx, shares=None):
+    """متغیرهای بازار برای پنجره [w_start, w_end] (عدد میلادی yyyymmdd)"""
+    if not daily: return {}
+    df = pd.DataFrame(daily); df = df[(df["dEven"] >= w_start) & (df["dEven"] <= w_end)].sort_values("dEven")
+    df = df[df["zTotTran"] > 0] if "zTotTran" in df else df
+    out = {}
+    if len(df) < 10: return {"mk_trade_days": int(len(df))}
+    r = (df["pClosing"] / df["priceYesterday"].where(df["priceYesterday"] > 0) - 1).replace([np.inf, -np.inf], np.nan)
+    out.update(mk_trade_days=int(len(df)), mk_price_close=float(df["pClosing"].iloc[-1]), mk_price_high=float(df["priceMax"].max()), mk_price_low=float(df["priceMin"][df["priceMin"] > 0].min()),
+               mk_vol_sum=float(df["qTotTran5J"].sum()), mk_vol_avg=float(df["qTotTran5J"].mean()), mk_val_sum=float(df["qTotCap"].sum()), mk_trades_n=float(df["zTotTran"].sum()),
+               mk_zero_ret_share=float((r.fillna(0) == 0).mean()), mk_volat_daily=float(r.std()), mk_volat_ann=float(r.std() * math.sqrt(len(df))))
+    amihud = (r.abs() / (df["qTotCap"].where(df["qTotCap"] > 0) / 1e6)).replace([np.inf, -np.inf], np.nan); out["mk_amihud"] = float(amihud.mean())
+    if shares: out["mk_turnover"] = float(df["qTotTran5J"].sum() / shares)
+    # بازده ماهانه شمسی
+    jm = df["dEven"].map(lambda d: g2j(d // 10000, d // 100 % 100, d % 100)[:2]); rr = (1 + r.fillna(0)).groupby(jm.values).prod() - 1
+    out["mk_ret_m_mean"] = float(rr.mean()); out["mk_ret_m_sd"] = float(rr.std()); out["mk_months"] = int(len(rr))
+    # هفتگی: همزمانی و چولگی منفی
+    try:
+        d = df.set_index(df["dEven"].map(_to_dt)); rw = (1 + r.set_axis(d.index).fillna(0)).resample("W").prod() - 1
+        def widx(s):
+            s = s[(s.index >= w_start) & (s.index <= w_end)] if len(s) else s
+            return _weekly(s)
+        mk = widx(mkt_idx).resample("W").last().pct_change() if mkt_idx is not None and len(mkt_idx) else None
+        ind = widx(ind_idx).resample("W").last().pct_change() if ind_idx is not None and len(ind_idx) else None
+        if mk is not None:
+            D = pd.concat([rw.rename("r"), mk.rename("m")] + ([ind.rename("i")] if ind is not None else []), axis=1).dropna()
+            if len(D) >= 30:
+                _, e1, r2a = _ols(D["r"].values, D[["m"] + (["i"] if "i" in D else [])].values)
+                out["mk_r2"] = float(r2a); out["mk_synch"] = float(math.log(max(r2a, 1e-6) / max(1 - r2a, 1e-6)))
+                m = D["m"].values; n = len(D)
+                if n >= 40:  # مدل بازار گسترش‌یافته با پیش‌رو/پس‌رو (چن-هونگ-استین)
+                    Y = D["r"].values[2:-2]; X = np.column_stack([m[0:-4], m[1:-3], m[2:-2], m[3:-1], m[4:]])
+                    _, e, _ = _ols(Y, X); W = np.log(1 + np.clip(e, -0.99, None)); k = len(W)
+                    out["mk_ncskew"] = float(-(k * (k - 1) ** 1.5 * (W ** 3).sum()) / ((k - 1) * (k - 2) * ((W ** 2).sum()) ** 1.5))
+                    up, dn = W[W > W.mean()], W[W <= W.mean()]
+                    if len(up) > 2 and len(dn) > 2: out["mk_duvol"] = float(math.log(((len(up) - 1) * ((dn - W.mean()) ** 2).sum()) / ((len(dn) - 1) * ((up - W.mean()) ** 2).sum())))
+                    out["mk_crash"] = int((W < W.mean() - 3.09 * W.std()).any()); out["mk_jump"] = int((W > W.mean() + 3.09 * W.std()).any())
+                out["mk_beta"] = float(np.polyfit(D["m"].values, D["r"].values, 1)[0])
+    except Exception as e: out["mk_err"] = str(e)[:60]
+    return out
+
+# ------------------------------------------------------------------ خوانایی و متن (اختیاری)
+def readability(text):
+    t = norm(text); words = re.findall(r"[؀-ۿA-Za-z0-9]+", t)
+    if len(words) < 50: return {}
+    sents = [s for s in re.split(r"[.؟!؛\n]+", t) if len(s.split()) >= 3]; ns = max(len(sents), 1); nw = len(words)
+    chars = sum(len(w) for w in words); longw = sum(len(w) > 6 for w in words)
+    asl, awl = nw / ns, chars / nw
+    return {"rd_words": nw, "rd_sentences": ns, "rd_asl": asl, "rd_awl": awl, "rd_longw": longw / nw, "rd_lix": asl + 100 * longw / nw,
+            "rd_ari": 4.71 * awl + 0.5 * asl - 21.43, "rd_cli": 0.0588 * (100 * chars / nw) - 0.296 * (100 * ns / nw) - 15.8,
+            "rd_ttr": len(set(words[:10000])) / min(nw, 10000)}
+
+# ------------------------------------------------------------------ هماهنگ‌کننده
+def fiscal_year_of(pub, fye_md):
+    j = jdate(pub)
+    if not j: return None
+    y, m, d = j; fm, fd = fye_md
+    return y if (m, d) <= (fm, fd) else y + 1
+
+def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
+    path = os.path.join(out_dir, "firms", f"{re.sub(r'[^0-9A-Za-z_]', '_', sym) or 'x'}_{firm_id}.json")
+    st = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {"symbol": sym, "company": company, "firm_id": int(firm_id)}
+    def save(): json.dump(st, open(path, "w", encoding="utf-8"), ensure_ascii=False)
+    # --- ۱) TSETMC (بدون کپچا) ---
+    if "tse" not in st:
+        it = tse.find(sym)
+        if it:
+            ins = it["insCode"]; info = tse.info(ins); daily = tse.daily(ins)
+            sec = (info.get("sector") or {}).get("cSecVal"); icode, iname = tse.industry_code(sec) if sec else (None, None)
+            st["tse"] = {"insCode": ins, "name": it.get("lVal30"), "sector_code": norm(sec or ""), "sector": (info.get("sector") or {}).get("lSecVal"),
+                         "market": info.get("flowTitle"), "board": info.get("cgrValCotTitle"), "shares": info.get("zTitad"), "isin": info.get("cIsin"), "industry_index": iname,
+                         "holders_snapshot": [{"name": h.get("shareHolderName"), "pct": h.get("perOfShares"), "shares": h.get("numberOfShares"), "date": h.get("dEven")} for h in tse.holders(ins)]}
+            st["_daily"] = [[r["dEven"], r.get("pClosing"), r.get("priceYesterday"), r.get("priceMin"), r.get("priceMax"), r.get("zTotTran"), r.get("qTotTran5J"), r.get("qTotCap")] for r in daily]
+            st["_ind_code"] = icode
+        else: st["tse"] = {"error": "نماد پیدا نشد"}
+        save(); log(f"  TSETMC ✓ {sym} ({st['tse'].get('sector')}), روز معاملاتی: {len(st.get('_daily', []))}")
+    # --- ۲) کدال: فهرست نامه‌ها ---
+    if "letters" not in st:
+        L = codal.list_letters(sym, args.fy_from, args.fy_to)
+        st["letters"] = [{"no": x.get("TracingNo"), "code": x.get("LetterCode"), "title": x.get("Title"), "pub": x.get("PublishDateTime"), "excel": x.get("ExcelUrl"), "url": x.get("Url"), "pdf": x.get("PdfUrl")} for x in L]
+        save(); log(f"  کدال: {len(L)} نامه")
+    # --- ۳) اکسل صورت مالی سالانه حسابرسی‌شده برای هر سال مالی ---
+    cand = collections.defaultdict(list)
+    for x in st["letters"]:
+        if lcode(x["code"]) != "ن-10": continue
+        p = parse_title(x["title"])
+        if p["annual"] and p["audited"] and not p["other_company"] and x.get("excel") and p["fiscal_year"]: cand[p["fiscal_year"]].append((p, x))
+    st.setdefault("excel", {})
+    for fy, lst in sorted(cand.items()):
+        if str(fy) in st["excel"] or fy < args.fy_from or fy > args.fy_to: continue
+        lst.sort(key=lambda px: norm(px[1]["pub"]), reverse=True)            # جدیدترین اول
+        lst.sort(key=lambda px: (px[0]["consolidated"], px[0]["amendment"]))  # پایدار: غیرتلفیقی، بدون اصلاحیه
+        best = lst[0][1]
+        html = codal.excel(best["excel"])
+        if html:
+            f, members = parse_excel(html); f.update(source_no=best["no"], source_title=norm(best["title"])[:120]); st["excel"][str(fy)] = {"f": f, "members": members}
+            log(f"  اکسل FY{fy}: هیئت {f.get('bd_size')}، کارکنان {f.get('staff_prod')}/{f.get('staff_nonprod')}، تفسیری={f.get('interp_report')}")
+        else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد", "source_no": best["no"]}
+        save()
+    st["done"] = True; save(); return st
+
+def build(out_dir, args):
+    rows = {}; ev_rows = []; mem_rows = []; hold = []
+    for fn in sorted(os.listdir(os.path.join(out_dir, "firms"))):
+        st = json.load(open(os.path.join(out_dir, "firms", fn), encoding="utf-8")); sym, fid = st["symbol"], st["firm_id"]
+        L = st.get("letters", []); tse = st.get("tse", {})
+        # پایان سال مالی شرکت (ماه/روز غالب)
+        mds = collections.Counter()
+        for x in L:
+            p = parse_title(x["title"])
+            if p["annual"] and p["audited"] and p["fye"]: mds[tuple(int(v) for v in p["fye"].split("/")[1:])] += 1
+        fye_md = mds.most_common(1)[0][0] if mds else (12, 29)
+        for fy in range(args.fy_from, args.fy_to + 1): rows.setdefault((fid, fy), {"firm_id": fid, "symbol": sym, "company": st.get("company"), "fiscal_year": fy, "fye_md": "%02d/%02d" % fye_md})
+        for k in ("sector", "market", "board", "shares", "industry_index"): 
+            for fy in range(args.fy_from, args.fy_to + 1): rows[(fid, fy)]["tse_" + k] = tse.get(k)
+        # رویدادها از فهرست نامه‌ها
+        cnt = collections.defaultdict(collections.Counter)
+        for x in L:
+            fy = fiscal_year_of(x["pub"], fye_md); cat = classify(x["code"], x["title"])
+            if fy: cnt[fy][cat] += 1
+            ev_rows.append({"firm_id": fid, "symbol": sym, "no": x["no"], "code": lcode(x["code"]), "cat": cat, "pub": norm(x["pub"]), "fiscal_year": fy, "title": norm(x["title"])[:140]})
+        for fy, c in cnt.items():
+            if (fid, fy) in rows:
+                for cat, n in c.items(): rows[(fid, fy)]["ev_n_" + cat] = n
+                rows[(fid, fy)]["ev_n_letters"] = sum(c.values())
+        # اکسل
+        for fy, e in st.get("excel", {}).items():
+            if (fid, int(fy)) in rows and "f" in e: rows[(fid, int(fy))].update(e["f"])
+            for m in e.get("members", []): mem_rows.append({"firm_id": fid, "symbol": sym, "fiscal_year": int(fy), **m})
+        # بازار
+        daily = st.get("_daily")
+        if daily:
+            dd = [dict(zip(["dEven", "pClosing", "priceYesterday", "priceMin", "priceMax", "zTotTran", "qTotTran5J", "qTotCap"], r)) for r in daily]
+            mk = pd.Series(dtype=float)
+            try:
+                T = Tse(); mkt_idx = T.index_hist(TEDPIX); ind_idx = T.index_hist(st["_ind_code"]) if st.get("_ind_code") else None
+            except Exception: mkt_idx = ind_idx = None
+            for fy in range(args.fy_from, args.fy_to + 1):
+                ps = j2g(fy - 1, fye_md[0], fye_md[1]) if True else None
+                s0 = ps[0] * 10000 + ps[1] * 100 + ps[2] + 1; e = j2g(fy, fye_md[0], min(fye_md[1], 30)); e0 = e[0] * 10000 + e[1] * 100 + e[2]
+                rows[(fid, fy)].update(market_vars(dd, s0, e0, mkt_idx, ind_idx, tse.get("shares")))
+        for h in tse.get("holders_snapshot", []): hold.append({"firm_id": fid, "symbol": sym, **h})
+    df = pd.DataFrame(list(rows.values())).sort_values(["firm_id", "fiscal_year"])
+    # مشتقات: عدم تغییر مدیرعامل، تغییر تعداد کارکنان، خطای پیش‌بینی فروش
+    df["ceo_nochange"] = (df.groupby("firm_id")["ceo_name"].shift(1) == df["ceo_name"]).astype("float").where(df["ceo_name"].notna() & df.groupby("firm_id")["ceo_name"].shift(1).notna())
+    if "fc_sales_est" in df:
+        df["fc_sales_error"] = (df["fc_sales_last_actual"] - df.groupby("firm_id")["fc_sales_est"].shift(1)) / df.groupby("firm_id")["fc_sales_est"].shift(1).abs()
+    if "export_total_row" in df: df["export_flag"] = df["export_total_row"].map(lambda s: int(isinstance(s, str) and any(abs(v) > 0 for v in json.loads(s))) if isinstance(s, str) else np.nan)
+    df.to_csv(os.path.join(out_dir, "features_firm_year.csv"), index=False, encoding="utf-8-sig")
+    pd.DataFrame(ev_rows).to_csv(os.path.join(out_dir, "letters_index.csv"), index=False, encoding="utf-8-sig")
+    pd.DataFrame(mem_rows).to_csv(os.path.join(out_dir, "board_members.csv"), index=False, encoding="utf-8-sig")
+    pd.DataFrame(hold).to_csv(os.path.join(out_dir, "shareholders_snapshot.csv"), index=False, encoding="utf-8-sig")
+    try: df.to_excel(os.path.join(out_dir, "features_firm_year.xlsx"), index=False)
+    except Exception as e: print("اکسل نوشته نشد:", e)
+    print("ساخته شد:", df.shape, "→", os.path.join(out_dir, "features_firm_year.csv"))
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--symbols", default="my_symbols.csv"); ap.add_argument("--out", default="out"); ap.add_argument("--fy-from", type=int, default=1394); ap.add_argument("--fy-to", type=int, default=1404)
+    ap.add_argument("--pilot", type=int, default=0, help="فقط N شرکت اول"); ap.add_argument("--min-interval", type=float, default=7.0, help="حداقل فاصله درخواست‌های کدال (ثانیه)")
+    ap.add_argument("--max-requests", type=int, default=700, help="سقف درخواست کدال در هر اجرا"); ap.add_argument("--build", action="store_true")
+    args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
+    if args.build: return build(args.out, args)
+    S = pd.read_csv(args.symbols, dtype=str, encoding="utf-8-sig"); S = S.head(args.pilot) if args.pilot else S
+    codal, tse = Codal(args.min_interval, args.max_requests), Tse()
+    t0 = time.time()
+    for i, r in S.iterrows():
+        sym = norm(r["Symbol"]); fid = int(float(r.get("firm_id", i)))
+        print(f"[{i + 1}/{len(S)}] {sym} ({r.get('company', '')})")
+        try: process_firm(sym, r.get("company", ""), fid, args, codal, tse, args.out, print)
+        except Blocked as e:
+            print("\n⛔ توقف:", e, "\nپیشرفت ذخیره شد. ۱ ساعت (یا تا فردا) صبر کنید، در مرورگر codal.ir کپچا را (در صورت نیاز) حل کنید و دوباره همین دستور را اجرا کنید."); break
+    print("زمان: %.0f دقیقه | درخواست‌های کدال: %d" % ((time.time() - t0) / 60, codal.n)); build(args.out, args)
+
+if __name__ == "__main__": main()
