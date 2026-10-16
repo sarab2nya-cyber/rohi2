@@ -137,10 +137,13 @@ class Codal:
             page += 1
         return out
     def excel(self, url):
+        self.excel_err = None
         r = self.get(url, stream=True)
-        if r is None or r.status_code != 200: return None
+        if r is None or r.status_code != 200: self.excel_err = "HTTP " + (str(r.status_code) if r is not None else "None"); return None
         data = r.content
-        return data.decode("utf-8", "replace") if data[:20].lstrip().lower().startswith((b"<html", b"<!doc", b"<?xml")) or b"<table" in data[:5000] else None
+        ok = data[:20].lstrip().lower().startswith((b"<html", b"<!doc", b"<?xml")) or b"<table" in data[:5000]
+        if not ok: self.excel_err = "نوع=%s حجم=%d شروع=%r" % (r.headers.get("Content-Type"), len(data), data[:40])
+        return data.decode("utf-8", "replace") if ok else None
 
 # ------------------------------------------------------------------ پارس اکسل کدال (HTML-xls)
 def split_sections(html_text):
@@ -413,7 +416,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
         if html:
             f, members = parse_excel(html); f.update(source_no=best["no"], source_title=norm(best["title"])[:120]); st["excel"][str(fy)] = {"f": f, "members": members}
             log(f"  اکسل FY{fy}: هیئت {f.get('bd_size')}، کارکنان {f.get('staff_prod')}/{f.get('staff_nonprod')}، تفسیری={f.get('interp_report')}")
-        else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد", "source_no": best["no"]}
+        else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد: " + str(codal.excel_err), "source_no": best["no"], "title": norm(best["title"])[:100]}; log(f"  ⚠ اکسل FY{fy} خوانده نشد ({codal.excel_err})")
         save()
     st["done"] = True; save(); return st
 
@@ -495,7 +498,7 @@ def build(out_dir, args):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--symbols", default="my_symbols.csv"); ap.add_argument("--out", default="out"); ap.add_argument("--fy-from", type=int, default=1394); ap.add_argument("--fy-to", type=int, default=1404)
+    ap.add_argument("--symbols", default="my_symbols.csv"); ap.add_argument("--out", default="out_codal"); ap.add_argument("--seed-from", default="out", help="پوشهٔ داده‌های قبلی (بازار) که در --out کپی می‌شود"); ap.add_argument("--fy-from", type=int, default=1394); ap.add_argument("--fy-to", type=int, default=1404)
     ap.add_argument("--pilot", type=int, default=0, help="فقط N شرکت اول"); ap.add_argument("--min-interval", type=float, default=7.0, help="حداقل فاصله درخواست‌های کدال (ثانیه)")
     ap.add_argument("--max-requests", type=int, default=150, help="سقف درخواست کدال در هر دسته، سپس استراحت"); ap.add_argument("--build", action="store_true")
     ap.add_argument("--stage", choices=["tse", "codal", "all"], default="all", help="tse = فقط بازار (بدون کدال)؛ codal = بازار+کدال")
@@ -505,6 +508,11 @@ def main():
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
+    if args.seed_from and args.seed_from != args.out and os.path.isdir(os.path.join(args.seed_from, "firms")):
+        import shutil
+        for fn in os.listdir(os.path.join(args.seed_from, "firms")):
+            dst = os.path.join(args.out, "firms", fn)
+            if not os.path.exists(dst): shutil.copy2(os.path.join(args.seed_from, "firms", fn), dst)
     if args.build: return build(args.out, args)
     S = pd.read_csv(args.symbols, dtype=str, encoding="utf-8-sig"); S = S.head(args.pilot) if args.pilot else S
     pk, pn = (int(x) for x in args.part.split("/")); sz = -(-len(S) // pn); S = S.iloc[(pk - 1) * sz: pk * sz]; print(f"بخش {pk}/{pn}: {len(S)} شرکت | مرحله: {args.stage}")
