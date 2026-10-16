@@ -267,6 +267,9 @@ class Tse:
         return items[0] if items else None
     def info(self, ins): return ((self.get(f"{TSE}/Instrument/GetInstrumentInfo/{ins}") or {}).get("instrumentInfo")) or {}
     def daily(self, ins): return (self.get(f"{TSE}/ClosingPrice/GetClosingPriceDailyList/{ins}/0") or {}).get("closingPriceDaily") or []
+    def client_type(self, ins): return (self.get(f"{TSE}/ClientType/GetClientTypeHistory/{ins}/0") or {}).get("clientType") or []
+    def share_change(self, ins): return (self.get(f"{TSE}/Instrument/GetInstrumentShareChange/{ins}") or {}).get("instrumentShareChange") or []
+    def identity(self, ins): return (self.get(f"{TSE}/Instrument/GetInstrumentIdentity/{ins}") or {}).get("instrumentIdentity") or {}
     def holders(self, ins): return (self.get(f"{TSE}/Shareholder/GetInstrumentShareHolderLast/{ins}") or {}).get("shareHolder") or []
     def index_list(self):
         if self._idx_list is None: self._idx_list = (self.get(f"{TSE}/Index/GetIndexB1LastAll/All/1") or {}).get("indexB1") or []
@@ -369,6 +372,13 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
                          "holders_snapshot": [{"name": h.get("shareHolderName"), "pct": h.get("perOfShares"), "shares": h.get("numberOfShares"), "date": h.get("dEven")} for h in tse.holders(ins)]}
             st["_daily"] = [[r["dEven"], r.get("pClosing"), r.get("priceYesterday"), r.get("priceMin"), r.get("priceMax"), r.get("zTotTran"), r.get("qTotTran5J"), r.get("qTotCap")] for r in daily]
             st["_ind_code"] = icode
+            st["tse"]["info_raw"] = info                                   # همهٔ فیلدهای اطلاعات نماد
+            try: st["tse"]["identity_raw"] = tse.identity(ins)
+            except Exception: pass
+            try: st["_share_change"] = tse.share_change(ins)               # تاریخچهٔ افزایش سرمایه/تغییر تعداد سهام
+            except Exception: st["_share_change"] = []
+            try: st["_client"] = [{k: r.get(k) for k in ("recDate", "buy_CountI", "buy_CountN", "buy_I_Volume", "buy_N_Volume", "sell_CountI", "sell_CountN", "sell_I_Volume", "sell_N_Volume")} for r in tse.client_type(ins)]
+            except Exception: st["_client"] = []
         else: st["tse"] = {"error": "نماد پیدا نشد"}
         save(); log(f"  TSETMC ✓ {sym} ({st['tse'].get('sector')}), روز معاملاتی: {len(st.get('_daily', []))}")
     if args.stage == "tse": return st
@@ -437,6 +447,25 @@ def build(out_dir, args):
                 ps = j2g(fy - 1, fye_md[0], fye_md[1]) if True else None
                 s0 = ps[0] * 10000 + ps[1] * 100 + ps[2] + 1; e = j2g(fy, fye_md[0], min(fye_md[1], 30)); e0 = e[0] * 10000 + e[1] * 100 + e[2]
                 rows[(fid, fy)].update(market_vars(dd, s0, e0, mkt_idx, ind_idx, tse.get("shares")))
+        cl = pd.DataFrame(st.get("_client") or [])
+        if len(cl) and "recDate" in cl:
+            cl = cl.apply(pd.to_numeric, errors="coerce")
+            for fy in range(args.fy_from, args.fy_to + 1):
+                ps = j2g(fy - 1, fye_md[0], fye_md[1]); e = j2g(fy, fye_md[0], min(fye_md[1], 30))
+                w = cl[(cl["recDate"] > ps[0] * 10000 + ps[1] * 100 + ps[2]) & (cl["recDate"] <= e[0] * 10000 + e[1] * 100 + e[2])]
+                if len(w) < 10: continue
+                bi, bn, si, sn = (w[c].sum() for c in ("buy_I_Volume", "buy_N_Volume", "sell_I_Volume", "sell_N_Volume"))
+                rows[(fid, fy)].update(ct_ind_buy_share=bi / (bi + bn) if bi + bn else np.nan, ct_ind_sell_share=si / (si + sn) if si + sn else np.nan,
+                                       ct_ind_net_vol=bi - si, ct_ind_net_ratio=(bi - si) / (bi + bn) if bi + bn else np.nan, ct_ind_buyers_avg=w["buy_CountI"].mean(), ct_leg_buyers_avg=w["buy_CountN"].mean())
+        sc = st.get("_share_change") or []
+        for fy in range(args.fy_from, args.fy_to + 1):
+            ps = j2g(fy - 1, fye_md[0], fye_md[1]); e = j2g(fy, fye_md[0], min(fye_md[1], 30)); lo, hi = ps[0] * 10000 + ps[1] * 100 + ps[2], e[0] * 10000 + e[1] * 100 + e[2]
+            n = [x for x in sc if lo < int(x.get("dEven") or 0) <= hi]
+            if (fid, fy) in rows: rows[(fid, fy)]["cap_change_n"] = len(n)
+        raw = {**(tse.get("info_raw") or {}), **{"id_" + k: v for k, v in (tse.get("identity_raw") or {}).items()}}
+        for k, v in raw.items():
+            if isinstance(v, (str, int, float)) or v is None:
+                for fy in range(args.fy_from, args.fy_to + 1): rows[(fid, fy)]["tseinfo_" + str(k)] = v
         for h in tse.get("holders_snapshot", []): hold.append({"firm_id": fid, "symbol": sym, **h})
     df = pd.DataFrame(list(rows.values())).sort_values(["firm_id", "fiscal_year"])
     # مشتقات: عدم تغییر مدیرعامل، تغییر تعداد کارکنان، خطای پیش‌بینی فروش
