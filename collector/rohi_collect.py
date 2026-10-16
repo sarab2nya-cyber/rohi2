@@ -131,7 +131,7 @@ class Codal:
         out, page = [], 1
         while True:
             j = self.search(symbol, fy_from, fy_to, page)
-            if j is None: break
+            if j is None: raise Blocked(f"صفحهٔ {page} جست‌وجوی {symbol} خوانده نشد (فهرست ناقص ذخیره نمی‌شود)")
             L = j.get("Letters") or []; out += L
             if not L or page >= int(j.get("Page", page)): break
             page += 1
@@ -405,7 +405,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
         if p["annual"] and p["audited"] and not p["other_company"] and x.get("excel") and p["fiscal_year"]: cand[p["fiscal_year"]].append((p, x))
     st.setdefault("excel", {})
     for fy, lst in sorted(cand.items()):
-        if str(fy) in st["excel"] or fy < args.fy_from or fy > args.fy_to: continue
+        if "f" in st["excel"].get(str(fy), {}) or fy < args.fy_from or fy > args.fy_to: continue
         lst.sort(key=lambda px: norm(px[1]["pub"]), reverse=True)            # جدیدترین اول
         lst.sort(key=lambda px: (px[0]["consolidated"], px[0]["amendment"]))  # پایدار: غیرتلفیقی، بدون اصلاحیه
         best = lst[0][1]
