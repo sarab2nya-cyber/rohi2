@@ -532,6 +532,25 @@ def collect_docs(st, cand, args, codal, log, save):
             if not t: t, stt, _ = attachment_texts(codal, x, os.path.dirname(fb) if fb else None, "internal_control_%s" % x["no"])
             d["ic"] = {**(ic_features(t) if t else {}), "ic_status": stt, "ic_src_no": x["no"]}; save(); log(f"  کنترل داخلی FY{fy}: {stt}")
 
+
+def wait_enter(timeout_s):
+    """منتظر Enter می‌ماند؛ اگر زمان تمام شد False برمی‌گرداند (ویندوز و غیرویندوز)"""
+    t0 = time.time()
+    try:
+        import msvcrt
+        buf = ""
+        while time.time() - t0 < timeout_s:
+            if msvcrt.kbhit():
+                ch = msvcrt.getwch()
+                if ch in ("\r", "\n"): return buf.strip().lower() or True
+                buf += ch
+            time.sleep(0.2)
+        return False
+    except ImportError:
+        import select
+        r, _, _ = select.select([sys.stdin], [], [], timeout_s)
+        return (sys.stdin.readline().strip().lower() or True) if r else False
+
 # ------------------------------------------------------------------ هماهنگ‌کننده
 def fiscal_year_of(pub, fye_md):
     j = jdate(pub)
@@ -748,8 +767,9 @@ def main():
                 except Blocked as e:
                     if (time.time() - t0) / 3600 > args.max_hours: raise
                     if args.interactive and "سقف" not in str(e):
-                        print(f"\n⏸ {e}\n  → در مرورگر codal.ir را باز کنید، کپچا را حل کنید و چند صفحه را باز کنید؛ بعد اینجا Enter بزنید (یا q + Enter برای توقف).")
-                        if input("  Enter = ادامه: ").strip().lower() == "q": raise
+                        print(f"\a\n⏸ {e}\n  → کپچا را در مرورگر حل کنید و Enter بزنید (q+Enter = توقف). اگر تا {args.wait_start:.0f} دقیقه چیزی نزنید، خودکار دوباره امتحان می‌کند.")
+                        ans = wait_enter(args.wait_start * 60)
+                        if ans == "q": raise
                         codal.n = 0; continue
                     capped = "سقف" in str(e)
                     w = args.burst_rest if capped else wait_min
