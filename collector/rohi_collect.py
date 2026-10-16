@@ -357,6 +357,103 @@ def readability(text):
             "rd_ari": 4.71 * awl + 0.5 * asl - 21.43, "rd_cli": 0.0588 * (100 * chars / nw) - 0.296 * (100 * ns / nw) - 15.8,
             "rd_ttr": len(set(words[:10000])) / min(nw, 10000)}
 
+
+# ------------------------------------------------------------------ اسناد کدال: گزارش حسابرس، گزارش هیئت‌مدیره، کنترل داخلی (متن در حافظه، ذخیره نمی‌شود)
+def pdf_text(data, max_pages=60):
+    try: from pypdf import PdfReader
+    except Exception: return None
+    try:
+        rd = PdfReader(io.BytesIO(data)); return norm("\n".join((p.extract_text() or "") for p in rd.pages[:max_pages]))
+    except Exception: return None
+
+def doc_text(codal, u):
+    """متن یک سند کدال؛ (متن, وضعیت). در صورت پاسخ مشکوک/خالی Blocked می‌دهد تا برنامه استراحت کند."""
+    if not u: return None, "بدون_آدرس"
+    u = str(u); cands = [u] if u.startswith("http") else [CODAL + "/" + u.lstrip("/")] + ([CODAL + "/Reports/" + u.lstrip("/")] if "Reports" not in u else [])
+    for c in cands:
+        r = codal.get(c)
+        if r is None or r.status_code != 200: continue
+        data = r.content
+        if data[:4] == b"%PDF":
+            t = pdf_text(data); return (t, "pdf_ok") if t and len(t) > 200 else (t, "pdf_بدون_متن")
+        if len(data) < 3000: raise Blocked("پاسخ سند خالی/مشکوک (%d بایت) — احتمالاً محدودیت." % len(data))
+        t = norm(re.sub(r"<[^>]+>", " ", data.decode("utf-8", "replace")))
+        return (t, "html_ok") if len(t) > 200 else (t, "html_کوتاه")
+    return None, "دریافت_نشد"
+
+def _cnt(pat, t): return len(re.findall(pat, t))
+
+def audit_features(t):
+    """گزارش حسابرس مستقل: نوع اظهارنظر، بندهای تأکیدی، تداوم فعالیت، حسابرس، عدم رعایت مقررات"""
+    f = {"audit_text_len": len(t)}
+    disc, adv = bool(re.search(r"عدم اظهار ?نظر|اظهار ?نظر نمی ?کنیم|اظهار ?نظر نمی ?نماییم", t)), bool(re.search(r"اظهار ?نظر مردود|نظر مردود|مردود", t))
+    qual = bool(re.search(r"اظهار ?نظر مشروط|نظر مشروط|به استثنای|به استثناء|به جز آثار|به غیر از آثار", t))
+    f["audit_opinion"] = 3 if disc else 2 if adv else 1 if qual else (0 if re.search(r"مطلوب|مقبول|به نحو مطلوب", t) else None)
+    f["audit_qualified"] = int(qual and not disc and not adv) if f["audit_opinion"] is not None else None
+    f["audit_disclaimer"] = int(disc) if f["audit_opinion"] is not None else None; f["audit_adverse"] = int(adv and not disc) if f["audit_opinion"] is not None else None
+    f["audit_emphasis"] = int(bool(re.search(r"تاکید بر مطلب خاص|تأکید بر مطلب خاص|تاکید بر مطلب|تأکید بر مطلب", t)))
+    f["audit_emphasis_n"] = _cnt(r"تاکید بر|تأکید بر", t)
+    f["audit_going_concern"] = int(bool(re.search(r"ابهام (با اهمیت|بااهمیت)? ?(در خصوص|درخصوص|نسبت به)? ?تداوم فعالیت|تداوم فعالیت.{0,60}ابهام", t)))
+    f["audit_other_resp"] = int("سایر مسئولیت" in t)
+    f["audit_noncompl_n"] = _cnt(r"عدم رعایت|رعایت نشده|رعایت نگردیده|رعایت نشدن|مغایرت با", t)
+    f["audit_icfr_weak"] = int(bool(re.search(r"ضعف.{0,40}کنترل|کنترل.{0,60}ضعف|نقاط ضعف", t)))
+    f["audit_bourse_rules"] = int("سازمان بورس" in t and bool(re.search(r"دستورالعمل|مقررات", t)))
+    f["audit_aml"] = int(bool(re.search(r"مبارزه با پولشویی|پول ?شویی", t)))
+    f["audit_art141"] = int(bool(re.search(r"ماده ?141|ماده ۱۴۱", t)))
+    m = re.search(r"((?:موسسه|مؤسسه) حسابرسی\s+[^\n.،:;()\d]{2,45}?)(?=\s+(?:شماره|ثبت|حسابداران|حسابرس|مستقل|و بازرس|\d|$)|[\n.،:;(])", t)
+    f["audit_firm"] = m.group(1).strip() if m else None
+    f["audit_org"] = int("سازمان حسابرسی" in t)
+    return f
+
+KW = {
+    "env": r"محیط زیست|آلودگی|پسماند|بازیافت|گازهای گلخانه|انرژی پاک|انرژی تجدید|بهینه ?سازی مصرف انرژی|پساب|تصفیه",
+    "soc": r"مسئولیت اجتماعی|مسوولیت اجتماعی|ایمنی|بهداشت|آموزش کارکنان|خیریه|اشتغال|رفاه کارکنان|حوادث ناشی از کار",
+    "gov": r"حاکمیت شرکتی|کمیته حسابرسی|شفافیت|ذی ?نفعان|مدیریت ریسک|کنترل داخلی|حسابرسی داخلی|منشور",
+    "inn": r"نوآوری|دانش ?بنیان|تحقیق و توسعه|هوش مصنوعی|دیجیتال|فناوری اطلاعات|فناوری نوین|اتوماسیون",
+    "risk": r"ریسک|عدم اطمینان|عدم قطعیت|تحریم|نوسان نرخ ارز|تورم",
+    "opt": r"بهبود|افزایش فروش|رشد|موفق|توسعه|بهینه",
+    "pes": r"کاهش فروش|زیان|توقف|کمبود|مشکلات|تعلیق|افت",
+    "fx": r"ارز|نرخ ارز|صادرات|ارز نیمایی|ارز مرجع",
+}
+def text_features(t, prefix):
+    nw = max(len(re.findall(r"[؀-ۿA-Za-z0-9]+", t)), 1); f = {prefix + "_len": nw}
+    for k, pat in KW.items(): n = _cnt(pat, t); f[f"{prefix}_{k}_n"] = n; f[f"{prefix}_{k}_per1k"] = 1000.0 * n / nw
+    f[prefix + "_tone"] = (f[prefix + "_opt_n"] - f[prefix + "_pes_n"]) / max(f[prefix + "_opt_n"] + f[prefix + "_pes_n"], 1)
+    f.update({prefix + "_" + k: v for k, v in readability(t).items()})
+    return f
+
+def ic_features(t):
+    return {"ic_text_len": len(t), "ic_weak_n": _cnt(r"ضعف|نواقص|نقطه ضعف|کاستی", t), "ic_effective": int(bool(re.search(r"اثربخش|کارآمد", t)) and not re.search(r"اثربخش نبوده|اثربخش نیست|فاقد اثربخشی|ناکارآمد", t)),
+            "ic_ineffective": int(bool(re.search(r"اثربخش نبوده|اثربخش نیست|فاقد اثربخشی|ناکارآمد", t)))}
+
+def fye_of(letters):
+    mds = collections.Counter()
+    for x in letters:
+        p = parse_title(x["title"])
+        if p["annual"] and p["audited"] and p["fye"]: mds[tuple(int(v) for v in p["fye"].split("/")[1:])] += 1
+    return mds.most_common(1)[0][0] if mds else (12, 29)
+
+def collect_docs(st, cand, args, codal, log, save):
+    docs = st.setdefault("docs", {}); letters = st["letters"]; fye_md = fye_of(letters)
+    by = {"board": collections.defaultdict(list), "ic": collections.defaultdict(list)}
+    for x in letters:
+        cat = classify(x["code"], x["title"]); fy = fiscal_year_of(x["pub"], fye_md)
+        if fy and cat == "board_report": by["board"][fy].append(x)
+        elif fy and cat == "internal_control": by["ic"][fy].append(x)
+    for fy in range(max(args.fy_from, args.docs_from), args.fy_to + 1):
+        d = docs.setdefault(str(fy), {})
+        # گزارش حسابرس (از PDF صورت مالی حسابرسی‌شدهٔ سالانه)
+        if "audit" not in d and cand.get(fy):
+            lst = sorted(cand[fy], key=lambda px: norm(px[1]["pub"]), reverse=True); lst.sort(key=lambda px: (px[0]["consolidated"], px[0]["amendment"]))
+            x = lst[0][1]; t, stt = doc_text(codal, x.get("pdf"))
+            d["audit"] = {**(audit_features(t) if t else {}), "audit_status": stt, "audit_src_no": x["no"]}; save(); log(f"  حسابرس FY{fy}: {stt} | اظهارنظر={d['audit'].get('audit_opinion')} | {d['audit'].get('audit_firm')}")
+        if "board" not in d and by["board"].get(fy):
+            x = sorted(by["board"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = doc_text(codal, x.get("pdf"))
+            d["board"] = {**(text_features(t, "br") if t else {}), "br_status": stt, "br_src_no": x["no"]}; save(); log(f"  گزارش هیئت‌مدیره FY{fy}: {stt}")
+        if "ic" not in d and by["ic"].get(fy):
+            x = sorted(by["ic"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = doc_text(codal, x.get("pdf"))
+            d["ic"] = {**(ic_features(t) if t else {}), "ic_status": stt, "ic_src_no": x["no"]}; save(); log(f"  کنترل داخلی FY{fy}: {stt}")
+
 # ------------------------------------------------------------------ هماهنگ‌کننده
 def fiscal_year_of(pub, fye_md):
     j = jdate(pub)
@@ -418,6 +515,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
             log(f"  اکسل FY{fy}: هیئت {f.get('bd_size')}، کارکنان {f.get('staff_prod')}/{f.get('staff_nonprod')}، تفسیری={f.get('interp_report')}")
         else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد: " + str(codal.excel_err), "source_no": best["no"], "title": norm(best["title"])[:100]}; log(f"  ⚠ اکسل FY{fy} خوانده نشد ({codal.excel_err})")
         save()
+    if args.docs: collect_docs(st, cand, args, codal, log, save)
     st["done"] = True; save(); return st
 
 def build(out_dir, args):
@@ -448,6 +546,9 @@ def build(out_dir, args):
         for fy, e in st.get("excel", {}).items():
             if (fid, int(fy)) in rows and "f" in e: rows[(fid, int(fy))].update(e["f"])
             for m in e.get("members", []): mem_rows.append({"firm_id": fid, "symbol": sym, "fiscal_year": int(fy), **m})
+        for fy, dd_ in st.get("docs", {}).items():
+            if (fid, int(fy)) in rows:
+                for part in dd_.values(): rows[(fid, int(fy))].update(part)
         # بازار
         daily = st.get("_daily")
         if daily:
@@ -485,6 +586,11 @@ def build(out_dir, args):
     for c in ("ceo_name", "fc_sales_est", "fc_sales_last_actual"):
         if c not in df: df[c] = np.nan
     df["ceo_nochange"] = (df.groupby("firm_id")["ceo_name"].shift(1) == df["ceo_name"]).astype("float").where(df["ceo_name"].notna() & df.groupby("firm_id")["ceo_name"].shift(1).notna())
+    if "audit_firm" in df:
+        g = df.groupby("firm_id")["audit_firm"]; prev = g.shift(1)
+        df["audit_firm_change"] = (df["audit_firm"].notna() & prev.notna() & (df["audit_firm"] != prev)).astype(float).where(df["audit_firm"].notna() & prev.notna())
+        blk = df["audit_firm_change"].fillna(0).groupby(df["firm_id"]).cumsum(); ok = df["audit_firm"].notna()
+        df["audit_tenure"] = np.nan; df.loc[ok, "audit_tenure"] = df[ok].groupby(["firm_id", blk[ok]]).cumcount() + 1
     if "fc_sales_est" in df:
         df["fc_sales_error"] = (df["fc_sales_last_actual"] - df.groupby("firm_id")["fc_sales_est"].shift(1)) / df.groupby("firm_id")["fc_sales_est"].shift(1).abs()
     if "export_total_row" in df: df["export_flag"] = df["export_total_row"].map(lambda s: int(isinstance(s, str) and any(abs(v) > 0 for v in json.loads(s))) if isinstance(s, str) else np.nan)
@@ -505,6 +611,8 @@ def main():
     ap.add_argument("--part", default="1/1", help="برای تقسیم کدال به چند مرحله: k/n مثلاً 2/5 یعنی بخش دوم از پنج بخش")
     ap.add_argument("--workers", type=int, default=6, help="تعداد رشته‌های هم‌زمان برای مرحلهٔ tse")
     ap.add_argument("--no-client", action="store_true", default=True, help="حقیقی/حقوقی را نگیر (تا آدرس درست پیدا شود)")
+    ap.add_argument("--docs", action="store_true", default=True, help="گزارش حسابرس/هیئت‌مدیره/کنترل داخلی را هم بگیر (PDF؛ درخواست زیاد)")
+    ap.add_argument("--no-docs", dest="docs", action="store_false"); ap.add_argument("--docs-from", type=int, default=1394, help="اسناد از این سال مالی")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
