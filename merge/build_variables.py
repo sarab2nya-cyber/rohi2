@@ -141,7 +141,8 @@ def main(a):
     fin_ind = df["ind_code"].isna() & df["industry"].notna() | ((df["industry_in_main_list"] == 0))
     fin_name = df["industry"].isna() & df["company"].astype(str).map(lambda s: bool(FIN_NAME.search(s)))
     step("۶) حذف شرکت‌های مالی", "بانک، بیمه، لیزینگ، سرمایه‌گذاری، واسطه‌گری مالی و ...: صنعت خارج از فهرست اکسل اصلی، یا (صنعت نامشخص و نام مالی)", ~(fin_ind | fin_name))
-    step("۷) حذف هلدینگ‌های صنعتی", f"صنعت «{HOLDING_IND}» (سرمایه‌گذاری برای آنها دارایی عملیاتی است و DIV بی‌معنی می‌شود)", df["industry"].astype(str) != HOLDING_IND)
+    inv_name = df["company"].astype(str).str.contains(r"سرمایه گذاری|هلدینگ|^سر\.", regex=True)
+    step("۷) حذف هلدینگ و شرکت‌های سرمایه‌گذاری", f"صنعت «{HOLDING_IND}» یا نام شامل «سرمایه‌گذاری/هلدینگ» (سرمایه‌گذاری برای آنها دارایی عملیاتی است و DIV بی‌معنی می‌شود)", (df["industry"].astype(str) != HOLDING_IND) & ~inv_name)
     step("۸) سال مالی ۱۲ ماهه", "داده‌های رهاورد همه ۱۲ ماهه‌اند؛ پایان ۲۹ اسفند در فایل قابل‌آزمون نیست (حذفی ندارد)", pd.Series(True, index=df.index))
     # حضور در همه سال‌های ۱۳۹۰–۱۴۰۴ (پنل متوازن)؛ شرط اصلی نمونه
     need_years = set(range(Y0, Y1 + 1))
