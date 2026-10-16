@@ -384,7 +384,7 @@ def doc_text(codal, u, base=None):
         r = codal.get(c)
         if r is None or r.status_code != 200: continue
         data = r.content
-        if data[:4] != b"%PDF" and len(data) < 3000: raise Blocked("پاسخ سند خالی/مشکوک (%d بایت) — احتمالاً محدودیت." % len(data))
+        if len(data) < 5000: raise Blocked("سند خالی/مشکوک (%d بایت) — کدال PDF خالی داد؛ احتمالاً محدودیت." % len(data))
         if base:
             os.makedirs(os.path.dirname(base), exist_ok=True); open(base + (".pdf" if data[:4] == b"%PDF" else ".html"), "wb").write(data)
         return _text_of(data)
@@ -393,6 +393,34 @@ def doc_text(codal, u, base=None):
 def file_base(args, st, fy, kind, no):
     d = os.path.join(args.files_dir, "%s_%s" % (st["firm_id"], re.sub(r'[\\/:*?"<>|]', "_", st["symbol"])), str(fy))
     return os.path.join(d, "%s_%s" % (kind, no))
+
+
+def letter_serial(x):
+    for key in ("url", "pdf"):
+        m = re.search(r"(?:LetterSerial|hs)=([^&]+)", str(x.get(key) or ""))
+        if m: return m.group(1)
+    return None
+
+def attachment_texts(codal, x, base_dir, prefix):
+    """پیوست‌های یک نامه (صفحهٔ Attachment.aspx): فایل‌ها را ذخیره و متنشان را برمی‌گرداند. صفحهٔ پیوست هم برای اشکال‌یابی ذخیره می‌شود."""
+    ls = letter_serial(x)
+    if not ls: return "", "بدون_شناسه_پیوست", []
+    page_path = os.path.join(base_dir, prefix + "_attachment_page.html"); texts, files = [], []
+    if os.path.exists(page_path): html = open(page_path, "rb").read().decode("utf-8", "replace")
+    else:
+        if codal is None: return "", "فایل_موجود_نیست", []
+        r = codal.get(CODAL + "/Reports/Attachment.aspx?LetterSerial=" + ls)
+        if r is None or r.status_code != 200: return "", "دریافت_نشد", []
+        html = r.text; os.makedirs(base_dir, exist_ok=True); open(page_path, "wb").write(html.encode("utf-8"))
+    links = []
+    for m in re.finditer(r"""(?:href|src|data-url|data-href)\s*=\s*["']([^"']+)["']""", html):
+        u = m.group(1).replace("&amp;", "&")
+        if re.search(r"DownloadFile|\.pdf|\.xls|\.doc|\.zip|\.rar|GetFile|Attachment/Get|Download", u, re.I) and "Attachment.aspx?LetterSerial" not in u and u not in links: links.append(u)
+    for k, u in enumerate(links[:8]):
+        stem = os.path.join(base_dir, "%s_att%d" % (prefix, k + 1)); t, stt = doc_text(codal, u if u.startswith("http") else (u if u.startswith("/") else "/" + u), stem)
+        files.append((u, stt))
+        if t: texts.append(t)
+    return "\n".join(texts), ("پیوست_ok" if texts else ("پیوست_بدون_لینک" if not links else "پیوست_بدون_متن")), files
 
 def _cnt(pat, t): return len(re.findall(pat, t))
 
@@ -476,7 +504,7 @@ def fye_of(letters):
         if p["annual"] and p["audited"] and p["fye"]: mds[tuple(int(v) for v in p["fye"].split("/")[1:])] += 1
     return mds.most_common(1)[0][0] if mds else (12, 29)
 
-RETRY = {"فایل_موجود_نیست", "دریافت_نشد"}
+RETRY = {"فایل_موجود_نیست", "دریافت_نشد", "پیوست_بدون_لینک", "پیوست_بدون_متن", "pdf_بدون_متن", "بدون_pdf"}
 def collect_docs(st, cand, args, codal, log, save):
     docs = st.setdefault("docs", {}); letters = st["letters"]; fye_md = fye_of(letters)
     by = {"board": collections.defaultdict(list), "ic": collections.defaultdict(list)}
@@ -492,10 +520,12 @@ def collect_docs(st, cand, args, codal, log, save):
             x = lst[0][1]; t, stt = doc_text(codal, x.get("pdf"), file_base(args, st, fy, "audit_FS", x["no"]))
             rep, nts = split_fs_pdf(t); d["audit"] = {**(audit_features(rep) if t else {}), **(notes_features(nts) if len(nts) > 500 else {}), "audit_status": stt, "audit_src_no": x["no"]}; save(); log(f"  حسابرس FY{fy}: {stt} | اظهارنظر={d['audit'].get('audit_opinion')} | {d['audit'].get('audit_firm')}")
         if (("board" not in d) or d["board"].get("br_status") in RETRY) and by["board"].get(fy):
-            x = sorted(by["board"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = doc_text(codal, x.get("pdf"), file_base(args, st, fy, "board_report", x["no"]))
+            x = sorted(by["board"][fy], key=lambda z: norm(z["pub"]))[-1]; fb = file_base(args, st, fy, "board_report", x["no"]); t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
+            if not t: t, stt, _ = attachment_texts(codal, x, os.path.dirname(fb), "board_report_%s" % x["no"])
             d["board"] = {**(text_features(t, "br") if t else {}), "br_status": stt, "br_src_no": x["no"]}; save(); log(f"  گزارش هیئت‌مدیره FY{fy}: {stt}")
         if (("ic" not in d) or d["ic"].get("ic_status") in RETRY) and by["ic"].get(fy):
-            x = sorted(by["ic"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = doc_text(codal, x.get("pdf"), file_base(args, st, fy, "internal_control", x["no"]))
+            x = sorted(by["ic"][fy], key=lambda z: norm(z["pub"]))[-1]; fb = file_base(args, st, fy, "internal_control", x["no"]); t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
+            if not t: t, stt, _ = attachment_texts(codal, x, os.path.dirname(fb), "internal_control_%s" % x["no"])
             d["ic"] = {**(ic_features(t) if t else {}), "ic_status": stt, "ic_src_no": x["no"]}; save(); log(f"  کنترل داخلی FY{fy}: {stt}")
 
 # ------------------------------------------------------------------ هماهنگ‌کننده
