@@ -4,7 +4,7 @@
 ساخت همه متغیرهای قابل استخراج از صورت‌های مالی برای مقاله ۱ (DIV/انحراف تسهیلات) و مقاله ۲ (بندهای پیمان/نکول)
 + غربالگری مرحله‌به‌مرحله با گزارش حذف (شیت جدا) + نمونه نهایی هر مقاله.
 
-اجرا:  python build_variables.py --panel panel_1380_1404.xlsx --out analysis_1390_1404.xlsx
+اجرا:  python build_variables.py --panel panel_1380_1404.xlsx --out analysis_1394_1404.xlsx
 خروجی (اکسل): Screening_Report, Sample_Master, Excluded_Rows, Variable_Dictionary, Not_Available_From_Statements
 ملاک اصلی: شرکت‌های بورسی (بورس تهران + فرابورس؛ ستون tse_only برای پژوهش فقط بورس تهران).
 واحد: ارقام ریالی صورت‌ها «میلیون ریال»؛ ارزش بازار (ارزش روز) در منبع «ریال» است و در این کد به میلیون ریال تبدیل می‌شود.
@@ -261,6 +261,6 @@ NA = [
  ("پایان سال مالی ۲۹ اسفند", "۱،۲", "ستون تاریخ پایان دوره در فایل نیست", "کدال"),
 ]
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(); ap.add_argument("--panel", required=True); ap.add_argument("--out", default="analysis_1390_1404.xlsx"); ap.add_argument("--include-fara", action="store_true")
+    ap = argparse.ArgumentParser(); ap.add_argument("--panel", required=True); ap.add_argument("--out", default="analysis_1394_1404.xlsx"); ap.add_argument("--include-fara", action="store_true")
     args = ap.parse_args(); INCLUDE_FARA = args.include_fara
     main(args)
