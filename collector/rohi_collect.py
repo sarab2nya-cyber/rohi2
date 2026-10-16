@@ -439,6 +439,36 @@ def ic_features(t):
     return {"ic_text_len": len(t), "ic_weak_n": _cnt(r"ضعف|نواقص|نقطه ضعف|کاستی", t), "ic_effective": int(bool(re.search(r"اثربخش|کارآمد", t)) and not re.search(r"اثربخش نبوده|اثربخش نیست|فاقد اثربخشی|ناکارآمد", t)),
             "ic_ineffective": int(bool(re.search(r"اثربخش نبوده|اثربخش نیست|فاقد اثربخشی|ناکارآمد", t)))}
 
+
+NOTE_KW = {
+    "rp": r"اشخاص وابسته|معاملات با اشخاص وابسته|طرف های وابسته|طرف‌های وابسته",
+    "cont": r"بدهی های احتمالی|بدهی‌های احتمالی|تعهدات سرمایه ای|تعهدات سرمایه‌ای|دارایی های احتمالی",
+    "subseq": r"رویدادهای بعد از تاریخ|رویدادهای پس از تاریخ|رویدادهای بعد از دوره",
+    "gc": r"تداوم فعالیت",
+    "loan": r"تسهیلات مالی|تسهیلات دریافتی|وام|اوراق مرابحه|اوراق صکوک|اسناد پرداختنی",
+    "collat": r"وثیقه|رهن|ضمانت|تضمین|سفته|بازداشت",
+    "covenant": r"تعهدات مالی|شرایط قرارداد|محدودیت|الزامات قراردادی|نسبت بدهی|نسبت جاری|نسبت پوشش",
+    "default": r"معوق|سررسید گذشته|جرایم تاخیر|جریمه تأخیر|عدم ایفا|نکول|بازپرداخت نشده",
+    "restr": r"تجدید ساختار|تمدید|بازتعیین|بازپرداخت مجدد|زمانبندی مجدد",
+    "legal": r"دعاوی حقوقی|دعوی|پرونده قضایی|حکم دادگاه|مالیات تشخیصی|اختلاف مالیاتی",
+    "tax": r"مالیات|رسیدگی مالیاتی|برگ تشخیص|قطعی",
+    "fx": r"ارز|دلار|یورو|درهم|نرخ تسعیر|سامانه نیما|نیمایی",
+    "estimate": r"برآورد|قضاوت|ذخیره کاهش ارزش|کاهش ارزش",
+    "restate": r"تعدیل سنواتی|اصلاح اشتباه|تغییر در رویه حسابداری|تجدید ارائه",
+}
+def notes_features(t):
+    nw = max(len(re.findall(r"[؀-ۿA-Za-z0-9]+", t)), 1); f = {"nt_len": nw}
+    for k, pat in NOTE_KW.items(): n = _cnt(pat, t); f["nt_%s_n" % k] = n; f["nt_%s_per1k" % k] = 1000.0 * n / nw
+    f["nt_restated"] = int(f["nt_restate_n"] > 0 and bool(re.search(r"تعدیل سنواتی|تجدید ارائه", t)))
+    return f
+
+def split_fs_pdf(t):
+    """بخش گزارش حسابرس (قبل از صورت‌ها) و یادداشت‌های توضیحی (بعد از صورت‌ها)"""
+    m = re.search(r"صورت سود و زیان|صورت وضعیت مالی|ترازنامه", t[800:]) if t else None
+    if not m: return (t or "")[:15000], ""
+    i = 800 + m.start(); j = t.find("یادداشت", i + 2000)
+    return t[:i], (t[j:] if j > 0 else t[i:])
+
 def fye_of(letters):
     mds = collections.Counter()
     for x in letters:
@@ -460,7 +490,7 @@ def collect_docs(st, cand, args, codal, log, save):
         if (("audit" not in d) or d["audit"].get("audit_status") in RETRY) and cand.get(fy):
             lst = sorted(cand[fy], key=lambda px: norm(px[1]["pub"]), reverse=True); lst.sort(key=lambda px: (px[0]["consolidated"], px[0]["amendment"]))
             x = lst[0][1]; t, stt = doc_text(codal, x.get("pdf"), file_base(args, st, fy, "audit_FS", x["no"]))
-            d["audit"] = {**(audit_features(t) if t else {}), "audit_status": stt, "audit_src_no": x["no"]}; save(); log(f"  حسابرس FY{fy}: {stt} | اظهارنظر={d['audit'].get('audit_opinion')} | {d['audit'].get('audit_firm')}")
+            rep, nts = split_fs_pdf(t); d["audit"] = {**(audit_features(rep) if t else {}), **(notes_features(nts) if len(nts) > 500 else {}), "audit_status": stt, "audit_src_no": x["no"]}; save(); log(f"  حسابرس FY{fy}: {stt} | اظهارنظر={d['audit'].get('audit_opinion')} | {d['audit'].get('audit_firm')}")
         if (("board" not in d) or d["board"].get("br_status") in RETRY) and by["board"].get(fy):
             x = sorted(by["board"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = doc_text(codal, x.get("pdf"), file_base(args, st, fy, "board_report", x["no"]))
             d["board"] = {**(text_features(t, "br") if t else {}), "br_status": stt, "br_src_no": x["no"]}; save(); log(f"  گزارش هیئت‌مدیره FY{fy}: {stt}")
