@@ -371,6 +371,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
             st["_ind_code"] = icode
         else: st["tse"] = {"error": "نماد پیدا نشد"}
         save(); log(f"  TSETMC ✓ {sym} ({st['tse'].get('sector')}), روز معاملاتی: {len(st.get('_daily', []))}")
+    if args.stage == "tse": return st
     # --- ۲) کدال: فهرست نامه‌ها ---
     if "letters" not in st:
         L = codal.list_letters(sym, args.fy_from, args.fy_to)
@@ -458,11 +459,14 @@ def main():
     ap.add_argument("--symbols", default="my_symbols.csv"); ap.add_argument("--out", default="out"); ap.add_argument("--fy-from", type=int, default=1394); ap.add_argument("--fy-to", type=int, default=1404)
     ap.add_argument("--pilot", type=int, default=0, help="فقط N شرکت اول"); ap.add_argument("--min-interval", type=float, default=7.0, help="حداقل فاصله درخواست‌های کدال (ثانیه)")
     ap.add_argument("--max-requests", type=int, default=150, help="سقف درخواست کدال در هر دسته، سپس استراحت"); ap.add_argument("--build", action="store_true")
+    ap.add_argument("--stage", choices=["tse", "codal", "all"], default="all", help="tse = فقط بازار (بدون کدال)؛ codal = بازار+کدال")
+    ap.add_argument("--part", default="1/1", help="برای تقسیم کدال به چند مرحله: k/n مثلاً 2/5 یعنی بخش دوم از پنج بخش")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
     if args.build: return build(args.out, args)
     S = pd.read_csv(args.symbols, dtype=str, encoding="utf-8-sig"); S = S.head(args.pilot) if args.pilot else S
+    pk, pn = (int(x) for x in args.part.split("/")); sz = -(-len(S) // pn); S = S.iloc[(pk - 1) * sz: pk * sz]; print(f"بخش {pk}/{pn}: {len(S)} شرکت | مرحله: {args.stage}")
     codal, tse = Codal(args.min_interval, args.max_requests), Tse()
     t0 = time.time(); wait_min = args.wait_start
     try:
