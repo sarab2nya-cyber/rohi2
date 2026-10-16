@@ -115,7 +115,9 @@ def main(a):
     df["AQ"] = dd_aq(df)
     df["DEF_141"] = np.where(df["ret_earn"].notna() & df["capital"].notna(), ((-df["ret_earn"]).clip(lower=0) >= 0.5 * df["capital"]).astype(float), np.nan)
     df["DEF_Z"] = np.where(df["ZSCORE"].notna(), (df["ZSCORE"] < 1.1).astype(float), np.nan)
-    for c in ("DEF_141", "DEF_Z", "ROA", "LOSS", "ZSCORE"): df["F_" + c] = lead(df, c)
+    df["DEF_ICR"] = np.where(df["ICR"].notna(), (df["ICR"] < 1).astype(float), np.nan)               # پوشش بهره < ۱ (مستقل از Z″)
+    df["DEF_NEGEQ"] = np.where(df["equity"].notna(), (df["equity"] < 0).astype(float), np.nan)        # حقوق صاحبان سهام منفی
+    for c in ("DEF_141", "DEF_Z", "DEF_ICR", "DEF_NEGEQ", "ROA", "LOSS", "ZSCORE"): df["F_" + c] = lead(df, c)
     df["F_DEF_ANY"] = np.where(df["F_DEF_141"].notna() | df["F_DEF_Z"].notna(), np.fmax(df["F_DEF_141"].fillna(0), df["F_DEF_Z"].fillna(0)), np.nan)
     df["base_year"] = (df["year"] == Y0).astype(int)
     df["tse_only"] = (df["market"] == "بورس تهران").astype(int)
@@ -283,6 +285,8 @@ DICT = [
  ("DEF_141", "۲", "ماده ۱۴۱ قانون تجارت", "۱ اگر زیان انباشته ≥ ۵۰٪ سرمایه", ""),
  ("DEF_Z", "۲", "آشفتگی بر پایه Z″", "۱ اگر ZSCORE < ۱٫۱", ""),
  ("F_DEF_141 / F_DEF_Z / F_DEF_ANY", "۲", "متغیر وابسته سال بعد", "مقدار t+1 (و یای منطقی دو تعریف)", "۱۴۰۴ ندارد"),
+ ("F_DEF_ICR", "۲", "آشفتگی: پوشش بهره سال بعد < ۱", "ICR_{t+1} < ۱", "مستقل از Z″؛ پیشنهاد برای متغیر وابسته اصلی"),
+ ("F_DEF_NEGEQ", "۲", "حقوق صاحبان سهام منفی سال بعد", "equity_{t+1} < ۰", "رویداد کم"),
  ("F_ROA, F_LOSS, F_ZSCORE", "۱،۲", "مقدار سال بعد", "t+1", ""),
  ("ret12, ret16, dps12, price_end12, liq12", "۱", "بازده سهام، سود نقدی، قیمت پایانی، رتبه نقدشوندگی", "از ستون‌های رهاورد (۱۲ و ۱۶ ماهه)", "۱۶ ماهه برای ۱۴۰۴ ندارد"),
  ("tse_only", "—", "بورس تهران = ۱ (فرابورس = ۰)", "از ستون «بازار»", "برای پژوهش فقط بورس تهران"),
