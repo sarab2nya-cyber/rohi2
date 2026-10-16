@@ -13,7 +13,8 @@ import argparse, re, sys
 import numpy as np, pandas as pd
 
 Y0, Y1 = 1390, 1404                       # بازه تحلیل (سال‌های قبل از ۱۳۹۰ فقط برای تأخیرها)
-MIN_RUN = 3                               # حداقل سال‌های متوالی
+MIN_RUN = 3
+INCLUDE_FARA = False                      # فقط بورس تهران؛ برای افزودن فرابورس: --include-fara
 FIN_IND = None                            # صنایع خارج از فهرست اکسل اصلی = مالی/سرمایه‌گذاری/...
 HOLDING_IND = "چندرشته ای صنعتی"          # هلدینگ‌های صنعتی (سرمایه‌گذاری برای آنها دارایی عملیاتی است)
 FIN_NAME = re.compile(r"^بانک|بانک |بیمه|لیزینگ|^سر\.|سرمایه گذاری|مالی|ارزش آفرینان|سپرده گذاری|تامین آتیه|تعاونی|اعتباری|کارگزاری|صندوق|تامین سرمایه|بورس|واسپاری")
@@ -131,7 +132,8 @@ def main(a):
                     "شرکت‌های حذف‌شده در این گام": int(df.loc[rm, "firm_id"].nunique())})
     log.append({"گام": 0, "معیار غربالگری": "کل پنل (۱۳۸۰–۱۴۰۴)", "توضیح": "همه ردیف‌های شرکت-سال در فایل ادغام‌شده", "ردیف قبل": len(df), "حذف‌شده (ردیف)": 0,
                 "ردیف باقی‌مانده": len(df), "شرکت باقی‌مانده": int(df["firm_id"].nunique()), "شرکت‌های حذف‌شده در این گام": 0})
-    step("۱) بورسی بودن (ملاک اصلی)", "بازار = بورس تهران یا فرابورس؛ ردیف بدون بازار قابل‌شناسایی حذف", df["market"].isin(["بورس تهران", "فرابورس"]))
+    mk = ["بورس تهران", "فرابورس"] if INCLUDE_FARA else ["بورس تهران"]
+    step("۱) بورسی بودن (ملاک اصلی)", "بازار همان سال = " + " یا ".join(mk) + "؛ فرابورس و ردیف بدون بازار قابل‌شناسایی حذف" if not INCLUDE_FARA else "بازار = بورس تهران یا فرابورس", df["market"].isin(mk))
     step("۲) بازه تحلیل ۱۳۹۰–۱۴۰۴", "سال‌های قبل از ۱۳۹۰ حذف (فقط برای تأخیرها استفاده شده‌اند)", df["year"].between(Y0, Y1))
     step("۳) دسترسی به صورت‌های مالی", "ترازنامه موجود (جمع دارایی، بدهی و حقوق صاحبان سهام) و دارایی > ۰", df[["ta", "tl", "equity"]].notna().all(axis=1) & (df["ta"] > 0))
     step("۴) صورت سود و زیان موجود", "درآمد، سود عملیاتی و سود خالص موجود", df[["revenue", "ebit", "net_income"]].notna().all(axis=1))
@@ -141,14 +143,14 @@ def main(a):
     step("۶) حذف شرکت‌های مالی", "بانک، بیمه، لیزینگ، سرمایه‌گذاری، واسطه‌گری مالی و ...: صنعت خارج از فهرست اکسل اصلی، یا (صنعت نامشخص و نام مالی)", ~(fin_ind | fin_name))
     step("۷) حذف هلدینگ‌های صنعتی", f"صنعت «{HOLDING_IND}» (سرمایه‌گذاری برای آنها دارایی عملیاتی است و DIV بی‌معنی می‌شود)", df["industry"].astype(str) != HOLDING_IND)
     step("۸) سال مالی ۱۲ ماهه", "داده‌های رهاورد همه ۱۲ ماهه‌اند؛ پایان ۲۹ اسفند در فایل قابل‌آزمون نیست (حذفی ندارد)", pd.Series(True, index=df.index))
-    # حداقل ۳ سال متوالی در نمونه فعلی
-    aa = df.loc[alive, ["firm_id", "year"]].sort_values(["firm_id", "year"])
-    ok = set()
-    for fid, g in aa.groupby("firm_id"):
-        yrs = g["year"].to_numpy(); best = cur = 1
-        for p, q in zip(yrs[:-1], yrs[1:]): cur = cur + 1 if q == p + 1 else 1; best = max(best, cur)
-        if best >= MIN_RUN: ok.add(fid)
-    step("۹) حداقل ۳ سال متوالی", "شرکت‌هایی که در نمونه فعلی کمتر از ۳ سال پیاپی دارند حذف", df["firm_id"].isin(ok))
+    # حضور در همه سال‌های ۱۳۹۰–۱۴۰۴ (پنل متوازن)؛ شرط اصلی نمونه
+    need_years = set(range(Y0, Y1 + 1))
+    cnt_years = df.loc[alive].groupby("firm_id")["year"].nunique()
+    sens = pd.DataFrame([{"حداقل سال‌های حاضر (از ۱۵)": k, "شرکت": int((cnt_years >= k).sum()),
+                          "ردیف شرکت‌-سال (واقعی)": int(df.loc[alive & df["firm_id"].isin(cnt_years[cnt_years >= k].index)].shape[0])} for k in range(15, 7, -1)])
+    yrs_by_firm = df.loc[alive].groupby("firm_id")["year"].apply(set)
+    ok = {fid for fid, ys in yrs_by_firm.items() if need_years <= ys}
+    step("۹) حضور در همه سال‌های ۱۳۹۰–۱۴۰۴ (شرط اصلی نمونه)", f"شرکت باید در هر ۱۵ سال، پس از گام‌های قبل (بورس تهران، غیرمالی، صورت‌های کامل و حسابرسی‌شده) ردیف داشته باشد؛ بقیه کاملاً حذف", df["firm_id"].isin(ok))
     n_all = alive.copy(); df["in_common_sample"] = n_all.astype(int)
     # نمونه‌های اختصاصی هر مقاله
     alive_c = alive.copy()
@@ -163,6 +165,16 @@ def main(a):
     step("۱۰-ب) مقاله ۲: معیارهای قرارداد", "CR, QR, WC, LEV, ROA, CFO_TD, TNW, ZSCORE, CASH_TA موجود", df[a2_core].notna().all(axis=1))
     step("۱۱-ب) مقاله ۲: متغیر وابسته سال بعد", "F_DEF_141 موجود (سال t+1 وجود دارد؛ ۱۴۰۴ طبیعتاً حذف)", df["F_DEF_141"].notna())
     df["A2_sample"] = alive.astype(int)
+    def strict(flag, need):
+        ok_rows = df[need].notna().all(axis=1) & (df["in_common_sample"] == 1)
+        cnt = df[ok_rows].groupby("firm_id")["year"].nunique()
+        firms = set(cnt[cnt == len(need_years)].index)
+        return df["firm_id"].isin(firms) & (df["in_common_sample"] == 1)
+    df["A1_balanced"] = strict("A1", ["LOAN", "NONOP", "SIZE", "LEV", "ROA", "CFO_TA", "CASH_TA", "TANG", "GROW"]).astype(int)
+    df["A2_balanced"] = strict("A2", a2_core + ["F_DEF_141"]).astype(int)   # ۱۴۰۴ طبیعتاً F_DEF ندارد → عملاً ۱۳۹۰–۱۴۰۳
+    df["A2_balanced_1390_1403"] = 0
+    ok2 = df[(df["in_common_sample"] == 1) & df[a2_core + ["F_DEF_141"]].notna().all(axis=1)].groupby("firm_id")["year"].apply(lambda y: set(range(Y0, Y1)) <= set(y))
+    df.loc[df["firm_id"].map(ok2).fillna(False).astype(bool) & (df["in_common_sample"] == 1), "A2_balanced_1390_1403"] = 1
 
     # وینزورایز (۱٪/۹۹٪) روی نمونه مشترک
     cont = ["LOAN", "NONOP", "DIV", "OPINV", "SIZE", "LEV", "ROA", "ROA_NI", "CFO_TA", "CASH_TA", "TANG", "GROW", "MTB", "Q", "ICR", "LEV_INT", "DIV_PAYOUT",
@@ -189,11 +201,13 @@ def main(a):
         dic.to_excel(w, sheet_name="Variable_Dictionary", index=False)
         na.to_excel(w, sheet_name="Not_Available", index=False)
         desc.to_excel(w, sheet_name="Descriptives", index=False)
+        sens.to_excel(w, sheet_name="Years_Sensitivity", index=False)
     try: master.to_stata(str(a.out).replace(".xlsx", ".dta"), write_index=False, version=118)
     except Exception as e: print("dta ذخیره نشد:", e)
     pd.set_option("display.width", 250); pd.set_option("display.max_colwidth", 60)
     print(rep[["گام", "معیار غربالگری", "ردیف قبل", "حذف‌شده (ردیف)", "ردیف باقی‌مانده", "شرکت باقی‌مانده"]].to_string(index=False))
-    print("مشترک:", len(master), "؛ A1:", int(master.A1_sample.sum()), "؛ A2:", int(master.A2_sample.sum()))
+    print("مشترک:", len(master), "ردیف،", master.firm_id.nunique(), "شرکت ؛ A1:", int(master.A1_sample.sum()), "؛ A2:", int(master.A2_sample.sum()))
+    print("متوازن سخت‌گیرانه: A1 =", master.loc[master.A1_balanced == 1, "firm_id"].nunique(), "شرکت ؛ A2 (۱۳۹۰–۱۴۰۳) =", master.loc[master.A2_balanced_1390_1403 == 1, "firm_id"].nunique(), "شرکت")
     return df, master, rep
 
 DICT = [
@@ -244,5 +258,6 @@ NA = [
  ("پایان سال مالی ۲۹ اسفند", "۱،۲", "ستون تاریخ پایان دوره در فایل نیست", "کدال"),
 ]
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(); ap.add_argument("--panel", required=True); ap.add_argument("--out", default="analysis_1390_1404.xlsx")
-    main(ap.parse_args())
+    ap = argparse.ArgumentParser(); ap.add_argument("--panel", required=True); ap.add_argument("--out", default="analysis_1390_1404.xlsx"); ap.add_argument("--include-fara", action="store_true")
+    args = ap.parse_args(); INCLUDE_FARA = args.include_fara
+    main(args)
