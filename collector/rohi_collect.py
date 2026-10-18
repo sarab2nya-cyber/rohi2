@@ -516,18 +516,22 @@ def collect_docs(st, cand, args, codal, log, save):
         cat = classify(x["code"], x["title"]); fy = fiscal_year_of(x["pub"], fye_md)
         if fy and cat == "board_report": by["board"][fy].append(x)
         elif fy and cat == "internal_control": by["ic"][fy].append(x)
+    def need(entry, key):
+        if not entry: return True
+        return args.retry_failed and entry.get(key) in RETRY
+    def mark(entry): entry["tries"] = entry.get("tries", 0) + (1 if codal is not None else 0); return entry
     for fy in range(max(args.fy_from, args.docs_from), args.fy_to + 1):
         d = docs.setdefault(str(fy), {})
         # گزارش حسابرس (از PDF صورت مالی حسابرسی‌شدهٔ سالانه)
-        if (("audit" not in d) or d["audit"].get("audit_status") in RETRY) and cand.get(fy):
+        if need(d.get("audit"), "audit_status") and cand.get(fy):
             lst = sorted(cand[fy], key=lambda px: norm(px[1]["pub"]), reverse=True); lst.sort(key=lambda px: (px[0]["consolidated"], px[0]["amendment"]))
             x = lst[0][1]; t, stt = doc_text(codal, x.get("pdf"), file_base(args, st, fy, "audit_FS", x["no"]))
             rep, nts = split_fs_pdf(t); d["audit"] = {**(audit_features(rep) if t else {}), **(notes_features(nts) if len(nts) > 500 else {}), "audit_status": stt, "audit_src_no": x["no"]}; save(); log(f"  حسابرس FY{fy}: {stt} | اظهارنظر={d['audit'].get('audit_opinion')} | {d['audit'].get('audit_firm')}")
-        if (("board" not in d) or d["board"].get("br_status") in RETRY) and by["board"].get(fy):
+        if need(d.get("board"), "br_status") and by["board"].get(fy):
             x = sorted(by["board"][fy], key=lambda z: norm(z["pub"]))[-1]; fb = file_base(args, st, fy, "board_report", x["no"]); t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
             if not t: t, stt, _ = attachment_texts(codal, x, os.path.dirname(fb) if fb else None, "board_report_%s" % x["no"])
             d["board"] = {**(text_features(t, "br") if t else {}), "br_status": stt, "br_src_no": x["no"]}; save(); log(f"  گزارش هیئت‌مدیره FY{fy}: {stt}")
-        if (("ic" not in d) or d["ic"].get("ic_status") in RETRY) and by["ic"].get(fy):
+        if need(d.get("ic"), "ic_status") and by["ic"].get(fy):
             x = sorted(by["ic"][fy], key=lambda z: norm(z["pub"]))[-1]; fb = file_base(args, st, fy, "internal_control", x["no"]); t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
             if not t: t, stt, _ = attachment_texts(codal, x, os.path.dirname(fb) if fb else None, "internal_control_%s" % x["no"])
             d["ic"] = {**(ic_features(t) if t else {}), "ic_status": stt, "ic_src_no": x["no"]}; save(); log(f"  کنترل داخلی FY{fy}: {stt}")
@@ -562,6 +566,9 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
     path = os.path.join(out_dir, "firms", f"{re.sub(r'[^0-9A-Za-z_]', '_', sym) or 'x'}_{firm_id}.json")
     st = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {"symbol": sym, "company": company, "firm_id": int(firm_id)}
     def save(): json.dump(st, open(path, "w", encoding="utf-8"), ensure_ascii=False)
+    sig = "%s-%s-%d-%s" % (args.fy_from, args.fy_to, int(args.docs), args.docs_from)
+    if args.stage != "tse" and not args.reparse and not args.force and st.get("complete_sig") == sig:
+        log("  ✓ از قبل کامل است؛ رد شد (بدون درخواست)"); return st
     if args.reparse: st.pop("excel", None); st.pop("docs", None)
     # --- ۱) TSETMC (بدون کپچا) ---
     if tse is not None and not st.get("_daily") and st.get("tse", {}).get("error") != "نماد پیدا نشد":
@@ -604,7 +611,9 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
         if p["annual"] and p["audited"] and not p["other_company"] and x.get("excel") and p["fiscal_year"]: cand[p["fiscal_year"]].append((p, x))
     st.setdefault("excel", {})
     for fy, lst in sorted(cand.items()):
-        if "f" in st["excel"].get(str(fy), {}) or fy < args.fy_from or fy > args.fy_to: continue
+        e0 = st["excel"].get(str(fy), {})
+        if "f" in e0 or fy < args.fy_from or fy > args.fy_to: continue
+        if e0 and not args.retry_failed and e0.get("tries", 1) >= 1 and codal is not None: continue   # قبلاً یک بار امتحان شده
         lst.sort(key=lambda px: norm(px[1]["pub"]), reverse=True)            # جدیدترین اول
         lst.sort(key=lambda px: (px[0]["consolidated"], px[0]["amendment"]))  # پایدار: غیرتلفیقی، بدون اصلاحیه
         best = lst[0][1]
@@ -617,10 +626,10 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
         if html:
             f, members = parse_excel(html); f.update(source_no=best["no"], source_title=norm(best["title"])[:120]); st["excel"][str(fy)] = {"f": f, "members": members}
             log(f"  اکسل FY{fy}: هیئت {f.get('bd_size')}، کارکنان {f.get('staff_prod')}/{f.get('staff_nonprod')}، تفسیری={f.get('interp_report')}")
-        else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد: " + str(codal.excel_err if codal is not None else "فایل موجود نیست"), "source_no": best["no"], "title": norm(best["title"])[:100]}; log(f"  ⚠ اکسل FY{fy} خوانده نشد ({codal.excel_err if codal is not None else "فایل موجود نیست"})")
+        else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد: " + str(codal.excel_err if codal is not None else "فایل موجود نیست"), "source_no": best["no"], "title": norm(best["title"])[:100], "tries": e0.get("tries", 0) + (1 if codal is not None else 0)}; log(f"  ⚠ اکسل FY{fy} خوانده نشد ({codal.excel_err if codal is not None else "فایل موجود نیست"})")
         save()
     if args.docs: collect_docs(st, cand, args, codal, log, save)
-    st["done"] = True; save(); return st
+    st["done"] = True; st["complete_sig"] = sig; save(); return st
 
 def build(out_dir, args):
     rows = {}; ev_rows = []; mem_rows = []; hold = []; BT = Tse()
@@ -737,6 +746,8 @@ def main():
     ap.add_argument("--cookie", default=None, help="رشتهٔ Cookie مرورگر شما (پس از حل کپچا) برای codal.ir")
     ap.add_argument("--user-agent", default=None, help="User-Agent همان مرورگر (اگر کوکی می‌دهید)")
     ap.add_argument("--no-save", action="store_true", help="فایل‌ها را روی دیسک ذخیره نکن؛ فقط در حافظه بخوان و برو بعدی")
+    ap.add_argument("--retry-failed", action="store_true", help="موارد ناموفق قبلی (اکسل/سند) را هم دوباره امتحان کن (پیش‌فرض: یک بار فقط)")
+    ap.add_argument("--force", action="store_true", help="شرکت‌های کامل‌شده را هم دوباره بررسی کن")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
