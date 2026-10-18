@@ -118,8 +118,8 @@ class Codal:
         try: r = self.s.get(url, params=params, timeout=(10, 40), stream=stream)
         except Exception as e: self.log("   خطای شبکه:", type(e).__name__); return None
         ct = r.headers.get("Content-Type", "")
-        if r.status_code == 429: raise Blocked("کدال ۴۲۹ داد (محدودیت نرخ).")
-        if "html" in ct and not stream and ("تأیید کاربر" in r.text[:8000] or "captcha" in r.text[:8000].lower()): raise Blocked("کدال کپچا نشان داد.")
+        if r.status_code == 429: raise Blocked("کدال ۴۲۹ داد (محدودیت نرخ) برای: " + str(url)[:90])
+        if "html" in ct and not stream and re.search(r"<title>\s*تأیید کاربر", r.text[:3000]): raise Blocked("کدال صفحهٔ کپچا (تأیید کاربر) داد برای: %s (%d بایت)" % (str(url)[:90], len(r.text)))
         return r
     def search(self, symbol, fy_from, fy_to, page):
         p = {"Symbol": symbol, "Length": "-1", "LetterType": "-1", "Category": "-1", "PageNumber": str(page), "search": "true", "Publisher": "false",
