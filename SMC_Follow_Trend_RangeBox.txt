@@ -1,5 +1,5 @@
 //@version=5
-indicator("SMC Follow Trend V18.4 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SMC Follow Trend V18.5 [Rohi] - Pro Edition Strict Lock", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // =====================================================================
 // INPUTS
@@ -55,6 +55,7 @@ showPatterns     = input.bool(false, "Show Pattern Markers (1,2,3 / P1 / A,B,C)"
 // PRICE ACTION RANGE Settings
 grp_rng              = "PRICE ACTION RANGE"
 rngShow              = input.bool(true, "Show Range Box", group=grp_rng)
+rngMinInside         = input.int(3, "Range: Closes inside the Mother Candle to confirm (min 3)", minval=3, maxval=5, group=grp_rng, tooltip="A range is confirmed only when the closes of this many candles after the mother candle stay inside its High-Low AND none of those candles completes a 2- or 3-candle Real Breakout / Real Pullback pattern.")
 
 rngBullColor         = input.color(color.new(color.green, 86), "Bullish Range", group=grp_rng)
 rngBearColor         = input.color(color.new(color.red, 86), "Bearish Range", group=grp_rng)
@@ -480,47 +481,42 @@ bool pbDnExit  = f_real_pullback_at(floorLvl, -1)   // bearish Real Pullback bre
 bool pbUpExit  = f_real_pullback_at(ceilLvl, 1)     // bullish Real Pullback breaking the ceiling
 
 // ---------------- RANGE FORMATION: the 4 range types (Range_Box_Prompt_FA.md, section 0) ----------------
-// Type 1 / 2 ("trapped"): ANY candle (Marubozu, Pin Bar / Doji, or a 50-60% body
-//   candle) whose range (High-Low, wicks included) holds the CLOSES of the next 2
-//   candles. Evaluated on the 2nd following candle; the box starts on the reference.
-// Type 3 (invalid pullback): after a real move, a counter candle starts a correction
-//   that completes NO Real Pullback (3 main conditions + 3 three-candle patterns),
-//   whatever the candle types and sizes. Only if the next candle closes beyond the
-//   wave extreme (impulse high / low) is the counter candle ignored.
+// RANGE FORMATION (V18.5)
+// Mother candle = ANY candle (any type, any size, with or against the trend).
+// A range is confirmed only when BOTH hold:
+//  1. not before the 3rd candle: the closes of the next rngMinInside (3) candles
+//     all stay inside the mother candle's High-Low (wicks may poke out);
+//  2. none of those candles completes a 2- or 3-candle Real Breakout or Real
+//     Pullback pattern (in either direction).
+// Type 3 = impulse-candle rule: the mother candle is the LAST candle in the
+//   direction of the move (legDir) and the very next candle is counter to it
+//   (the start of the correction, image 90).
+// Type 1 / 2 = any other mother candle.
 // Type 4 (fake breakout): created in the FBO block below (after market structure).
 // Start candles that themselves complete a Real Pullback are the pullback, not a range
 // (see "young box" in the engine).
 int  legDir      = seedBias != 0 ? seedBias : msTrendState
-bool c1AfterExit = na(lastCloseBar) or (bar_index - 1) > lastCloseBar
-bool refAfterExit = na(lastCloseBar) or (bar_index - 2) > lastCloseBar
-bool c1Bear      = bar_index >= 1 and close[1] < open[1]
-bool c1Bull      = bar_index >= 1 and close[1] > open[1]
+int  rngN        = rngMinInside
+bool motherAfterExit = na(lastCloseBar) or (bar_index - rngN) > lastCloseBar
 
-// Wave extreme of the current impulse (phase A), else Candle 1's own extreme
-float waveHigh = msTrendState >= 0 and not na(uExt) and not uLock ? math.max(uExt, nz(high[1], high)) : nz(high[1], high)
-float waveLow  = msTrendState <= 0 and not na(dExt) and not dLock ? math.min(dExt, nz(low[1], low))   : nz(low[1], low)
+// Any 2- or 3-candle Real Breakout / Real Pullback pattern completed on this bar
+bool anyRealPattern = pb_pattern_up or pb_pattern_down or shapeBoUp or shapeBoDn
 
-// A Real Pullback completing on the start candles means it is a pullback, not a range.
-bool noPullbackUp = not pb_pattern_down and not pb_pattern_down[1]  // up leg: no bearish Real Pullback
-bool noPullbackDn = not pb_pattern_up   and not pb_pattern_up[1]    // down leg: no bullish Real Pullback
+bool trappedN = bar_index > rngN
+bool noPatN   = true
+if trappedN
+    for k = 0 to rngN - 1
+        if close[k] > high[rngN] or close[k] < low[rngN]
+            trappedN := false
+        if anyRealPattern[k]
+            noPatN := false
+bool seedN = trappedN and noPatN and motherAfterExit
+float seedTop = ta.highest(high, rngN + 1)
+float seedBot = ta.lowest(low, rngN + 1)
 
-// Type 3 - invalid pullback (counter to the last real move, as in V17.0)
-bool seed3Up = legDir == 1  and c1AfterExit and c1Bear and close <= waveHigh and noPullbackUp
-bool seed3Dn = legDir == -1 and c1AfterExit and c1Bull and close >= waveLow  and noPullbackDn
-
-// Type 1 / 2 - closes of the next 2 candles trapped inside a reference candle
-bool trapped = bar_index >= 2 and close[1] <= high[2] and close[1] >= low[2] and close <= high[2] and close >= low[2]
-bool seed12  = trapped and refAfterExit and noPullbackUp and noPullbackDn
-
-// ---------------- Per-bar Range events ----------------
-bool rangeWasActive = rangeActive
-bool rngBreakUp     = false   // Scenario 2 closure, up-leg box broken above its ceiling
-bool rngBreakDn     = false   // Scenario 2 closure, down-leg box broken below its floor
-bool rngPbClose     = false   // Scenario 1 closure, Real Pullback against the leg
-bool rngClosedNow   = false
-bool rngCancelDn    = false   // young up-leg box whose start candles are a bearish Real Pullback
-bool rngCancelUp    = false   // young down-leg box whose start candles are a bullish Real Pullback
-int  rngClosedDir   = 0       // direction of the box that closed on this bar
+// Impulse candle: last candle of the move, followed by the first counter candle
+bool impulseUp = legDir == 1  and close[rngN] > open[rngN] and close[rngN - 1] < open[rngN - 1]
+bool impulseDn = legDir == -1 and close[rngN] < open[rngN] and close[rngN - 1] > open[rngN - 1]
 bool rangeSeed      = false
 
 if rangeActive
@@ -646,26 +642,17 @@ if rangeActive
         lastCloseBar := bar_index
         rangeBox     := na
 
-// ---- FORMATION: type 3 first (box starts on the counter candle), else type 1/2 ----
+// ---- FORMATION (V18.5): the box starts on the mother candle ----
 bool rngJustEnded = rngClosedNow or rngCancelDn or rngCancelUp
-if not rangeWasActive and not rngJustEnded and (seed3Up or seed3Dn)
+if not rangeWasActive and not rngJustEnded and seedN
     rangeSeed    := true
     rangeActive  := true
-    rangeType    := 3
-    rangeDir     := seed3Up ? 1 : -1
-    // Bounds from the box's own candles (from the first counter candle on); the
-    // wave peak stays outside the box.
-    boxTop       := math.max(high[1], high)
-    boxBot       := math.min(low[1], low)
-    rangeLeftBar := bar_index - 1
-else if not rangeWasActive and not rngJustEnded and seed12
-    rangeSeed    := true
-    rangeActive  := true
-    rangeType    := 1
-    rangeDir     := legDir != 0 ? legDir : (close[2] >= open[2] ? 1 : -1)
-    boxTop       := math.max(high[2], high[1], high)
-    boxBot       := math.min(low[2], low[1], low)
-    rangeLeftBar := bar_index - 2
+    rangeType    := impulseUp or impulseDn ? 3 : 1
+    rangeDir     := legDir != 0 ? legDir : (close[rngN] >= open[rngN] ? 1 : -1)
+    // Bounds: extremes of the mother candle and the candles trapped in it
+    boxTop       := seedTop
+    boxBot       := seedBot
+    rangeLeftBar := bar_index - rngN
 if rangeSeed
     rangeSeedBar := bar_index
     outUpBars := 0
