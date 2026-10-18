@@ -121,22 +121,26 @@ class Codal:
         if r.status_code == 429: raise Blocked("کدال ۴۲۹ داد (محدودیت نرخ) برای: " + str(url)[:90])
         if "html" in ct and not stream and re.search(r"<title>\s*تأیید کاربر", r.text[:3000]): raise Blocked("کدال صفحهٔ کپچا (تأیید کاربر) داد برای: %s (%d بایت)" % (str(url)[:90], len(r.text)))
         return r
-    def search(self, symbol, fy_from, fy_to, page):
-        p = {"Symbol": symbol, "Length": "-1", "LetterType": "-1", "Category": "-1", "PageNumber": str(page), "search": "true", "Publisher": "false",
+    def search(self, symbol, fy_from, fy_to, page, letter_type="-1"):
+        p = {"Symbol": symbol, "Length": "-1", "LetterType": str(letter_type), "Category": "-1", "PageNumber": str(page), "search": "true", "Publisher": "false",
              "Mains": "true", "Childs": "true", "TracingNo": "-1", "AuditorRef": "-1", "CompanyState": "0", "CompanyType": "-1",
              "FromDate": f"{fy_from}/01/01", "ToDate": f"{fy_to + 1}/12/29"}
         r = self.get(CODAL_SEARCH, params=p)
         if r is None or r.status_code != 200: return None
         try: return r.json()
         except Exception: raise Blocked("پاسخ جست‌وجو JSON نبود (احتمالاً محدودیت).")
-    def list_letters(self, symbol, fy_from, fy_to):
-        out, page = [], 1
-        while True:
-            j = self.search(symbol, fy_from, fy_to, page)
-            if j is None: raise Blocked(f"صفحهٔ {page} جست‌وجوی {symbol} خوانده نشد (فهرست ناقص ذخیره نمی‌شود)")
-            L = j.get("Letters") or []; out += L
-            if not L or page >= int(j.get("Page", page)): break
-            page += 1
+    def list_letters(self, symbol, fy_from, fy_to, types=("-1",)):
+        out, seen = [], set()
+        for lt in types:
+            page = 1
+            while True:
+                j = self.search(symbol, fy_from, fy_to, page, lt)
+                if j is None: raise Blocked(f"صفحهٔ {page} جست‌وجوی {symbol} (نوع {lt}) خوانده نشد (فهرست ناقص ذخیره نمی‌شود)")
+                L = j.get("Letters") or []
+                for x in L:
+                    if x.get("TracingNo") not in seen: seen.add(x.get("TracingNo")); out.append(x)
+                if not L or page >= int(j.get("Page", page)): break
+                page += 1
         return out
     def excel(self, url):
         self.excel_err = None
@@ -600,7 +604,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
     # --- ۲) کدال: فهرست نامه‌ها ---
     if "letters" not in st:
         if codal is None: return st
-        L = codal.list_letters(sym, args.fy_from, args.fy_to)
+        L = codal.list_letters(sym, args.fy_from, args.fy_to, tuple(args.letter_types.split(",")) if args.fast_list else ("-1",))
         st["letters"] = [{"no": x.get("TracingNo"), "code": x.get("LetterCode"), "title": x.get("Title"), "pub": x.get("PublishDateTime"), "excel": x.get("ExcelUrl"), "url": x.get("Url"), "pdf": x.get("PdfUrl")} for x in L]
         save(); log(f"  کدال: {len(L)} نامه")
     # --- ۳) اکسل صورت مالی سالانه حسابرسی‌شده برای هر سال مالی ---
@@ -748,6 +752,8 @@ def main():
     ap.add_argument("--no-save", action="store_true", help="فایل‌ها را روی دیسک ذخیره نکن؛ فقط در حافظه بخوان و برو بعدی")
     ap.add_argument("--retry-failed", action="store_true", help="موارد ناموفق قبلی (اکسل/سند) را هم دوباره امتحان کن (پیش‌فرض: یک بار فقط)")
     ap.add_argument("--force", action="store_true", help="شرکت‌های کامل‌شده را هم دوباره بررسی کن")
+    ap.add_argument("--fast-list", action="store_true", help="فهرست نامه‌ها را فقط برای نوع‌های لازم بگیر (درخواست بسیار کمتر؛ ولی متغیرهای رویدادی ev_* ناقص می‌شوند)")
+    ap.add_argument("--letter-types", default="6,90", help="شناسهٔ LetterType برای --fast-list: 6=صورت مالی، 90=کنترل داخلی؛ شناسهٔ گزارش هیئت‌مدیره را با کاما اضافه کنید")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
