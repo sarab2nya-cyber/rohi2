@@ -517,6 +517,15 @@ float seedBot = ta.lowest(low, rngN + 1)
 // Impulse candle: last candle of the move, followed by the first counter candle
 bool impulseUp = legDir == 1  and close[rngN] > open[rngN] and close[rngN - 1] < open[rngN - 1]
 bool impulseDn = legDir == -1 and close[rngN] < open[rngN] and close[rngN - 1] > open[rngN - 1]
+// ---------------- Per-bar Range events ----------------
+bool rangeWasActive = rangeActive
+bool rngBreakUp     = false   // Scenario 2 closure, up-leg box broken above its ceiling
+bool rngBreakDn     = false   // Scenario 2 closure, down-leg box broken below its floor
+bool rngPbClose     = false   // Scenario 1 closure, Real Pullback against the leg
+bool rngClosedNow   = false
+bool rngCancelDn    = false   // young up-leg box whose start candles are a bearish Real Pullback
+bool rngCancelUp    = false   // young down-leg box whose start candles are a bullish Real Pullback
+int  rngClosedDir   = 0       // direction of the box that closed on this bar
 bool rangeSeed      = false
 
 if rangeActive
