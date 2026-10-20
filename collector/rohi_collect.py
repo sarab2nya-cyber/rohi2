@@ -829,6 +829,102 @@ def wait_enter(timeout_s):
         r, _, _ = select.select([sys.stdin], [], [], timeout_s)
         return (sys.stdin.readline().strip().lower() or True) if r else False
 
+# ------------------------------------------------------------------ صورت‌های مالی از اکسل کدال + ورود دستی اکسل‌ها
+FS_SECTIONS = ["صورت سود و زیان", "صورت سود و زیان جامع", "صورت وضعیت مالی", "صورت جریان های نقدی"]
+
+def parse_fs_tables(html_text):
+    """ردیف‌های صورت‌های مالی اصلی (سود و زیان، سود و زیان جامع، وضعیت مالی، جریان نقدی) از اکسل کدال، به‌صورت بلند:
+    statement, item, period_end, audited, restated, value  (مبالغ به میلیون ریال)"""
+    rows = []
+    for name, body in split_sections(html_text):
+        if name not in FS_SECTIONS: continue
+        tabs = read_tables(body)
+        if not tabs: continue
+        df = tabs[0]; lab = df.columns[0]; seen = collections.Counter()
+        cols = []
+        for c in df.columns[1:]:
+            cn = norm(c); m = re.search(r"(1[34]\d{2}/\d{2}/\d{2})", cn)
+            if m and "درصد" not in cn: cols.append((c, m.group(1), int("حسابرسی شده" in cn), int("تجدید ارائه" in cn)))
+        for _, r_ in df.iterrows():
+            item = norm(r_[lab])
+            if not item or item.lower() == "nan": continue
+            seen[item] += 1; key = item if seen[item] == 1 else f"{item} #{seen[item]}"
+            for c, pe, aud, rst in cols:
+                v = num(r_[c])
+                if v is not None and v == v: rows.append({"statement": name, "item": key, "period_end": pe, "audited": aud, "restated": rst, "value": v})
+    return rows
+
+def excel_period_info(html_text):
+    """سال مالی و نوع دورهٔ یک اکسل از داخل خودش: تاریخ پایان دورهٔ ستون اول صورت سود و زیان، تعداد ماه دوره، حسابرسی‌شده بودن"""
+    for name, body in split_sections(html_text):
+        if name in ("صورت سود و زیان", "صورت وضعیت مالی"):
+            tabs = read_tables(body)
+            if not tabs: continue
+            for c in tabs[0].columns[1:]:
+                m = re.search(r"(1[34]\d{2})/(\d{2})/(\d{2})", norm(c))
+                if m and "درصد" not in norm(c):
+                    full = txt(html_text); mm = re.search(r"دوره\s*(\d+)\s*ماهه", full)
+                    return {"period_end": m.group(0), "fiscal_year": int(m.group(1)), "months": int(mm.group(1)) if mm else None, "audited": int("حسابرسی شده" in norm(c))}
+    return None
+
+def ingest_excel(S, args):
+    """اکسل‌هایی که خودتان دستی دانلود کرده‌اید: پوشه‌ای به نام نماد (یا شماره_نماد) بسازید و همهٔ فایل‌های آن شرکت را بریزید؛ سال هر فایل از داخل خودش تشخیص داده و در codal_files قرار می‌گیرد"""
+    import shutil
+    root = args.ingest_excel; sym2 = {norm(r_["Symbol"]): (int(float(r_.get("firm_id", i_))), norm(r_["Symbol"])) for i_, r_ in S.iterrows()}
+    id2 = {v[0]: v for v in sym2.values()}; n_ok = n_bad = 0; summary = []
+    for d in sorted(os.listdir(root)):
+        p = os.path.join(root, d)
+        if not os.path.isdir(p): continue
+        key = norm(d); fid_sym = sym2.get(key) or (id2.get(int(key.split("_")[0])) if key.split("_")[0].isdigit() else None) or next((v for k, v in sym2.items() if k in key), None)
+        if not fid_sym: print("  ⚠ پوشه به شرکتی وصل نشد (نام را نماد یا شماره_نماد بگذارید):", d); n_bad += 1; continue
+        fid, sym = fid_sym; years = []
+        for fn in sorted(os.listdir(p)):
+            fp = os.path.join(p, fn)
+            if not os.path.isfile(fp) or not fn.lower().endswith((".xls", ".html", ".htm", ".xlsx")): continue
+            try: html = open(fp, "rb").read().decode("utf-8", "replace"); info = excel_period_info(html)
+            except Exception: info = None
+            if not info: print(f"  ⚠ سال از داخل فایل تشخیص داده نشد: {d}/{fn}"); n_bad += 1; continue
+            if info["months"] not in (None, 12): print(f"  ↷ میان‌دوره‌ای ({info['months']} ماهه) رد شد: {d}/{fn}"); continue
+            dst_dir = os.path.join(args.files_dir, "%s_%s" % (fid, re.sub(r'[\\\\/:*?"<>|]', "_", sym)), str(info["fiscal_year"]))
+            os.makedirs(dst_dir, exist_ok=True); k = len([f for f in os.listdir(dst_dir) if f.startswith("FS_excel_manual")]) + 1
+            shutil.copy2(fp, os.path.join(dst_dir, f"FS_excel_manual_{k}.xls")); years.append(info["fiscal_year"]); n_ok += 1
+        summary.append((fid, sym, sorted(years)))
+    for fid, sym, ys in summary: print(f"  {fid}_{sym}: سال‌ها = {ys}")
+    print(f"\n{n_ok} فایل جابه‌جا شد، {n_bad} مشکل. حالا: --reparse (یا همان دستور codal) تا ویژگی‌ها ساخته شود.")
+
+def export_fs(S, args):
+    """ساخت مجموعه‌داده صورت‌های مالی از همهٔ اکسل‌های ذخیره‌شده: fs_codal_long.csv و fs_codal_wide.csv"""
+    from concurrent.futures import ProcessPoolExecutor
+    jobs = []
+    for d in sorted(os.listdir(args.files_dir)):
+        dp = os.path.join(args.files_dir, d)
+        if not os.path.isdir(dp) or "_" not in d: continue
+        fid, sym = d.split("_", 1)
+        for y in sorted(os.listdir(dp)):
+            yp = os.path.join(dp, y)
+            if not (os.path.isdir(yp) and y.isdigit()): continue
+            fl = sorted(f for f in os.listdir(yp) if f.startswith("FS_excel") and f.endswith(".xls"))
+            if fl: jobs.append((fid, sym, int(y), os.path.join(yp, fl[0])))
+    n = args.procs or max((os.cpu_count() or 2) - 1, 1); print(f"{len(jobs)} اکسل پیدا شد؛ استخراج با {n} پردازش…"); out = []
+    with ProcessPoolExecutor(n) as ex:
+        for res in ex.map(_fs_one, jobs, chunksize=4): out.extend(res)
+    os.makedirs(args.out, exist_ok=True); df = pd.DataFrame(out)
+    if df.empty: print("هیچ ردیفی استخراج نشد"); return
+    df.to_csv(os.path.join(args.out, "fs_codal_long.csv"), index=False, encoding="utf-8-sig")
+    cur = df.sort_values("period_end").groupby(["firm_id", "symbol", "fiscal_year", "statement", "item"], as_index=False).apply(lambda g: g[g["period_end"] == g["period_end"].max()].iloc[0]).reset_index(drop=True) if False else df[df["is_current"] == 1]
+    cur = cur.drop_duplicates(["firm_id", "fiscal_year", "statement", "item"]); cur["col"] = cur["statement"] + "|" + cur["item"]
+    wide = cur.pivot(index=["firm_id", "symbol", "fiscal_year"], columns="col", values="value").reset_index()
+    wide.to_csv(os.path.join(args.out, "fs_codal_wide.csv"), index=False, encoding="utf-8-sig")
+    print(f"ساخته شد: {len(df)} ردیف بلند، جدول عریض {wide.shape} → {args.out}")
+
+def _fs_one(job):
+    fid, sym, fy, path = job
+    try:
+        html = open(path, "rb").read().decode("utf-8", "replace"); rows = parse_fs_tables(html); info = excel_period_info(html) or {}
+        cur = info.get("period_end")
+        return [{"firm_id": int(fid) if fid.isdigit() else fid, "symbol": sym, "fiscal_year": fy, "file": os.path.basename(path), **r_, "is_current": int(r_["period_end"] == cur)} for r_ in rows]
+    except Exception: return []
+
 # ------------------------------------------------------------------ هماهنگ‌کننده
 def fiscal_year_of(pub, fye_md):
     j = jdate(pub)
@@ -955,6 +1051,19 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
             f, members = parse_excel(html); f.update(source_no=best["no"], source_title=norm(best["title"])[:120]); st["excel"][str(fy)] = {"f": f, "members": members}
             log(f"  اکسل FY{fy}: هیئت {f.get('bd_size')}، کارکنان {f.get('staff_prod')}/{f.get('staff_nonprod')}، تفسیری={f.get('interp_report')}")
         else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد: " + str(codal.excel_err if codal is not None else "اکسل از تی‌اس‌ای‌سی/دیسک در دسترس نبود"), "source_no": best["no"], "title": norm(best["title"])[:100], "tries": e0.get("tries", 0) + (1 if codal is not None else 0)}; log(f"  ⚠ اکسل FY{fy} خوانده نشد ({codal.excel_err if codal is not None else "اکسل از تی‌اس‌ای‌سی/دیسک در دسترس نبود"})")
+        save()
+    # اکسل‌های دستی (--ingest-excel): برای سال‌هایی که اکسل خودکار ندارند
+    if args.stage != "docs-tse":
+        for fy in range(args.fy_from, args.fy_to + 1):
+            if "f" in st["excel"].get(str(fy), {}) or st["excel"].get(str(fy), {}).get("downloaded"): continue
+            fb_ = file_base(args, st, fy, "FS_excel_manual", 1); dd_ = os.path.dirname(fb_) if fb_ else None
+            man = sorted(f for f in os.listdir(dd_) if f.startswith("FS_excel_manual")) if dd_ and os.path.isdir(dd_) else []
+            if not man: continue
+            if args.download_only and not args.reparse: st["excel"][str(fy)] = {"downloaded": True, "source_no": "manual"}; continue
+            try:
+                f, members = parse_excel(open(os.path.join(dd_, man[0]), "rb").read().decode("utf-8", "replace")); f.update(source_no="manual", source_title="اکسل دستی"); st["excel"][str(fy)] = {"f": f, "members": members}
+                log(f"  اکسل دستی FY{fy}: هیئت {f.get('bd_size')}، کارکنان {f.get('staff_prod')}")
+            except Exception as e: log(f"  ⚠ اکسل دستی FY{fy} خوانده نشد: {type(e).__name__}")
         save()
     if args.docs: collect_docs(st, cand, args, codal, log, save, tse)
     if args.docs and merged_now: collect_docs(st, cand, args, codal, log, save, tse, retry=True, source="both")
@@ -1179,6 +1288,8 @@ def main():
     ap.add_argument("--ocr-dpi", type=int, default=150); ap.add_argument("--ocr-lang", default="fas")
     ap.add_argument("--tesseract-cmd", default=None, help=r"مسیر tesseract.exe، مثلاً C:\Program Files\Tesseract-OCR\tesseract.exe")
     ap.add_argument("--ocr-test", default=None, help="مسیر یک PDF: OCR را روی آن آزمایش کن و ویژگی‌های حسابرس را چاپ کن")
+    ap.add_argument("--ingest-excel", default=None, help="پوشه‌ای که اکسل‌های دستی‌دانلودشده در زیرپوشه‌هایی به نام نماد (یا شماره_نماد) دارد؛ سال هر فایل از داخل خودش تشخیص داده می‌شود")
+    ap.add_argument("--export-fs", action="store_true", help="از همهٔ اکسل‌های ذخیره‌شده مجموعه‌داده صورت‌های مالی بساز (fs_codal_long.csv و fs_codal_wide.csv)")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
@@ -1198,6 +1309,8 @@ def main():
     pk, pn = (int(x) for x in args.part.split("/")); sz = -(-len(S) // pn); S = S.iloc[(pk - 1) * sz: pk * sz]; print(f"بخش {pk}/{pn}: {len(S)} شرکت | مرحله: {args.stage}")
     codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests, cookie=args.cookie, user_agent=args.user_agent, search_interval=args.search_interval)), Tse()
     t0 = time.time(); wait_min = args.wait_start
+    if args.ingest_excel: return ingest_excel(S, args)
+    if args.export_fs: return export_fs(S, args)
     if args.file_gaps: return file_gaps(S, args)
     if args.pdf_check: return pdf_check(args)
     if args.inspect: return inspect_firm(S, args)
