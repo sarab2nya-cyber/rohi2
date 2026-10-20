@@ -624,6 +624,8 @@ def tse_letter_files(tse, no, base_dir, prefix, max_rows=6, include_notice=False
         if not extract: continue
         if data[:4] == b"%PDF" and len(data) > 5000: t = pdf_text(data); t and texts.append(t)
         elif data[:1] == b"<" and len(data) > 3000: texts.append(norm(re.sub(r"<[^>]+>", " ", data.decode("utf-8", "replace"))))
+    if not files and not include_notice and tse is not None and not done:      # پیوست نداد (مثلاً ردیف ۵۰۰) ← خود محتوای نامه را امتحان کن
+        return tse_letter_files(tse, no, base_dir, prefix, 0, True, extract)
     if tse is not None and not done and man_path:
         os.makedirs(base_dir, exist_ok=True); json.dump({"files": files}, open(man_path, "w", encoding="utf-8"))
     txt = "\n".join(t for t in texts if t)
@@ -1041,6 +1043,8 @@ def inspect_firm(S, args):
                 stt, data, ct = T.raw(f"{TSE}/Codal/GetAttachmentContentFileByTracingNoAndRowOrder/{x['no']}/{row}")
                 print(f"     آزمایش زنده ردیف {row}: HTTP {stt} | {len(data)} بایت | {ct} | {data[:12]!r}")
                 if stt != 200: break
+            stt, data, ct = T.raw(f"{TSE}/Codal/GetContentFileByTracingNo/{x['no']}/1")
+            print(f"     محتوای خود نامه (notice): HTTP {stt} | {len(data)} بایت | {ct} | {data[:12]!r}")
         d = (st.get("docs") or {}).get(str(fy), {})
         print("  ثبت‌شده:", {k: (v.get("br_status") or v.get("ic_status") or v.get("audit_status")) for k, v in d.items()})
 
