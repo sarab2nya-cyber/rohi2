@@ -103,18 +103,19 @@ def parse_title(title):
 class Blocked(Exception): pass
 
 class Codal:
-    def __init__(self, min_interval=7.0, max_requests=700, log=print, cookie=None, user_agent=None):
+    def __init__(self, min_interval=7.0, max_requests=700, log=print, cookie=None, user_agent=None, search_interval=None):
         self.min_interval, self.max_requests, self.n, self.last, self.log = min_interval, max_requests, 0, 0.0, log
+        self.search_interval = search_interval if search_interval is not None else min_interval
         self.s = requests.Session(); self.s.headers.update(UA)
         if user_agent: self.s.headers["User-Agent"] = user_agent
         if cookie: self.s.headers["Cookie"] = cookie
-    def _wait(self):
-        dt = time.time() - self.last; need = self.min_interval * random.uniform(1.0, 1.5)
+    def _wait(self, interval=None):
+        dt = time.time() - self.last; need = (interval if interval is not None else self.min_interval) * random.uniform(1.0, 1.5)
         if dt < need: time.sleep(need - dt)
         self.last = time.time()
-    def get(self, url, params=None, stream=False, expect_json=False):
+    def get(self, url, params=None, stream=False, expect_json=False, interval=None):
         if self.n >= self.max_requests: raise Blocked("سقف درخواست این اجرا (%d) تمام شد؛ دوباره اجرا کنید (ادامه می‌دهد)." % self.max_requests)
-        self._wait(); self.n += 1
+        self._wait(interval); self.n += 1
         try: r = self.s.get(url, params=params, timeout=(10, 40), stream=stream)
         except Exception as e: self.log("   خطای شبکه:", type(e).__name__); return None
         ct = r.headers.get("Content-Type", "")
@@ -125,21 +126,26 @@ class Codal:
         p = {"Symbol": symbol, "Length": "-1", "LetterType": str(letter_type), "Category": "-1", "PageNumber": str(page), "search": "true", "Publisher": "false",
              "Mains": "true", "Childs": "true", "TracingNo": "-1", "AuditorRef": "-1", "CompanyState": "0", "CompanyType": "-1",
              "FromDate": f"{fy_from}/01/01", "ToDate": f"{fy_to + 1}/12/29"}
-        r = self.get(CODAL_SEARCH, params=p)
+        r = self.get(CODAL_SEARCH, params=p, interval=self.search_interval)
         if r is None or r.status_code != 200: return None
         try: return r.json()
         except Exception: raise Blocked("پاسخ جست‌وجو JSON نبود (احتمالاً محدودیت).")
-    def list_letters(self, symbol, fy_from, fy_to, types=("-1",)):
-        out, seen = [], set()
-        for lt in types:
-            page = 1
+    def list_letters(self, symbol, fy_from, fy_to, types=("-1",), state=None, save=None):
+        """فهرست نامه‌ها؛ با state/save پیشرفت صفحه‌به‌صفحه ذخیره می‌شود تا بعد از توقف از همان صفحه ادامه یابد"""
+        state = state if state is not None else {}
+        out = state.setdefault("out", []); seen = {x.get("TracingNo") for x in out}
+        for ti in range(state.get("ti", 0), len(types)):
+            page = state.get("page", 1) if ti == state.get("ti", 0) else 1
             while True:
-                j = self.search(symbol, fy_from, fy_to, page, lt)
-                if j is None: raise Blocked(f"صفحهٔ {page} جست‌وجوی {symbol} (نوع {lt}) خوانده نشد (فهرست ناقص ذخیره نمی‌شود)")
+                j = self.search(symbol, fy_from, fy_to, page, types[ti])
+                if j is None: raise Blocked(f"صفحهٔ {page} جست‌وجوی {symbol} (نوع {types[ti]}) خوانده نشد؛ پیشرفت ذخیره است")
                 L = j.get("Letters") or []
                 for x in L:
                     if x.get("TracingNo") not in seen: seen.add(x.get("TracingNo")); out.append(x)
-                if not L or page >= int(j.get("Page", page)): break
+                last = (not L) or page >= int(j.get("Page", page))
+                state["ti"], state["page"] = (ti + 1, 1) if last else (ti, page + 1)
+                if save: save()
+                if last: break
                 page += 1
         return out
     def excel(self, url):
@@ -604,9 +610,11 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
     # --- ۲) کدال: فهرست نامه‌ها ---
     if "letters" not in st:
         if codal is None: return st
-        L = codal.list_letters(sym, args.fy_from, args.fy_to, tuple(args.letter_types.split(",")) if args.fast_list else ("-1",))
-        st["letters"] = [{"no": x.get("TracingNo"), "code": x.get("LetterCode"), "title": x.get("Title"), "pub": x.get("PublishDateTime"), "excel": x.get("ExcelUrl"), "url": x.get("Url"), "pdf": x.get("PdfUrl")} for x in L]
-        save(); log(f"  کدال: {len(L)} نامه")
+        lst = st.setdefault("_list", {})
+        if lst.get("out"): log(f"  ادامهٔ فهرست‌گیری از صفحهٔ {lst.get('page', 1)} ({len(lst['out'])} نامه تا اینجا)")
+        L = codal.list_letters(sym, args.fy_from, args.fy_to, tuple(args.letter_types.split(",")) if args.fast_list else ("-1",), state=lst, save=save)
+        st["letters"] = [{"no": x.get("TracingNo"), "code": x.get("LetterCode"), "title": x.get("Title"), "pub": x.get("PublishDateTime"), "excel": x.get("ExcelUrl"), "url": x.get("Url"), "pdf": x.get("PdfUrl"), "att": x.get("AttachmentUrl")} for x in L]
+        st.pop("_list", None); save(); log(f"  کدال: {len(L)} نامه")
     # --- ۳) اکسل صورت مالی سالانه حسابرسی‌شده برای هر سال مالی ---
     cand = collections.defaultdict(list)
     for x in st["letters"]:
@@ -725,6 +733,11 @@ def build(out_dir, args):
     if "fc_sales_est" in df:
         df["fc_sales_error"] = (df["fc_sales_last_actual"] - df.groupby("firm_id")["fc_sales_est"].shift(1)) / df.groupby("firm_id")["fc_sales_est"].shift(1).abs()
     if "export_total_row" in df: df["export_flag"] = df["export_total_row"].map(lambda s: int(isinstance(s, str) and any(abs(v) > 0 for v in json.loads(s))) if isinstance(s, str) else np.nan)
+    ok = lambda c: df[c].isin(["pdf_ok", "html_ok", "پیوست_ok"]).astype(int) if c in df else 0
+    cov = pd.DataFrame({"fiscal_year": df["fiscal_year"], "firm_id": df["firm_id"], "symbol": df["symbol"],
+                        "excel": df["source_no"].notna().astype(int) if "source_no" in df else 0, "audit_pdf": ok("audit_status"), "board_report": ok("br_status"), "internal_control": ok("ic_status")})
+    cov.to_csv(os.path.join(out_dir, "coverage_by_firm_year.csv"), index=False, encoding="utf-8-sig")
+    print("پوشش (تعداد شرکت-سال با فایل) به تفکیک سال:\n", cov.groupby("fiscal_year")[["excel", "audit_pdf", "board_report", "internal_control"]].sum().to_string())
     df.to_csv(os.path.join(out_dir, "features_firm_year.csv"), index=False, encoding="utf-8-sig")
     pd.DataFrame(ev_rows).to_csv(os.path.join(out_dir, "letters_index.csv"), index=False, encoding="utf-8-sig")
     pd.DataFrame(mem_rows).to_csv(os.path.join(out_dir, "board_members.csv"), index=False, encoding="utf-8-sig")
@@ -754,6 +767,7 @@ def main():
     ap.add_argument("--force", action="store_true", help="شرکت‌های کامل‌شده را هم دوباره بررسی کن")
     ap.add_argument("--fast-list", action="store_true", help="فهرست نامه‌ها را فقط برای نوع‌های لازم بگیر (درخواست بسیار کمتر؛ ولی متغیرهای رویدادی ev_* ناقص می‌شوند)")
     ap.add_argument("--letter-types", default="6,90", help="شناسهٔ LetterType برای --fast-list: 6=صورت مالی، 90=کنترل داخلی؛ شناسهٔ گزارش هیئت‌مدیره را با کاما اضافه کنید")
+    ap.add_argument("--search-interval", type=float, default=5.0, help="فاصلهٔ درخواست‌های جست‌وجوی فهرست نامه‌ها (ثانیه)؛ جدا از --min-interval که برای فایل‌هاست")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
@@ -765,8 +779,15 @@ def main():
     if args.build: return build(args.out, args)
     S = pd.read_csv(args.symbols, dtype=str, encoding="utf-8-sig"); S = S.head(args.pilot) if args.pilot else S
     pk, pn = (int(x) for x in args.part.split("/")); sz = -(-len(S) // pn); S = S.iloc[(pk - 1) * sz: pk * sz]; print(f"بخش {pk}/{pn}: {len(S)} شرکت | مرحله: {args.stage}")
-    codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests, cookie=args.cookie, user_agent=args.user_agent)), Tse()
+    codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests, cookie=args.cookie, user_agent=args.user_agent, search_interval=args.search_interval)), Tse()
     t0 = time.time(); wait_min = args.wait_start
+    if args.stage != "tse" and not args.reparse:
+        sig = "%s-%s-%d-%s" % (args.fy_from, args.fy_to, int(args.docs), args.docs_from); done = 0
+        for _, r_ in S.iterrows():
+            p_ = os.path.join(args.out, "firms", f"{re.sub(r'[^0-9A-Za-z_]', '_', norm(r_['Symbol'])) or 'x'}_{int(float(r_.get('firm_id', 0)))}.json")
+            try: done += int(json.load(open(p_, encoding="utf-8")).get("complete_sig") == sig)
+            except Exception: pass
+        print(f"از {len(S)} شرکت این بخش، {done} شرکت از قبل کامل است و بدون درخواست رد می‌شود.")
     if args.stage == "tse":
         from concurrent.futures import ThreadPoolExecutor
         def work(item):
