@@ -583,7 +583,7 @@ def _ext(data, ct=""):
     if data[:1] in (b"{", b"["): return ".json"
     return ".bin"
 
-def tse_letter_files(tse, no, base_dir, prefix, max_rows=6, include_notice=False):
+def tse_letter_files(tse, no, base_dir, prefix, max_rows=6, include_notice=False, extract=True):
     """PDF اطلاعیه و پیوست‌های یک نامه از cdn.tsetmc.com (بر اساس TracingNo). متن PDFها را برمی‌گرداند. (متن, وضعیت, فایل‌ها)"""
     texts, files = [], []
     def put(name, data, ct):
@@ -617,11 +617,13 @@ def tse_letter_files(tse, no, base_dir, prefix, max_rows=6, include_notice=False
                 continue
             data, note = unwrap_payload(data); put(stem + _ext(data, ct), data, ct)
         files.append((tag, len(data), _ext(data)))
+        if not extract: continue
         if data[:4] == b"%PDF" and len(data) > 5000: t = pdf_text(data); t and texts.append(t)
         elif data[:1] == b"<" and len(data) > 3000: texts.append(norm(re.sub(r"<[^>]+>", " ", data.decode("utf-8", "replace"))))
     if tse is not None and not done and man_path:
         os.makedirs(base_dir, exist_ok=True); json.dump({"files": files}, open(man_path, "w", encoding="utf-8"))
     txt = "\n".join(t for t in texts if t)
+    if not extract: return "", ("tse_downloaded" if files else "tse_بدون_فایل"), files
     return txt, ("tse_ok" if len(txt) > 200 else ("tse_بدون_متن" if files else "tse_بدون_فایل")), files
 
 def title_code(title):
@@ -661,7 +663,7 @@ def tse_excel(tse, no, types=(2, 3, 4, 0, 5, 6)):
             if "<table" in txt[:20000].lower() and "<h3" in txt.lower(): return txt
     return None
 
-OKSTAT = {"tse_ok", "pdf_ok", "html_ok", "پیوست_ok"}
+OKSTAT = {"tse_ok", "tse_downloaded", "pdf_ok", "html_ok", "پیوست_ok"}
 def doc_gaps(st, args):
     gaps = []
     for fy in range(max(args.fy_from, args.docs_from), args.fy_to + 1):
@@ -691,6 +693,7 @@ def collect_docs(st, cand, args, codal, log, save, tse=None, retry=False, source
         cat = classify(x["code"], x["title"]); fy = letter_fy(x, fye_md)
         if fy and cat == "board_report": by["board"][fy].append(x)
         elif fy and cat == "internal_control": by["ic"][fy].append(x)
+    EXTRACT = bool(args.reparse or args.extract or args.stage != "docs-tse")
     def need(entry, key):
         if not entry: return True
         return (args.retry_failed or retry) and entry.get(key) in RETRY
@@ -699,7 +702,7 @@ def collect_docs(st, cand, args, codal, log, save, tse=None, retry=False, source
         fb = file_base(args, st, fy, kind, x["no"]); d_ = os.path.dirname(fb) if fb else None
         src_ = source or args.docs_source
         if src_ in ("tse", "both") and (tse is not None or fb):
-            t, stt, _ = tse_letter_files(tse, x["no"], d_, os.path.basename(fb) if fb else kind + "_" + str(x["no"]), max_rows=min(max(x.get("n_att", 6), 1), 8), include_notice=(x.get("n_att") == 0))
+            t, stt, _ = tse_letter_files(tse, x["no"], d_, os.path.basename(fb) if fb else kind + "_" + str(x["no"]), max_rows=min(max(x.get("n_att", 6), 1), 8), include_notice=(x.get("n_att") == 0), extract=EXTRACT)
             if t or src_ == "tse": return t, stt
         t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
         if not t: t, stt, _ = attachment_texts(codal, x, d_, "%s_%s" % (kind, x["no"]))
@@ -711,7 +714,7 @@ def collect_docs(st, cand, args, codal, log, save, tse=None, retry=False, source
         if need(d.get("audit"), "audit_status") and fs_all.get(fy):
             for px_ in fs_all[fy][:4]:                      # حسابرسی‌شده‌ها اول؛ اگر فایل نداشت نسخهٔ بعدی
                 x = px_[1]; t, stt = letter_text(x, "audit_FS", fy)
-                if t and len(t) > 500: break
+                if (t and len(t) > 500) or stt == "tse_downloaded": break
             rep, nts = split_fs_pdf(t); d["audit"] = {**(audit_features(rep) if t else {}), **(notes_features(nts) if len(nts) > 500 else {}), "audit_status": stt, "audit_src_no": x["no"], "audit_fs_audited": px_[0]["audited"], "audit_fs_consol": px_[0]["consolidated"]}; save(); log(f"  حسابرس FY{fy}: {stt} | اظهارنظر={d['audit'].get('audit_opinion')} | {d['audit'].get('audit_firm')}")
         if need(d.get("board"), "br_status") and by["board"].get(fy):
             x = sorted(by["board"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = letter_text(x, "board_report", fy)
@@ -940,6 +943,11 @@ def build(out_dir, args):
     except Exception as e: print("اکسل نوشته نشد:", e)
     print("ساخته شد:", df.shape, "→", os.path.join(out_dir, "features_firm_year.csv"))
 
+def _parse_one(args, sym, company, fid):
+    try: process_firm(sym, company, fid, args, None, None, args.out, lambda m: None); return sym, None
+    except Exception as e: return sym, "%s %s" % (type(e).__name__, str(e)[:100])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--symbols", default="my_symbols.csv"); ap.add_argument("--out", default="out_codal"); ap.add_argument("--seed-from", default="out", help="پوشهٔ داده‌های قبلی (بازار) که در --out کپی می‌شود"); ap.add_argument("--fy-from", type=int, default=1394); ap.add_argument("--fy-to", type=int, default=1404)
@@ -965,6 +973,8 @@ def main():
     ap.add_argument("--docs-source", choices=["tse", "codal", "both"], default="tse", help="منبع PDF/پیوست‌ها: tse = cdn.tsetmc.com (بدون کپچا، پیش‌فرض)، codal، یا both")
     ap.add_argument("--list-source", choices=["tse", "codal"], default="tse", help="منبع فهرست نامه‌ها: tse = یک درخواست از cdn.tsetmc.com (بدون کپچا، پیش‌فرض)؛ codal = جست‌وجوی صفحه‌به‌صفحهٔ کدال")
     ap.add_argument("--fill-codal", action="store_true", help="برای شرکت-سال‌هایی که از تی‌اس‌ای‌سی ناقص مانده، فهرست کامل کدال را بگیر و آنچه نبود را از کدال تکمیل کن")
+    ap.add_argument("--extract", action="store_true", help="در مرحلهٔ docs-tse متن PDFها را هم هم‌زمان استخراج کن (پیش‌فرض: فقط دانلود؛ استخراج جدا و موازی با --reparse)")
+    ap.add_argument("--procs", type=int, default=0, help="تعداد پردازش موازی برای --reparse (پیش‌فرض: تعداد هسته‌ها منهای یک)")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
@@ -978,6 +988,15 @@ def main():
     pk, pn = (int(x) for x in args.part.split("/")); sz = -(-len(S) // pn); S = S.iloc[(pk - 1) * sz: pk * sz]; print(f"بخش {pk}/{pn}: {len(S)} شرکت | مرحله: {args.stage}")
     codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests, cookie=args.cookie, user_agent=args.user_agent, search_interval=args.search_interval)), Tse()
     t0 = time.time(); wait_min = args.wait_start
+    if args.reparse:
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        n = args.procs or max((os.cpu_count() or 2) - 1, 1); print(f"استخراج از روی فایل‌های ذخیره‌شده با {n} پردازش موازی…")
+        jobs = [(norm(r_["Symbol"]), r_.get("company", ""), int(float(r_.get("firm_id", i_)))) for i_, r_ in S.iterrows()]; done = 0
+        with ProcessPoolExecutor(n) as ex:
+            futs = [ex.submit(_parse_one, args, *j) for j in jobs]
+            for f_ in as_completed(futs):
+                sym_, err = f_.result(); done += 1; print(f"[{done}/{len(jobs)}] {sym_}" + (f" ⚠ {err}" if err else " ✓"))
+        print("زمان: %.0f دقیقه" % ((time.time() - t0) / 60)); return build(args.out, args)
     if args.stage not in ("tse", "docs-tse") and not args.reparse:
         sig = "%s-%s-%d-%s" % (args.fy_from, args.fy_to, int(args.docs), args.docs_from); done = 0
         for _, r_ in S.iterrows():
