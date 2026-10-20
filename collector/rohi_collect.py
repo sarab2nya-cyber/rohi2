@@ -390,7 +390,7 @@ def readability(text):
 
 
 # ------------------------------------------------------------------ اسناد کدال: گزارش حسابرس، گزارش هیئت‌مدیره، کنترل داخلی (متن در حافظه، ذخیره نمی‌شود)
-def pdf_text(data, max_pages=60):
+def pdf_text(data, max_pages=150):
     try: from pypdf import PdfReader
     except Exception: return None
     try:
@@ -564,7 +564,7 @@ def _ext(data, ct=""):
     if data[:1] in (b"{", b"["): return ".json"
     return ".bin"
 
-def tse_letter_files(tse, no, base_dir, prefix, max_rows=6):
+def tse_letter_files(tse, no, base_dir, prefix, max_rows=6, include_notice=False):
     """PDF اطلاعیه و پیوست‌های یک نامه از cdn.tsetmc.com (بر اساس TracingNo). متن PDFها را برمی‌گرداند. (متن, وضعیت, فایل‌ها)"""
     texts, files = [], []
     def put(name, data, ct):
@@ -577,7 +577,7 @@ def tse_letter_files(tse, no, base_dir, prefix, max_rows=6):
         return None
     man_path = os.path.join(base_dir, prefix + "_manifest.json") if base_dir else None
     done = bool(man_path and os.path.exists(man_path))
-    jobs = [("notice", f"{TSE}/Codal/GetContentFileByTracingNo/{no}/1")] + [("att%d" % r, f"{TSE}/Codal/GetAttachmentContentFileByTracingNoAndRowOrder/{no}/{r}") for r in range(1, max_rows + 1)]
+    jobs = ([("notice", f"{TSE}/Codal/GetContentFileByTracingNo/{no}/1")] if include_notice else []) + [("att%d" % r, f"{TSE}/Codal/GetAttachmentContentFileByTracingNoAndRowOrder/{no}/{r}") for r in range(1, max_rows + 1)]
     for tag, url in jobs:
         stem = prefix + "_" + tag; data = cached(stem)
         if data is None:
@@ -589,7 +589,7 @@ def tse_letter_files(tse, no, base_dir, prefix, max_rows=6):
             data, note = unwrap_payload(data); put(stem + _ext(data, ct), data, ct)
         files.append((tag, len(data), _ext(data)))
         if data[:4] == b"%PDF" and len(data) > 5000: t = pdf_text(data); t and texts.append(t)
-        elif data[:1] == b"<": texts.append(norm(re.sub(r"<[^>]+>", " ", data.decode("utf-8", "replace"))))
+        elif data[:1] == b"<" and len(data) > 3000: texts.append(norm(re.sub(r"<[^>]+>", " ", data.decode("utf-8", "replace"))))
     if tse is not None and not done and man_path:
         os.makedirs(base_dir, exist_ok=True); json.dump({"files": files}, open(man_path, "w", encoding="utf-8"))
     txt = "\n".join(t for t in texts if t)
@@ -644,7 +644,7 @@ def collect_docs(st, cand, args, codal, log, save, tse=None):
         """متن‌های یک نامه: ابتدا تی‌اس‌ای‌سی (بدون کپچا)، سپس در صورت --docs-source both از کدال"""
         fb = file_base(args, st, fy, kind, x["no"]); d_ = os.path.dirname(fb) if fb else None
         if args.docs_source in ("tse", "both") and (tse is not None or fb):
-            t, stt, _ = tse_letter_files(tse, x["no"], d_, os.path.basename(fb) if fb else kind + "_" + str(x["no"]), max_rows=min(max(x.get("n_att", 6), 1), 8))
+            t, stt, _ = tse_letter_files(tse, x["no"], d_, os.path.basename(fb) if fb else kind + "_" + str(x["no"]), max_rows=min(max(x.get("n_att", 6), 1), 8), include_notice=(x.get("n_att") == 0))
             if t or args.docs_source == "tse": return t, stt
         t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
         if not t: t, stt, _ = attachment_texts(codal, x, d_, "%s_%s" % (kind, x["no"]))
@@ -755,13 +755,17 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
         best = lst[0][1]
         xb0 = file_base(args, st, fy, "FS_excel", best["no"]); xb = (xb0 + ".xls") if xb0 else None; html = None
         if xb and os.path.exists(xb) and os.path.getsize(xb) > 0: html = open(xb, "rb").read().decode("utf-8", "replace")
-        elif best.get("excel") and codal is not None:
-            html = codal.excel(best["excel"])
-            if html and xb: os.makedirs(os.path.dirname(xb), exist_ok=True); open(xb, "wb").write(html.encode("utf-8"))
-        elif best.get("has_excel") and tse is not None:
-            html = tse_excel(tse, best["no"])
-            if html and xb: os.makedirs(os.path.dirname(xb), exist_ok=True); open(xb, "wb").write(html.encode("utf-8"))
-        else: codal_err = "فایل_موجود_نیست"
+        else:
+            url_ = best.get("excel")
+            if not url_ and best.get("has_excel") and codal is not None:
+                # فهرست تی‌اس‌ای‌سی آدرس اکسل ندارد: فقط صورت‌های مالی (LetterType=6) را از کدال بگیر و با شمارهٔ پیگیری وصل کن
+                if "codal_fs" not in st:
+                    L6 = codal.list_letters(sym, args.fy_from, args.fy_to, ("6",), state=st.setdefault("_list6", {}), save=save)
+                    st["codal_fs"] = {str(x.get("TracingNo")): x.get("ExcelUrl") for x in L6}; st.pop("_list6", None); save(); log(f"  کدال (فقط صورت مالی): {len(L6)} نامه برای آدرس اکسل")
+                url_ = st["codal_fs"].get(str(best["no"]))
+            if url_ and codal is not None:
+                html = codal.excel(url_)
+                if html and xb: os.makedirs(os.path.dirname(xb), exist_ok=True); open(xb, "wb").write(html.encode("utf-8"))
         if html:
             f, members = parse_excel(html); f.update(source_no=best["no"], source_title=norm(best["title"])[:120]); st["excel"][str(fy)] = {"f": f, "members": members}
             log(f"  اکسل FY{fy}: هیئت {f.get('bd_size')}، کارکنان {f.get('staff_prod')}/{f.get('staff_nonprod')}، تفسیری={f.get('interp_report')}")
