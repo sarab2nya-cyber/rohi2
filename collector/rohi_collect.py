@@ -892,6 +892,46 @@ def ingest_excel(S, args):
     for fid, sym, ys in summary: print(f"  {fid}_{sym}: سال‌ها = {ys}")
     print(f"\n{n_ok} فایل جابه‌جا شد، {n_bad} مشکل. حالا: --reparse (یا همان دستور codal) تا ویژگی‌ها ساخته شود.")
 
+def make_links(S, args):
+    """فهرست لینک اکسل‌های هنوز دانلودنشده برای دانلودمنیجر (IDM): excel_links.txt (هر خط یک لینک، به ترتیب شرکت و سال) + excel_links_map.csv"""
+    rows = []
+    for i_, r_ in S.iterrows():
+        sym = norm(r_["Symbol"]); fid = int(float(r_.get("firm_id", i_)))
+        st = load_state(os.path.join(args.out, "firms", f"{re.sub(r'[^0-9A-Za-z_]', '_', sym) or 'x'}_{fid}.json")) or {}
+        L = st.get("letters") or []; fsmap = st.get("codal_fs") or {}
+        for fy, lst in sorted(fs_candidates(L).items()):
+            if fy < args.fy_from or fy > args.fy_to: continue
+            base = os.path.join(args.files_dir, "%s_%s" % (fid, re.sub(r'[\\\\/:*?"<>|]', "_", sym)), str(fy))
+            if os.path.isdir(base) and any(f.startswith("FS_excel") for f in os.listdir(base)): continue
+            for p, x in lst:
+                url = x.get("excel") or fsmap.get(str(x["no"]))
+                if url and (x.get("excel") or x.get("has_excel")): rows.append({"firm_id": fid, "symbol": sym, "fiscal_year": fy, "tracing_no": x["no"], "url": url}); break
+    os.makedirs(args.out, exist_ok=True); df = pd.DataFrame(rows)
+    df.insert(0, "order", range(1, len(df) + 1)); df.to_csv(os.path.join(args.out, "excel_links_map.csv"), index=False, encoding="utf-8-sig")
+    open(os.path.join(args.out, "excel_links.txt"), "w", encoding="utf-8").write("\n".join(df["url"]) + "\n")
+    print(f"{len(df)} لینک اکسل ساخته شد → {os.path.join(args.out, 'excel_links.txt')}")
+    print("شرکت‌هایی که آدرس اکسلشان هنوز نیست (فهرست کدال گرفته نشده):", S.shape[0] - df["firm_id"].nunique(), "از", S.shape[0])
+    print("\nراهنما: فایل را باز کنید، Ctrl+A و Ctrl+C، در IDM «Add batch download from clipboard»، تعداد دانلود هم‌زمان = ۱، پوشهٔ مقصد = یک پوشهٔ خالی. بعد: --ingest-sequence همان پوشه")
+
+def ingest_sequence(S, args):
+    """فایل‌های دانلودشده با IDM (نام تصادفی، به ترتیب زمان ایجاد) را با excel_links_map.csv جور می‌کند؛ تطبیق بر اساس سال داخل خود فایل؛ فایل‌ها با نام استاندارد در codal_files قرار می‌گیرند"""
+    import shutil
+    mp = pd.read_csv(os.path.join(args.out, "excel_links_map.csv")); d = args.ingest_sequence
+    fl = [os.path.join(d, f) for f in os.listdir(d) if os.path.isfile(os.path.join(d, f)) and f.lower().endswith((".xls", ".html", ".htm"))]
+    fl.sort(key=lambda p: min(os.path.getctime(p), os.path.getmtime(p))); ptr = 0; ok = bad = 0; assigned = []
+    for fp in fl:
+        try: info = excel_period_info(open(fp, "rb").read().decode("utf-8", "replace"))
+        except Exception: info = None
+        if not info or info["months"] not in (None, 12): bad += 1; continue
+        hit = None
+        for j in range(ptr, min(ptr + 25, len(mp))):
+            if int(mp.loc[j, "fiscal_year"]) == info["fiscal_year"]: hit = j; break
+        if hit is None: bad += 1; print("  ⚠ جور نشد:", os.path.basename(fp), info["fiscal_year"]); continue
+        r_ = mp.loc[hit]; ptr = hit + 1
+        dst = os.path.join(args.files_dir, "%s_%s" % (int(r_["firm_id"]), re.sub(r'[\\\\/:*?"<>|]', "_", str(r_["symbol"]))), str(int(r_["fiscal_year"])))
+        os.makedirs(dst, exist_ok=True); shutil.copy2(fp, os.path.join(dst, "FS_excel_%s.xls" % r_["tracing_no"])); ok += 1; assigned.append((r_["symbol"], int(r_["fiscal_year"])))
+    print(f"{ok} فایل جا افتاد، {bad} مورد ناموفق/ناجور. حالا: --reparse (یا --file-gaps برای دیدن پوشش)")
+
 def export_fs(S, args):
     """ساخت مجموعه‌داده صورت‌های مالی از همهٔ اکسل‌های ذخیره‌شده: fs_codal_long.csv و fs_codal_wide.csv"""
     from concurrent.futures import ProcessPoolExecutor
@@ -1036,12 +1076,13 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
         if xb and os.path.exists(xb) and os.path.getsize(xb) > 0: html = open(xb, "rb").read().decode("utf-8", "replace")
         else:
             url_ = best.get("excel")
-            if not url_ and best.get("has_excel") and codal is not None:
+            if not url_ and best.get("has_excel") and codal is not None and (args.urls_only or not st.get("codal_fs")) :
                 # فهرست تی‌اس‌ای‌سی آدرس اکسل ندارد: فقط صورت‌های مالی (LetterType=6) را از کدال بگیر و با شمارهٔ پیگیری وصل کن
                 if "codal_fs" not in st:
                     L6 = codal.list_letters(sym, args.fy_from, args.fy_to, ("6",), state=st.setdefault("_list6", {}), save=save)
                     st["codal_fs"] = {str(x.get("TracingNo")): x.get("ExcelUrl") for x in L6}; st.pop("_list6", None); save(); log(f"  کدال (فقط صورت مالی): {len(L6)} نامه برای آدرس اکسل")
-                url_ = st["codal_fs"].get(str(best["no"]))
+            if not url_: url_ = (st.get("codal_fs") or {}).get(str(best["no"]))
+            if args.urls_only: continue
             if url_ and codal is not None:
                 html = codal.excel(url_)
                 if html and xb: os.makedirs(os.path.dirname(xb), exist_ok=True); open(xb, "wb").write(html.encode("utf-8"))
@@ -1290,6 +1331,9 @@ def main():
     ap.add_argument("--ocr-test", default=None, help="مسیر یک PDF: OCR را روی آن آزمایش کن و ویژگی‌های حسابرس را چاپ کن")
     ap.add_argument("--ingest-excel", default=None, help="پوشه‌ای که اکسل‌های دستی‌دانلودشده در زیرپوشه‌هایی به نام نماد (یا شماره_نماد) دارد؛ سال هر فایل از داخل خودش تشخیص داده می‌شود")
     ap.add_argument("--export-fs", action="store_true", help="از همهٔ اکسل‌های ذخیره‌شده مجموعه‌داده صورت‌های مالی بساز (fs_codal_long.csv و fs_codal_wide.csv)")
+    ap.add_argument("--urls-only", action="store_true", help="فقط آدرس اکسل‌ها را از کدال بگیر (چند صفحهٔ جست‌وجو برای هر شرکت) و اکسل را دانلود نکن؛ برای دانلود با IDM")
+    ap.add_argument("--make-links", action="store_true", help="فهرست لینک اکسل‌های دانلودنشده را برای دانلودمنیجر بساز (excel_links.txt)")
+    ap.add_argument("--ingest-sequence", default=None, help="پوشهٔ فایل‌های دانلودشده با IDM (به ترتیب زمان)؛ با excel_links_map.csv جور و در codal_files قرار می‌گیرند")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
@@ -1309,6 +1353,8 @@ def main():
     pk, pn = (int(x) for x in args.part.split("/")); sz = -(-len(S) // pn); S = S.iloc[(pk - 1) * sz: pk * sz]; print(f"بخش {pk}/{pn}: {len(S)} شرکت | مرحله: {args.stage}")
     codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests, cookie=args.cookie, user_agent=args.user_agent, search_interval=args.search_interval)), Tse()
     t0 = time.time(); wait_min = args.wait_start
+    if args.make_links: return make_links(S, args)
+    if args.ingest_sequence: return ingest_sequence(S, args)
     if args.ingest_excel: return ingest_excel(S, args)
     if args.export_fs: return export_fs(S, args)
     if args.file_gaps: return file_gaps(S, args)
