@@ -985,9 +985,9 @@ def file_gaps(S, args):
             d = os.path.join(base, str(fy)); fl = os.listdir(d) if os.path.isdir(d) else []
             has = lambda p: int(any(f.startswith(p) and not f.endswith("_manifest.json") for f in fl))
             rows.append({"firm_id": fid, "symbol": sym, "fiscal_year": fy, "folder": int(os.path.isdir(d)), "excel": has("FS_excel"), "audit_fs_pdf": has("audit_FS"), "board_report": has("board_report"), "internal_control": has("internal_control")})
-    df = pd.DataFrame(rows); df.to_csv("file_gaps.csv", index=False, encoding="utf-8-sig")
+    df = pd.DataFrame(rows); os.makedirs(args.out, exist_ok=True); df.to_csv(os.path.join(args.out, "file_gaps.csv"), index=False, encoding="utf-8-sig")
     print("تعداد شرکت-سال دارای فایل، به تفکیک سال (از %d شرکت):" % len(S)); print(df.groupby("fiscal_year")[["folder", "excel", "audit_fs_pdf", "board_report", "internal_control"]].sum().to_string())
-    print("\nجزئیات: file_gaps.csv (ستون‌های ۰/۱ برای هر شرکت-سال)")
+    print("\nجزئیات:", os.path.join(args.out, "file_gaps.csv"), "(ستون‌های ۰/۱ برای هر شرکت-سال)")
 
 def _parse_one(args, sym, company, fid):
     try: process_firm(sym, company, fid, args, None, None, args.out, lambda m: None); return sym, None
