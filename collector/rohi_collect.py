@@ -553,6 +553,11 @@ def letter_fy(x, fye_md):
     if p["fiscal_year"]: return p["fiscal_year"]
     y = fiscal_year_of(x["pub"], fye_md); return y - 1 if y else None
 
+def is_interp(t):
+    """آیا این فایل «گزارش تفسیری مدیریت» است (نه گزارش حسابرس/صورت مالی)؟ بر اساس محتوای صفحات اول"""
+    h = (t or "")[:4000]
+    return bool(re.search(r"گزارش تفسیری", h)) and not re.search(r"گزارش حسابرس مستقل|صورت وضعیت مالی", h)
+
 def fye_of(letters):
     mds = collections.Counter()
     for x in letters:
@@ -587,7 +592,7 @@ def _ext(data, ct=""):
     if data[:1] in (b"{", b"["): return ".json"
     return ".bin"
 
-def tse_letter_files(tse, no, base_dir, prefix, max_rows=6, include_notice=False, extract=True):
+def tse_letter_files(tse, no, base_dir, prefix, max_rows=6, include_notice=False, extract=True, parts_out=None):
     """PDF اطلاعیه و پیوست‌های یک نامه از cdn.tsetmc.com (بر اساس TracingNo). متن PDFها را برمی‌گرداند. (متن, وضعیت, فایل‌ها)"""
     texts, files = [], []
     def put(name, data, ct):
@@ -625,9 +630,10 @@ def tse_letter_files(tse, no, base_dir, prefix, max_rows=6, include_notice=False
         if data[:4] == b"%PDF" and len(data) > 5000: t = pdf_text(data); t and texts.append(t)
         elif data[:1] == b"<" and len(data) > 3000: texts.append(norm(re.sub(r"<[^>]+>", " ", data.decode("utf-8", "replace"))))
     if not files and not include_notice and tse is not None and not done:      # پیوست نداد (مثلاً ردیف ۵۰۰) ← خود محتوای نامه را امتحان کن
-        return tse_letter_files(tse, no, base_dir, prefix, 0, True, extract)
+        return tse_letter_files(tse, no, base_dir, prefix, 0, True, extract, parts_out)
     if tse is not None and not done and man_path:
         os.makedirs(base_dir, exist_ok=True); json.dump({"files": files}, open(man_path, "w", encoding="utf-8"))
+    if parts_out is not None: parts_out.extend(t for t in texts if t)
     txt = "\n".join(t for t in texts if t)
     if not extract: return "", ("tse_downloaded" if files else "tse_بدون_فایل"), files
     return txt, ("tse_ok" if len(txt) > 200 else ("tse_بدون_متن" if files else "tse_بدون_فایل")), files
@@ -715,12 +721,12 @@ def collect_docs(st, cand, args, codal, log, save, tse=None, retry=False, source
     def need(entry, key):
         if not entry: return True
         return (args.retry_failed or retry) and entry.get(key) in RETRY
-    def letter_text(x, kind, fy):
+    def letter_text(x, kind, fy, parts_out=None):
         """متن‌های یک نامه: ابتدا تی‌اس‌ای‌سی (بدون کپچا)، سپس در صورت --docs-source both از کدال"""
         fb = file_base(args, st, fy, kind, x["no"]); d_ = os.path.dirname(fb) if fb else None
         src_ = source or args.docs_source
         if src_ in ("tse", "both") and (tse is not None or fb):
-            t, stt, _ = tse_letter_files(tse, x["no"], d_, os.path.basename(fb) if fb else kind + "_" + str(x["no"]), max_rows=min(max(x.get("n_att", 6), 1), 8), include_notice=(x.get("n_att") == 0), extract=EXTRACT)
+            t, stt, _ = tse_letter_files(tse, x["no"], d_, os.path.basename(fb) if fb else kind + "_" + str(x["no"]), max_rows=min(max(x.get("n_att", 6), 1), 8), include_notice=(x.get("n_att") == 0), extract=EXTRACT, parts_out=parts_out)
             if t or src_ == "tse": return t, stt
         t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
         if stt == "downloaded": return t, stt
@@ -732,7 +738,10 @@ def collect_docs(st, cand, args, codal, log, save, tse=None, retry=False, source
         # گزارش حسابرس (از PDF صورت مالی حسابرسی‌شدهٔ سالانه)
         if need(d.get("audit"), "audit_status") and fs_all.get(fy):
             for px_ in fs_all[fy][:4]:                      # حسابرسی‌شده‌ها اول؛ اگر فایل نداشت نسخهٔ بعدی
-                x = px_[1]; t, stt = letter_text(x, "audit_FS", fy)
+                x = px_[1]; parts = []; t, stt = letter_text(x, "audit_FS", fy, parts_out=parts)
+                if parts:
+                    ip_ = "\n".join(p for p in parts if is_interp(p)); t = "\n".join(p for p in parts if not is_interp(p)) or t
+                    if len(ip_) > 500: d["interp"] = {**text_features(ip_, "ip"), "ip_status": "tse_ok", "ip_src_no": x["no"]}
                 if (t and len(t) > 500) or stt in ("tse_downloaded", "downloaded"): break
             rep, nts = split_fs_pdf(t); d["audit"] = {**(audit_features(rep) if t else {}), **(notes_features(nts) if len(nts) > 500 else {}), "audit_status": stt, "audit_src_no": x["no"], "audit_fs_audited": px_[0]["audited"], "audit_fs_consol": px_[0]["consolidated"]}; save(); log(f"  حسابرس FY{fy}: {stt} | اظهارنظر={d['audit'].get('audit_opinion')} | {d['audit'].get('audit_firm')}")
         if need(d.get("board"), "br_status") and by["board"].get(fy):
