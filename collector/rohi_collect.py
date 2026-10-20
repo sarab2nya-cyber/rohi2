@@ -277,6 +277,18 @@ class Tse:
                 return None
             except Exception as ex: self.err = str(ex)[:100]; self.log(f"    … تی‌اس‌ای‌سی پاسخ نداد ({type(ex).__name__})، تلاش {i + 1}/3"); time.sleep(10 * (i + 1))
         return None
+    def raw(self, url):
+        """بایت‌های خام؛ (وضعیت, محتوا, نوع). برای فایل‌های کدال روی تی‌اس‌ای‌سی (بدون کپچا)"""
+        dt = time.time() - self.last
+        if dt < self.min_interval: time.sleep(self.min_interval - dt)
+        self.last = time.time(); st_, data, ct = None, b"", ""
+        for i in range(3):
+            try:
+                r = requests.get(url, headers={**UA, "Connection": "close"}, timeout=(15, 120)); st_, data, ct = r.status_code, r.content, r.headers.get("Content-Type", "")
+                if st_ in (429, 500, 502, 503, 504): time.sleep(10 * (i + 1)); continue
+                return st_, data, ct
+            except Exception as ex: self.err = str(ex)[:100]; time.sleep(8 * (i + 1))
+        return st_, data, ct
     def find(self, ticker):
         j = self.get(f"{TSE}/Instrument/GetInstrumentSearch/{requests.utils.quote(ticker)}")
         items = (j or {}).get("instrumentSearch") or []
@@ -518,8 +530,66 @@ def fye_of(letters):
         if p["annual"] and p["audited"] and p["fye"]: mds[tuple(int(v) for v in p["fye"].split("/")[1:])] += 1
     return mds.most_common(1)[0][0] if mds else (12, 29)
 
-RETRY = {"فایل_موجود_نیست", "دریافت_نشد", "پیوست_بدون_لینک", "پیوست_بدون_متن", "pdf_بدون_متن", "بدون_pdf"}
-def collect_docs(st, cand, args, codal, log, save):
+def unwrap_payload(data):
+    """اگر پاسخ JSON با فایل base64 بود، بایت‌های فایل را درمی‌آورد"""
+    import base64
+    if data[:1] not in (b"{", b"["): return data, None
+    try: j = json.loads(data.decode("utf-8", "replace"))
+    except Exception: return data, None
+    best = []
+    def walk(o):
+        if isinstance(o, dict): [walk(v) for v in o.values()]
+        elif isinstance(o, list): [walk(v) for v in o]
+        elif isinstance(o, str) and len(o) > 500: best.append(o)
+    walk(j)
+    for sv in sorted(best, key=len, reverse=True):
+        try:
+            b = base64.b64decode(sv + "=" * (-len(sv) % 4), validate=False)
+            if b[:4] == b"%PDF" or b[:2] in (b"PK", b"\xd0\xcf"): return b, None
+        except Exception: pass
+    return data, "json_ناشناخته"
+
+def _ext(data, ct=""):
+    if data[:4] == b"%PDF": return ".pdf"
+    if data[:2] == b"PK": return ".zip"
+    if data[:2] == b"\xd0\xcf": return ".xls"
+    if data[:1] in (b"<",) or "html" in ct: return ".html"
+    if data[:1] in (b"{", b"["): return ".json"
+    return ".bin"
+
+def tse_letter_files(tse, no, base_dir, prefix, max_rows=6):
+    """PDF اطلاعیه و پیوست‌های یک نامه از cdn.tsetmc.com (بر اساس TracingNo). متن PDFها را برمی‌گرداند. (متن, وضعیت, فایل‌ها)"""
+    texts, files = [], []
+    def put(name, data, ct):
+        if base_dir:
+            os.makedirs(base_dir, exist_ok=True); open(os.path.join(base_dir, name), "wb").write(data)
+    def cached(name_stem):
+        if base_dir and os.path.isdir(base_dir):
+            for f in os.listdir(base_dir):
+                if f.startswith(name_stem + ".") and os.path.getsize(os.path.join(base_dir, f)) > 0: return open(os.path.join(base_dir, f), "rb").read()
+        return None
+    man_path = os.path.join(base_dir, prefix + "_manifest.json") if base_dir else None
+    done = bool(man_path and os.path.exists(man_path))
+    jobs = [("notice", f"{TSE}/Codal/GetContentFileByTracingNo/{no}/1")] + [("att%d" % r, f"{TSE}/Codal/GetAttachmentContentFileByTracingNoAndRowOrder/{no}/{r}") for r in range(1, max_rows + 1)]
+    for tag, url in jobs:
+        stem = prefix + "_" + tag; data = cached(stem)
+        if data is None:
+            if done or tse is None: continue
+            st_, data, ct = tse.raw(url)
+            if st_ != 200 or len(data) < 200:
+                if tag != "notice": break          # ردیف پیوست بعدی وجود ندارد
+                continue
+            data, note = unwrap_payload(data); put(stem + _ext(data, ct), data, ct)
+        files.append((tag, len(data), _ext(data)))
+        if data[:4] == b"%PDF" and len(data) > 5000: t = pdf_text(data); t and texts.append(t)
+        elif data[:1] == b"<": texts.append(norm(re.sub(r"<[^>]+>", " ", data.decode("utf-8", "replace"))))
+    if tse is not None and not done and man_path:
+        os.makedirs(base_dir, exist_ok=True); json.dump({"files": files}, open(man_path, "w", encoding="utf-8"))
+    txt = "\n".join(t for t in texts if t)
+    return txt, ("tse_ok" if len(txt) > 200 else ("tse_بدون_متن" if files else "tse_بدون_فایل")), files
+
+RETRY = {"فایل_موجود_نیست", "دریافت_نشد", "پیوست_بدون_لینک", "پیوست_بدون_متن", "pdf_بدون_متن", "بدون_pdf", "tse_بدون_فایل", "tse_بدون_متن"}
+def collect_docs(st, cand, args, codal, log, save, tse=None):
     docs = st.setdefault("docs", {}); letters = st["letters"]; fye_md = fye_of(letters)
     by = {"board": collections.defaultdict(list), "ic": collections.defaultdict(list)}
     for x in letters:
@@ -529,21 +599,28 @@ def collect_docs(st, cand, args, codal, log, save):
     def need(entry, key):
         if not entry: return True
         return args.retry_failed and entry.get(key) in RETRY
+    def letter_text(x, kind, fy):
+        """متن‌های یک نامه: ابتدا تی‌اس‌ای‌سی (بدون کپچا)، سپس در صورت --docs-source both از کدال"""
+        fb = file_base(args, st, fy, kind, x["no"]); d_ = os.path.dirname(fb) if fb else None
+        if args.docs_source in ("tse", "both") and (tse is not None or fb):
+            t, stt, _ = tse_letter_files(tse, x["no"], d_, os.path.basename(fb) if fb else kind + "_" + str(x["no"]))
+            if t or args.docs_source == "tse": return t, stt
+        t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
+        if not t: t, stt, _ = attachment_texts(codal, x, d_, "%s_%s" % (kind, x["no"]))
+        return t, stt
     def mark(entry): entry["tries"] = entry.get("tries", 0) + (1 if codal is not None else 0); return entry
     for fy in range(max(args.fy_from, args.docs_from), args.fy_to + 1):
         d = docs.setdefault(str(fy), {})
         # گزارش حسابرس (از PDF صورت مالی حسابرسی‌شدهٔ سالانه)
         if need(d.get("audit"), "audit_status") and cand.get(fy):
             lst = sorted(cand[fy], key=lambda px: norm(px[1]["pub"]), reverse=True); lst.sort(key=lambda px: (px[0]["consolidated"], px[0]["amendment"]))
-            x = lst[0][1]; t, stt = doc_text(codal, x.get("pdf"), file_base(args, st, fy, "audit_FS", x["no"]))
+            x = lst[0][1]; t, stt = letter_text(x, "audit_FS", fy)
             rep, nts = split_fs_pdf(t); d["audit"] = {**(audit_features(rep) if t else {}), **(notes_features(nts) if len(nts) > 500 else {}), "audit_status": stt, "audit_src_no": x["no"]}; save(); log(f"  حسابرس FY{fy}: {stt} | اظهارنظر={d['audit'].get('audit_opinion')} | {d['audit'].get('audit_firm')}")
         if need(d.get("board"), "br_status") and by["board"].get(fy):
-            x = sorted(by["board"][fy], key=lambda z: norm(z["pub"]))[-1]; fb = file_base(args, st, fy, "board_report", x["no"]); t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
-            if not t: t, stt, _ = attachment_texts(codal, x, os.path.dirname(fb) if fb else None, "board_report_%s" % x["no"])
+            x = sorted(by["board"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = letter_text(x, "board_report", fy)
             d["board"] = {**(text_features(t, "br") if t else {}), "br_status": stt, "br_src_no": x["no"]}; save(); log(f"  گزارش هیئت‌مدیره FY{fy}: {stt}")
         if need(d.get("ic"), "ic_status") and by["ic"].get(fy):
-            x = sorted(by["ic"][fy], key=lambda z: norm(z["pub"]))[-1]; fb = file_base(args, st, fy, "internal_control", x["no"]); t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
-            if not t: t, stt, _ = attachment_texts(codal, x, os.path.dirname(fb) if fb else None, "internal_control_%s" % x["no"])
+            x = sorted(by["ic"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = letter_text(x, "internal_control", fy)
             d["ic"] = {**(ic_features(t) if t else {}), "ic_status": stt, "ic_src_no": x["no"]}; save(); log(f"  کنترل داخلی FY{fy}: {stt}")
 
 
@@ -640,7 +717,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
             log(f"  اکسل FY{fy}: هیئت {f.get('bd_size')}، کارکنان {f.get('staff_prod')}/{f.get('staff_nonprod')}، تفسیری={f.get('interp_report')}")
         else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد: " + str(codal.excel_err if codal is not None else "فایل موجود نیست"), "source_no": best["no"], "title": norm(best["title"])[:100], "tries": e0.get("tries", 0) + (1 if codal is not None else 0)}; log(f"  ⚠ اکسل FY{fy} خوانده نشد ({codal.excel_err if codal is not None else "فایل موجود نیست"})")
         save()
-    if args.docs: collect_docs(st, cand, args, codal, log, save)
+    if args.docs: collect_docs(st, cand, args, codal, log, save, tse)
     st["done"] = True; st["complete_sig"] = sig; save(); return st
 
 def build(out_dir, args):
@@ -768,6 +845,7 @@ def main():
     ap.add_argument("--fast-list", action="store_true", help="فهرست نامه‌ها را فقط برای نوع‌های لازم بگیر (درخواست بسیار کمتر؛ ولی متغیرهای رویدادی ev_* ناقص می‌شوند)")
     ap.add_argument("--letter-types", default="6,90", help="شناسهٔ LetterType برای --fast-list: 6=صورت مالی، 90=کنترل داخلی؛ شناسهٔ گزارش هیئت‌مدیره را با کاما اضافه کنید")
     ap.add_argument("--search-interval", type=float, default=5.0, help="فاصلهٔ درخواست‌های جست‌وجوی فهرست نامه‌ها (ثانیه)؛ جدا از --min-interval که برای فایل‌هاست")
+    ap.add_argument("--docs-source", choices=["tse", "codal", "both"], default="tse", help="منبع PDF/پیوست‌ها: tse = cdn.tsetmc.com (بدون کپچا، پیش‌فرض)، codal، یا both")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
