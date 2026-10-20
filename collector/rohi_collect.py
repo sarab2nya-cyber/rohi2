@@ -392,11 +392,40 @@ def readability(text):
 
 
 # ------------------------------------------------------------------ اسناد کدال: گزارش حسابرس، گزارش هیئت‌مدیره، کنترل داخلی (متن در حافظه، ذخیره نمی‌شود)
-def pdf_text(data, max_pages=150):
+OCR = {"on": False, "pages": 8, "dpi": 150, "cmd": None, "lang": "fas"}
+
+def configure_ocr(args):
+    OCR.update(on=bool(getattr(args, "ocr", False)), pages=int(getattr(args, "ocr_pages", 8)), dpi=int(getattr(args, "ocr_dpi", 150)), cmd=getattr(args, "tesseract_cmd", None), lang=getattr(args, "ocr_lang", "fas"))
+
+def ocr_pdf(data, pages):
+    """OCR فارسی چند صفحهٔ اول یک PDF اسکن‌شده (PyMuPDF برای رندر + Tesseract)"""
+    try:
+        import fitz, pytesseract
+        from PIL import Image
+    except Exception as e:
+        print("  ⚠ OCR ممکن نیست (pip install pymupdf pytesseract pillow و نصب Tesseract با زبان فارسی):", type(e).__name__); return None
+    if OCR["cmd"]: pytesseract.pytesseract.tesseract_cmd = OCR["cmd"]
+    try:
+        doc = fitz.open(stream=data, filetype="pdf"); out = []
+        for i in range(min(len(doc), pages)):
+            pix = doc[i].get_pixmap(dpi=OCR["dpi"]); img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            out.append(pytesseract.image_to_string(img, lang=OCR["lang"], config="--psm 6"))
+        return norm("\n".join(out))
+    except Exception as e:
+        print("  ⚠ خطای OCR:", type(e).__name__, str(e)[:80]); return None
+
+def pdf_text(data, max_pages=150, allow_ocr=False, ocr_used=None):
     try: from pypdf import PdfReader
     except Exception: return None
     try:
-        rd = PdfReader(io.BytesIO(data)); return norm("\n".join((p.extract_text() or "") for p in rd.pages[:max_pages]))
+        rd = PdfReader(io.BytesIO(data)); n = len(rd.pages)
+        txt = norm("\n".join((p.extract_text() or "") for p in rd.pages[:max_pages]))
+        if allow_ocr and OCR["on"] and len(txt.strip()) < 100 * min(max(n, 1), 4):          # لایهٔ متنی ندارد ← اسکن
+            o = ocr_pdf(data, OCR["pages"])
+            if o and len(o) > len(txt):
+                if ocr_used is not None: ocr_used.append(True)
+                return o
+        return txt
     except Exception: return None
 
 def _text_of(data):
@@ -461,26 +490,57 @@ def attachment_texts(codal, x, base_dir, prefix):
 
 def _cnt(pat, t): return len(re.findall(pat, t))
 
+KNOWN_AUDITORS = ["مفید راهبر", "بهمند", "هشیار بهمند", "دایا رهیافت", "رهیافت و همکاران", "شاخص اندیشان", "آزمون پرداز", "رایمند", "ارقام نگر آریا", "آگاهان تدبیر", "ایران مشهود", "کاربرد تحلیل", "همیار حساب", "امین تراز", "آرمان آوران", "رهبرد", "فریوران", "حافظ گام", "بیات رایان", "تدوین و تحلیل", "اندیشه سازان", "نگرش و پژوهش", "رازدار", "حسابرسی و خدمات مالی", "سازمان حسابرسی"]
+
+def match_auditor(t):
+    """نام موسسهٔ حسابرسی از امضای پایان گزارش (OCR نویزی است؛ با تطبیق تقریبی با فهرست شناخته‌شده‌ها)"""
+    import difflib
+    tail = t[-3000:] if len(t) > 3000 else t; best, bs = None, 0.0
+    for m in re.finditer(r"حسابرس(?:ی|ي)?\s+([^\d\n]{3,30})", tail):
+        cand = m.group(1).strip()
+        for k in KNOWN_AUDITORS:
+            sc = difflib.SequenceMatcher(None, cand[: len(k) + 2], k).ratio()
+            if sc > bs: bs, best = sc, k
+    return ("موسسه حسابرسی " + best) if best and bs >= 0.72 else None
+
+
+def _sec(t, start_pat, end_pats, maxlen=20000):
+    m = re.search(start_pat, t)
+    if not m: return None
+    i = m.start(); e = len(t)
+    for p in end_pats:
+        mm = re.search(p, t[m.end():])
+        if mm: e = min(e, m.end() + mm.start())
+    return t[i:min(e, i + maxlen)]
+
 def audit_features(t):
-    """گزارش حسابرس مستقل: نوع اظهارنظر، بندهای تأکیدی، تداوم فعالیت، حسابرس، عدم رعایت مقررات"""
+    """گزارش حسابرس مستقل: بر اساس بخش‌ها (اظهارنظر، مبانی، تأکید، سایر الزامات) تا متن استاندارد (مسئولیت‌ها) نتیجه را خراب نکند"""
     f = {"audit_text_len": len(t)}
-    disc, adv = bool(re.search(r"عدم اظهار ?نظر|اظهار ?نظر نمی ?کنیم|اظهار ?نظر نمی ?نماییم", t)), bool(re.search(r"اظهار ?نظر مردود|نظر مردود|مردود", t))
-    qual = bool(re.search(r"اظهار ?نظر مشروط|نظر مشروط|به استثنای|به استثناء|به جز آثار|به غیر از آثار", t))
-    f["audit_opinion"] = 3 if disc else 2 if adv else 1 if qual else (0 if re.search(r"مطلوب|مقبول|به نحو مطلوب", t) else None)
-    f["audit_qualified"] = int(qual and not disc and not adv) if f["audit_opinion"] is not None else None
-    f["audit_disclaimer"] = int(disc) if f["audit_opinion"] is not None else None; f["audit_adverse"] = int(adv and not disc) if f["audit_opinion"] is not None else None
-    f["audit_emphasis"] = int(bool(re.search(r"تاکید بر مطلب خاص|تأکید بر مطلب خاص|تاکید بر مطلب|تأکید بر مطلب", t)))
-    f["audit_emphasis_n"] = _cnt(r"تاکید بر|تأکید بر", t)
-    f["audit_going_concern"] = int(bool(re.search(r"ابهام (با اهمیت|بااهمیت)? ?(در خصوص|درخصوص|نسبت به)? ?تداوم فعالیت|تداوم فعالیت.{0,60}ابهام", t)))
-    f["audit_other_resp"] = int("سایر مسئولیت" in t)
-    f["audit_noncompl_n"] = _cnt(r"عدم رعایت|رعایت نشده|رعایت نگردیده|رعایت نشدن|مغایرت با", t)
-    f["audit_icfr_weak"] = int(bool(re.search(r"ضعف.{0,40}کنترل|کنترل.{0,60}ضعف|نقاط ضعف", t)))
-    f["audit_bourse_rules"] = int("سازمان بورس" in t and bool(re.search(r"دستورالعمل|مقررات", t)))
-    f["audit_aml"] = int(bool(re.search(r"مبارزه با پولشویی|پول ?شویی", t)))
-    f["audit_art141"] = int(bool(re.search(r"ماده ?141|ماده ۱۴۱", t)))
-    m = re.search(r"((?:موسسه|مؤسسه) حسابرسی\s+[^\n.،:;()\d]{2,45}?)(?=\s+(?:شماره|ثبت|حسابداران|حسابرس|مستقل|و بازرس|\d|$)|[\n.،:;(])", t)
-    f["audit_firm"] = m.group(1).strip() if m else None
-    f["audit_org"] = int("سازمان حسابرسی" in t)
+    ib = re.search(r"مبانی (?:عدم )?اظهار ?نظر", t); il = re.search(r"گزارش (?:در ?خصوص|راجع به) سایر الزامات|سایر الزامات قانونی و مقرراتی", t)
+    head = t[: ib.end() + 400] if ib else t[:6000]
+    f["audit_parse_ok"] = int(bool(ib))
+    disc = bool(re.search(r"عدم اظهار ?نظر|اظهار ?نظر نمی ?کنیم|نمی ?توانیم اظهار ?نظر", head)); adv = bool(re.search(r"اظهار ?نظر (?:مردود|نامطلوب)|نظر نامطلوب", head))
+    qual = bool(re.search(r"اظهار ?نظر مشروط|به استثنای|به استثناء", head)); clean = bool(re.search(r"منصفانه|مطلوب|مقبول", head))
+    f["audit_opinion"] = 3 if disc else 2 if adv else 1 if qual else (0 if clean else None)
+    ok = f["audit_opinion"] is not None
+    f["audit_qualified"] = int(qual and not disc and not adv) if ok else None; f["audit_disclaimer"] = int(disc) if ok else None; f["audit_adverse"] = int(adv and not disc) if ok else None
+    emp = _sec(t, r"تاکید بر مطلب خاص|تأکید بر مطلب خاص", [r"سایر بند ?های توضیحی", r"مسئولیت (?:های )?هیئت ?مدیره", r"مسئولیت تهیه", r"مبانی اظهار"], 8000)
+    f["audit_emphasis"] = int(emp is not None); f["audit_emphasis_items"] = _cnt(r"به شرح یادداشت", emp) if emp else 0
+    gc_zone = (emp or "") + " " + head
+    f["audit_going_concern"] = int(bool(re.search(r"ابهام\s*(?:با ?اهمیت|بااهمیت)?\s*(?:در ?خصوص|نسبت به)?\s*(?:تداوم|ادامه) فعالیت", gc_zone)))
+    f["audit_uncertainty_n"] = _cnt(r"ابهام", gc_zone)
+    leg = t[il.start():] if il else None
+    f["audit_other_resp"] = int(il is not None)
+    zone = leg if leg is not None else ""
+    f["audit_noncompl_n"] = _cnt(r"عدم رعایت|رعایت نشده|رعایت نگردیده|رعایت نشد|مغایرت", zone) if leg is not None else None
+    f["audit_icfr_weak"] = int(bool(re.search(r"(?:ضعف|نواقص).{0,80}کنترل|کنترل.{0,80}(?:ضعف|نواقص)", zone))) if leg is not None else None
+    f["audit_bourse_rules"] = int("سازمان بورس" in zone and bool(re.search(r"دستورالعمل|مقررات", zone))) if leg is not None else None
+    f["audit_aml"] = int(bool(re.search(r"مبارزه با پولشویی|پول ?شویی", zone))) if leg is not None else None
+    f["audit_art141"] = int(bool(re.search(r"ماده ?141", zone))) if leg is not None else None
+    m = re.search(r"(?:موسسه|مؤسسه) حسابرسی\s+([^\n.،:;()\d]{2,40}?)(?=\s+(?:شماره|ثبت|حسابداران|حسابرس|مستقل|و بازرس|عضو|\d|$)|[\n.،:;(])", t)
+    name = ("موسسه حسابرسی " + m.group(1).strip()) if m else None
+    if not name: name = match_auditor(t)
+    f["audit_firm"] = name; f["audit_org"] = int("سازمان حسابرسی" in t)
     return f
 
 KW = {
@@ -528,11 +588,10 @@ def notes_features(t):
     return f
 
 def split_fs_pdf(t):
-    """بخش گزارش حسابرس (قبل از صورت‌ها) و یادداشت‌های توضیحی (بعد از صورت‌ها)"""
-    m = re.search(r"صورت سود و زیان|صورت وضعیت مالی|ترازنامه", t[800:]) if t else None
-    if not m: return (t or "")[:15000], ""
-    i = 800 + m.start(); j = t.find("یادداشت", i + 2000)
-    return t[:i], (t[j:] if j > 0 else t[i:])
+    """بخش گزارش حسابرس (از «مبانی اظهارنظر» تا ۱۲ هزار نویسه بعد) و باقی (صورت‌ها و یادداشت‌ها)"""
+    if not t: return "", ""
+    m = re.search(r"مبانی (?:عدم )?اظهار ?نظر", t); cut = (m.start() + 12000) if m else 15000
+    return t[:cut], t[cut:]
 
 def fs_candidates(letters):
     """صورت‌های مالی سالانهٔ خود شرکت (نه زیرمجموعه‌ها) به تفکیک سال مالی: [(p, x)]، حسابرسی‌شده‌ها جلوتر"""
@@ -592,9 +651,9 @@ def _ext(data, ct=""):
     if data[:1] in (b"{", b"["): return ".json"
     return ".bin"
 
-def tse_letter_files(tse, no, base_dir, prefix, max_rows=6, include_notice=False, extract=True, parts_out=None):
+def tse_letter_files(tse, no, base_dir, prefix, max_rows=6, include_notice=False, extract=True, parts_out=None, allow_ocr=False):
     """PDF اطلاعیه و پیوست‌های یک نامه از cdn.tsetmc.com (بر اساس TracingNo). متن PDFها را برمی‌گرداند. (متن, وضعیت, فایل‌ها)"""
-    texts, files = [], []
+    texts, files, ocr_flag = [], [], []
     def put(name, data, ct):
         if base_dir:
             os.makedirs(base_dir, exist_ok=True); open(os.path.join(base_dir, name), "wb").write(data)
@@ -627,16 +686,16 @@ def tse_letter_files(tse, no, base_dir, prefix, max_rows=6, include_notice=False
             data, note = unwrap_payload(data); put(stem + _ext(data, ct), data, ct)
         files.append((tag, len(data), _ext(data)))
         if not extract: continue
-        if data[:4] == b"%PDF" and len(data) > 5000: t = pdf_text(data); t and texts.append(t)
+        if data[:4] == b"%PDF" and len(data) > 5000: t = pdf_text(data, allow_ocr=allow_ocr, ocr_used=ocr_flag); t and texts.append(t)
         elif data[:1] == b"<" and len(data) > 3000: texts.append(norm(re.sub(r"<[^>]+>", " ", data.decode("utf-8", "replace"))))
     if not files and not include_notice and tse is not None and not done:      # پیوست نداد (مثلاً ردیف ۵۰۰) ← خود محتوای نامه را امتحان کن
-        return tse_letter_files(tse, no, base_dir, prefix, 0, True, extract, parts_out)
+        return tse_letter_files(tse, no, base_dir, prefix, 0, True, extract, parts_out, allow_ocr)
     if tse is not None and not done and man_path:
         os.makedirs(base_dir, exist_ok=True); json.dump({"files": files}, open(man_path, "w", encoding="utf-8"))
     if parts_out is not None: parts_out.extend(t for t in texts if t)
     txt = "\n".join(t for t in texts if t)
     if not extract: return "", ("tse_downloaded" if files else "tse_بدون_فایل"), files
-    return txt, ("tse_ok" if len(txt) > 200 else ("tse_بدون_متن" if files else "tse_بدون_فایل")), files
+    return txt, (("tse_ok_ocr" if ocr_flag else "tse_ok") if len(txt) > 200 else ("tse_بدون_متن" if files else "tse_بدون_فایل")), files
 
 def title_code(title):
     """کد نوع نامه از روی عنوان (پاسخ تی‌اس‌ای‌سی کد ندارد)"""
@@ -687,7 +746,7 @@ def merge_tse_letters(st, rows):
         else: st["letters"].append(t); add += 1
     return upd, add
 
-OKSTAT = {"tse_ok", "tse_downloaded", "pdf_ok", "html_ok", "پیوست_ok", "downloaded"}
+OKSTAT = {"tse_ok", "tse_ok_ocr", "tse_downloaded", "pdf_ok", "html_ok", "پیوست_ok", "downloaded"}
 def doc_gaps(st, args):
     gaps = []
     for fy in range(max(args.fy_from, args.docs_from), args.fy_to + 1):
@@ -726,7 +785,7 @@ def collect_docs(st, cand, args, codal, log, save, tse=None, retry=False, source
         fb = file_base(args, st, fy, kind, x["no"]); d_ = os.path.dirname(fb) if fb else None
         src_ = source or args.docs_source
         if src_ in ("tse", "both") and (tse is not None or fb):
-            t, stt, _ = tse_letter_files(tse, x["no"], d_, os.path.basename(fb) if fb else kind + "_" + str(x["no"]), max_rows=min(max(x.get("n_att", 6), 1), 8), include_notice=(x.get("n_att") == 0), extract=EXTRACT, parts_out=parts_out)
+            t, stt, _ = tse_letter_files(tse, x["no"], d_, os.path.basename(fb) if fb else kind + "_" + str(x["no"]), max_rows=min(max(x.get("n_att", 6), 1), 8), include_notice=(x.get("n_att") == 0), extract=EXTRACT, parts_out=parts_out, allow_ocr=(kind == "audit_FS"))
             if t or src_ == "tse": return t, stt
         t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
         if stt == "downloaded": return t, stt
@@ -1079,6 +1138,7 @@ def pdf_check(args, n=60):
     for r in sorted(res, key=lambda r: r[3])[:12]: print(f"  {r[3]:7.0f} حرف/صفحه | {r[2]:4d} صفحه | {r[1]:6d} KB | {r[0]}")
 
 def _parse_one(args, sym, company, fid):
+    configure_ocr(args)
     try: process_firm(sym, company, fid, args, None, None, args.out, lambda m: None); return sym, None
     except Exception as e: return sym, "%s %s" % (type(e).__name__, str(e)[:100])
 
@@ -1114,6 +1174,11 @@ def main():
     ap.add_argument("--file-gaps", action="store_true", help="فقط پوشهٔ codal_files را اسکن کن و گزارش بده کدام شرکت-سال کدام فایل را ندارد (file_gaps.csv)")
     ap.add_argument("--inspect", default=None, help="نماد یک شرکت: وضعیت و آزمایش زندهٔ دانلود گزارش هیئت‌مدیره/کنترل داخلی را برای همهٔ سال‌ها چاپ می‌کند")
     ap.add_argument("--pdf-check", action="store_true", help="نمونه‌ای از PDFها را بررسی کن: متن دارند یا عکس‌اند؟ (برای تصمیم دربارهٔ OCR)")
+    ap.add_argument("--ocr", action="store_true", help="برای PDFهای اسکن‌شدهٔ صورت مالی (بدون لایهٔ متنی) OCR فارسی انجام بده (فقط چند صفحهٔ اول = گزارش حسابرس)")
+    ap.add_argument("--ocr-pages", type=int, default=8, help="تعداد صفحهٔ اول برای OCR (۸ = جلد+فهرست+گزارش حسابرس؛ برای یادداشت‌ها بیشتر، مثلاً ۴۰)")
+    ap.add_argument("--ocr-dpi", type=int, default=150); ap.add_argument("--ocr-lang", default="fas")
+    ap.add_argument("--tesseract-cmd", default=None, help=r"مسیر tesseract.exe، مثلاً C:\Program Files\Tesseract-OCR\tesseract.exe")
+    ap.add_argument("--ocr-test", default=None, help="مسیر یک PDF: OCR را روی آن آزمایش کن و ویژگی‌های حسابرس را چاپ کن")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
@@ -1125,7 +1190,10 @@ def main():
             dst = os.path.join(args.out, "firms", fn)
             if not os.path.exists(dst): shutil.copy2(os.path.join(args.seed_from, "firms", fn), dst)
     if args.build: return build(args.out, args)
-    global NO_EXTRACT; NO_EXTRACT = bool(args.download_only and not args.reparse)
+    global NO_EXTRACT; NO_EXTRACT = bool(args.download_only and not args.reparse); configure_ocr(args)
+    if args.ocr_test:
+        d_ = open(args.ocr_test, "rb").read(); OCR["on"] = True; u_ = []; t_ = pdf_text(d_, allow_ocr=True, ocr_used=u_) or ""
+        print("OCR استفاده شد:" , bool(u_), "| طول متن:", len(t_)); rep_, nts_ = split_fs_pdf(t_); print({k: v for k, v in audit_features(rep_ or t_).items()}); print("نمونهٔ متن:", t_[:400]); return
     S = pd.read_csv(args.symbols, dtype=str, encoding="utf-8-sig"); S = S.head(args.pilot) if args.pilot else S
     pk, pn = (int(x) for x in args.part.split("/")); sz = -(-len(S) // pn); S = S.iloc[(pk - 1) * sz: pk * sz]; print(f"بخش {pk}/{pn}: {len(S)} شرکت | مرحله: {args.stage}")
     codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests, cookie=args.cookie, user_agent=args.user_agent, search_interval=args.search_interval)), Tse()
