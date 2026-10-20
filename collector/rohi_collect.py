@@ -654,7 +654,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
     st = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {"symbol": sym, "company": company, "firm_id": int(firm_id)}
     def save(): json.dump(st, open(path, "w", encoding="utf-8"), ensure_ascii=False)
     sig = "%s-%s-%d-%s" % (args.fy_from, args.fy_to, int(args.docs), args.docs_from)
-    if args.stage != "tse" and not args.reparse and not args.force and st.get("complete_sig") == sig:
+    if args.stage not in ("tse", "docs-tse") and not args.reparse and not args.force and st.get("complete_sig") == sig:
         log("  ✓ از قبل کامل است؛ رد شد (بدون درخواست)"); return st
     if args.reparse: st.pop("excel", None); st.pop("docs", None)
     # --- ۱) TSETMC (بدون کپچا) ---
@@ -699,7 +699,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
         p = parse_title(x["title"])
         if p["annual"] and p["audited"] and not p["other_company"] and x.get("excel") and p["fiscal_year"]: cand[p["fiscal_year"]].append((p, x))
     st.setdefault("excel", {})
-    for fy, lst in sorted(cand.items()):
+    for fy, lst in (sorted(cand.items()) if args.stage != "docs-tse" else []):
         e0 = st["excel"].get(str(fy), {})
         if "f" in e0 or fy < args.fy_from or fy > args.fy_to: continue
         if e0 and not args.retry_failed and e0.get("tries", 1) >= 1 and codal is not None: continue   # قبلاً یک بار امتحان شده
@@ -718,6 +718,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
         else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد: " + str(codal.excel_err if codal is not None else "فایل موجود نیست"), "source_no": best["no"], "title": norm(best["title"])[:100], "tries": e0.get("tries", 0) + (1 if codal is not None else 0)}; log(f"  ⚠ اکسل FY{fy} خوانده نشد ({codal.excel_err if codal is not None else "فایل موجود نیست"})")
         save()
     if args.docs: collect_docs(st, cand, args, codal, log, save, tse)
+    if args.stage == "docs-tse": save(); return st
     st["done"] = True; st["complete_sig"] = sig; save(); return st
 
 def build(out_dir, args):
@@ -828,7 +829,7 @@ def main():
     ap.add_argument("--symbols", default="my_symbols.csv"); ap.add_argument("--out", default="out_codal"); ap.add_argument("--seed-from", default="out", help="پوشهٔ داده‌های قبلی (بازار) که در --out کپی می‌شود"); ap.add_argument("--fy-from", type=int, default=1394); ap.add_argument("--fy-to", type=int, default=1404)
     ap.add_argument("--pilot", type=int, default=0, help="فقط N شرکت اول"); ap.add_argument("--min-interval", type=float, default=7.0, help="حداقل فاصله درخواست‌های کدال (ثانیه)")
     ap.add_argument("--max-requests", type=int, default=150, help="سقف درخواست کدال در هر دسته، سپس استراحت"); ap.add_argument("--build", action="store_true")
-    ap.add_argument("--stage", choices=["tse", "codal", "all"], default="all", help="tse = فقط بازار (بدون کدال)؛ codal = بازار+کدال")
+    ap.add_argument("--stage", choices=["tse", "docs-tse", "codal", "all"], default="all", help="tse = فقط بازار؛ docs-tse = اسناد (حسابرس/هیئت‌مدیره/کنترل داخلی) از تی‌اس‌ای‌سی بدون کپچا، فقط برای شرکت‌هایی که فهرست نامه‌هایشان قبلاً گرفته شده؛ codal = بازار+کدال")
     ap.add_argument("--part", default="1/1", help="برای تقسیم کدال به چند مرحله: k/n مثلاً 2/5 یعنی بخش دوم از پنج بخش")
     ap.add_argument("--workers", type=int, default=6, help="تعداد رشته‌های هم‌زمان برای مرحلهٔ tse")
     ap.add_argument("--no-client", action="store_true", default=True, help="حقیقی/حقوقی را نگیر (تا آدرس درست پیدا شود)")
@@ -859,14 +860,14 @@ def main():
     pk, pn = (int(x) for x in args.part.split("/")); sz = -(-len(S) // pn); S = S.iloc[(pk - 1) * sz: pk * sz]; print(f"بخش {pk}/{pn}: {len(S)} شرکت | مرحله: {args.stage}")
     codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests, cookie=args.cookie, user_agent=args.user_agent, search_interval=args.search_interval)), Tse()
     t0 = time.time(); wait_min = args.wait_start
-    if args.stage != "tse" and not args.reparse:
+    if args.stage not in ("tse", "docs-tse") and not args.reparse:
         sig = "%s-%s-%d-%s" % (args.fy_from, args.fy_to, int(args.docs), args.docs_from); done = 0
         for _, r_ in S.iterrows():
             p_ = os.path.join(args.out, "firms", f"{re.sub(r'[^0-9A-Za-z_]', '_', norm(r_['Symbol'])) or 'x'}_{int(float(r_.get('firm_id', 0)))}.json")
             try: done += int(json.load(open(p_, encoding="utf-8")).get("complete_sig") == sig)
             except Exception: pass
         print(f"از {len(S)} شرکت این بخش، {done} شرکت از قبل کامل است و بدون درخواست رد می‌شود.")
-    if args.stage == "tse":
+    if args.stage in ("tse", "docs-tse"):
         from concurrent.futures import ThreadPoolExecutor
         def work(item):
             i, r = item; sym = norm(r["Symbol"]); fid = int(float(r.get("firm_id", i))); T = Tse(min_interval=0.3)
