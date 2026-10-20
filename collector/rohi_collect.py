@@ -292,7 +292,7 @@ class Tse:
         for i in range(3):
             try:
                 r = requests.get(url, headers={**UA, "Connection": "close"}, timeout=(15, 120)); st_, data, ct = r.status_code, r.content, r.headers.get("Content-Type", "")
-                if st_ in (429, 500, 502, 503, 504): time.sleep(10 * (i + 1)); continue
+                if st_ in (429, 502, 503, 504): time.sleep(8 * (i + 1)); continue
                 return st_, data, ct
             except Exception as ex: self.err = str(ex)[:100]; time.sleep(8 * (i + 1))
         return st_, data, ct
@@ -530,6 +530,25 @@ def split_fs_pdf(t):
     i = 800 + m.start(); j = t.find("یادداشت", i + 2000)
     return t[:i], (t[j:] if j > 0 else t[i:])
 
+def fs_candidates(letters):
+    """صورت‌های مالی سالانهٔ خود شرکت (نه زیرمجموعه‌ها) به تفکیک سال مالی: [(p, x)]، حسابرسی‌شده‌ها جلوتر"""
+    out = collections.defaultdict(list)
+    for x in letters:
+        if lcode(x["code"]) != "ن-10": continue
+        p = parse_title(x["title"])
+        other = bool(p["other_company"]) and x.get("other_co", True)   # پرانتز «(شرکت ...)» در عنوان و نام ناشر متفاوت از نام اصلی
+        if p["annual"] and p["fiscal_year"] and not other: out[p["fiscal_year"]].append((p, x))
+    for fy in out:   # جدیدترین اول، سپس: حسابرسی‌شده، دارای پیوست/اکسل، غیرتلفیقی، بدون اصلاحیه
+        out[fy].sort(key=lambda px: norm(px[1]["pub"] or ""), reverse=True)
+        out[fy].sort(key=lambda px: (-px[0]["audited"], -int(bool(px[1].get("n_att", 1) or px[1].get("pdf"))), px[0]["consolidated"], px[0]["amendment"]))
+    return out
+
+def letter_fy(x, fye_md):
+    """سال مالی نامه: اول از تاریخ پایان دورهٔ داخل عنوان؛ وگرنه سال انتشار منهای ۱ (گزارش‌های سالانه پس از پایان سال منتشر می‌شوند)"""
+    p = parse_title(x["title"])
+    if p["fiscal_year"]: return p["fiscal_year"]
+    y = fiscal_year_of(x["pub"], fye_md); return y - 1 if y else None
+
 def fye_of(letters):
     mds = collections.Counter()
     for x in letters:
@@ -570,13 +589,23 @@ def tse_letter_files(tse, no, base_dir, prefix, max_rows=6, include_notice=False
     def put(name, data, ct):
         if base_dir:
             os.makedirs(base_dir, exist_ok=True); open(os.path.join(base_dir, name), "wb").write(data)
-    def cached(name_stem):
-        if base_dir and os.path.isdir(base_dir):
-            for f in os.listdir(base_dir):
-                if f.startswith(name_stem + ".") and os.path.getsize(os.path.join(base_dir, f)) > 0: return open(os.path.join(base_dir, f), "rb").read()
+    def locate(name_stem):
+        """فایل را در پوشهٔ همین سال یا (برای فایل‌های جابه‌جاشده) در پوشهٔ سال‌های دیگر همین شرکت پیدا و به پوشهٔ درست منتقل می‌کند"""
+        if not base_dir: return None
+        dirs = [base_dir] + ([os.path.join(os.path.dirname(base_dir), d) for d in os.listdir(os.path.dirname(base_dir)) if os.path.join(os.path.dirname(base_dir), d) != base_dir] if os.path.isdir(os.path.dirname(base_dir)) else [])
+        for d_ in dirs:
+            if not os.path.isdir(d_): continue
+            for f in os.listdir(d_):
+                if f.startswith(name_stem) and os.path.getsize(os.path.join(d_, f)) > 0:
+                    if d_ != base_dir:
+                        import shutil; os.makedirs(base_dir, exist_ok=True); shutil.move(os.path.join(d_, f), os.path.join(base_dir, f))
+                    return os.path.join(base_dir, f)
         return None
+    def cached(name_stem):
+        p_ = locate(name_stem + ".")
+        return open(p_, "rb").read() if p_ else None
     man_path = os.path.join(base_dir, prefix + "_manifest.json") if base_dir else None
-    done = bool(man_path and os.path.exists(man_path))
+    done = bool(base_dir and locate(prefix + "_manifest.json"))
     jobs = ([("notice", f"{TSE}/Codal/GetContentFileByTracingNo/{no}/1")] if include_notice else []) + [("att%d" % r, f"{TSE}/Codal/GetAttachmentContentFileByTracingNoAndRowOrder/{no}/{r}") for r in range(1, max_rows + 1)]
     for tag, url in jobs:
         stem = prefix + "_" + tag; data = cached(stem)
@@ -609,14 +638,17 @@ def letters_from_tse(rows):
     """ردیف‌های GetPreparedDataByInsCode (هر ردیف = یک پیوست) → فهرست نامه‌ها با ساختار سازگار با کدال"""
     by = collections.OrderedDict()
     for r_ in rows:
-        no = str(r_.get("tracingNo")); e = by.setdefault(no, {"no": int(no) if no.isdigit() else no, "code": title_code(r_.get("title") or ""), "title": r_.get("title"),
+        no = str(r_.get("tracingNo")); e = by.setdefault(no, {"co_name": r_.get("name"), "no": int(no) if no.isdigit() else no, "code": title_code(r_.get("title") or ""), "title": r_.get("title"),
               "pub": None, "excel": None, "has_excel": int(r_.get("hasExcelReport") or 0) == 1, "url": "", "pdf": "", "att": "", "atts": []})
         pg = r_.get("publishDateTime_Gregorian")
         if pg and not e["pub"]:
             m = re.match(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2}:\d{2})", pg)
             if m: jy, jm, jd = g2j(int(m.group(1)), int(m.group(2)), int(m.group(3))); e["pub"] = "%04d/%02d/%02d %s" % (jy, jm, jd, m.group(4))
         if r_.get("attachmentID"): e["atts"].append({"id": r_.get("attachmentID"), "name": r_.get("fileName"), "ext": r_.get("fileExtension"), "ctype": r_.get("contentType")})
-    for e in by.values(): e["atts"].sort(key=lambda a: a["id"]); e["n_att"] = len(e["atts"])
+    main = collections.Counter(e["co_name"] for e in by.values() if e["co_name"]).most_common(1)
+    main = main[0][0] if main else None
+    for e in by.values():
+        e["atts"].sort(key=lambda a: a["id"]); e["n_att"] = len(e["atts"]); e["other_co"] = bool(main and e["co_name"] and e["co_name"] != main)
     return list(by.values())
 
 def tse_excel(tse, no, types=(2, 3, 4, 0, 5, 6)):
@@ -629,23 +661,46 @@ def tse_excel(tse, no, types=(2, 3, 4, 0, 5, 6)):
             if "<table" in txt[:20000].lower() and "<h3" in txt.lower(): return txt
     return None
 
+OKSTAT = {"tse_ok", "pdf_ok", "html_ok", "پیوست_ok"}
+def doc_gaps(st, args):
+    gaps = []
+    for fy in range(max(args.fy_from, args.docs_from), args.fy_to + 1):
+        d = st.get("docs", {}).get(str(fy), {})
+        for k, key in (("audit", "audit_status"), ("board", "br_status"), ("ic", "ic_status")):
+            if (d.get(k) or {}).get(key) not in OKSTAT: gaps.append((fy, k))
+    return gaps
+
+def merge_codal_letters(st, L):
+    idx = {str(x["no"]): x for x in st["letters"]}; added = 0
+    for x in L:
+        k = str(x.get("TracingNo")); new = {"no": x.get("TracingNo"), "code": x.get("LetterCode"), "title": x.get("Title"), "pub": x.get("PublishDateTime"), "excel": x.get("ExcelUrl"),
+                                           "url": x.get("Url"), "pdf": x.get("PdfUrl"), "att": x.get("AttachmentUrl"), "src": "codal"}
+        if k in idx:
+            e = idx[k]
+            for f in ("excel", "url", "pdf", "att"):
+                if not e.get(f) and new.get(f): e[f] = new[f]
+            if not e.get("code") and new["code"]: e["code"] = new["code"]
+        else: st["letters"].append(new); added += 1
+    return added
+
 RETRY = {"فایل_موجود_نیست", "دریافت_نشد", "پیوست_بدون_لینک", "پیوست_بدون_متن", "pdf_بدون_متن", "بدون_pdf", "tse_بدون_فایل", "tse_بدون_متن"}
-def collect_docs(st, cand, args, codal, log, save, tse=None):
-    docs = st.setdefault("docs", {}); letters = st["letters"]; fye_md = fye_of(letters)
+def collect_docs(st, cand, args, codal, log, save, tse=None, retry=False, source=None):
+    docs = st.setdefault("docs", {}); letters = st["letters"]; fye_md = fye_of(letters); fs_all = fs_candidates(letters)
     by = {"board": collections.defaultdict(list), "ic": collections.defaultdict(list)}
     for x in letters:
-        cat = classify(x["code"], x["title"]); fy = fiscal_year_of(x["pub"], fye_md)
+        cat = classify(x["code"], x["title"]); fy = letter_fy(x, fye_md)
         if fy and cat == "board_report": by["board"][fy].append(x)
         elif fy and cat == "internal_control": by["ic"][fy].append(x)
     def need(entry, key):
         if not entry: return True
-        return args.retry_failed and entry.get(key) in RETRY
+        return (args.retry_failed or retry) and entry.get(key) in RETRY
     def letter_text(x, kind, fy):
         """متن‌های یک نامه: ابتدا تی‌اس‌ای‌سی (بدون کپچا)، سپس در صورت --docs-source both از کدال"""
         fb = file_base(args, st, fy, kind, x["no"]); d_ = os.path.dirname(fb) if fb else None
-        if args.docs_source in ("tse", "both") and (tse is not None or fb):
+        src_ = source or args.docs_source
+        if src_ in ("tse", "both") and (tse is not None or fb):
             t, stt, _ = tse_letter_files(tse, x["no"], d_, os.path.basename(fb) if fb else kind + "_" + str(x["no"]), max_rows=min(max(x.get("n_att", 6), 1), 8), include_notice=(x.get("n_att") == 0))
-            if t or args.docs_source == "tse": return t, stt
+            if t or src_ == "tse": return t, stt
         t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
         if not t: t, stt, _ = attachment_texts(codal, x, d_, "%s_%s" % (kind, x["no"]))
         return t, stt
@@ -653,10 +708,11 @@ def collect_docs(st, cand, args, codal, log, save, tse=None):
     for fy in range(max(args.fy_from, args.docs_from), args.fy_to + 1):
         d = docs.setdefault(str(fy), {})
         # گزارش حسابرس (از PDF صورت مالی حسابرسی‌شدهٔ سالانه)
-        if need(d.get("audit"), "audit_status") and cand.get(fy):
-            lst = sorted(cand[fy], key=lambda px: norm(px[1]["pub"]), reverse=True); lst.sort(key=lambda px: (px[0]["consolidated"], px[0]["amendment"]))
-            x = lst[0][1]; t, stt = letter_text(x, "audit_FS", fy)
-            rep, nts = split_fs_pdf(t); d["audit"] = {**(audit_features(rep) if t else {}), **(notes_features(nts) if len(nts) > 500 else {}), "audit_status": stt, "audit_src_no": x["no"]}; save(); log(f"  حسابرس FY{fy}: {stt} | اظهارنظر={d['audit'].get('audit_opinion')} | {d['audit'].get('audit_firm')}")
+        if need(d.get("audit"), "audit_status") and fs_all.get(fy):
+            for px_ in fs_all[fy][:4]:                      # حسابرسی‌شده‌ها اول؛ اگر فایل نداشت نسخهٔ بعدی
+                x = px_[1]; t, stt = letter_text(x, "audit_FS", fy)
+                if t and len(t) > 500: break
+            rep, nts = split_fs_pdf(t); d["audit"] = {**(audit_features(rep) if t else {}), **(notes_features(nts) if len(nts) > 500 else {}), "audit_status": stt, "audit_src_no": x["no"], "audit_fs_audited": px_[0]["audited"], "audit_fs_consol": px_[0]["consolidated"]}; save(); log(f"  حسابرس FY{fy}: {stt} | اظهارنظر={d['audit'].get('audit_opinion')} | {d['audit'].get('audit_firm')}")
         if need(d.get("board"), "br_status") and by["board"].get(fy):
             x = sorted(by["board"][fy], key=lambda z: norm(z["pub"]))[-1]; t, stt = letter_text(x, "board_report", fy)
             d["board"] = {**(text_features(t, "br") if t else {}), "br_status": stt, "br_src_no": x["no"]}; save(); log(f"  گزارش هیئت‌مدیره FY{fy}: {stt}")
@@ -739,19 +795,24 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
             L = codal.list_letters(sym, args.fy_from, args.fy_to, tuple(args.letter_types.split(",")) if args.fast_list else ("-1",), state=lst, save=save)
             st["letters"] = [{"no": x.get("TracingNo"), "code": x.get("LetterCode"), "title": x.get("Title"), "pub": x.get("PublishDateTime"), "excel": x.get("ExcelUrl"), "url": x.get("Url"), "pdf": x.get("PdfUrl"), "att": x.get("AttachmentUrl")} for x in L]
             st.pop("_list", None); save(); log(f"  کدال: {len(L)} نامه")
+    if args.docs and st.get("docs_v") != 2: st["docs"] = {}; st["docs_v"] = 2            # تخصیص سال بر اساس عنوان (نسخهٔ ۲)
+    merged_now = False
+    if args.fill_codal and codal is not None and not st.get("codal_merged") and doc_gaps(st, args):
+        lstf = st.setdefault("_listfull", {})
+        log(f"  ⟲ تکمیل از کدال: {len(doc_gaps(st, args))} مورد ناقص؛ فهرست کامل کدال گرفته می‌شود")
+        Lc = codal.list_letters(sym, args.fy_from, args.fy_to, ("-1",), state=lstf, save=save)
+        n_add = merge_codal_letters(st, Lc); st["codal_merged"] = True; st.pop("_listfull", None); save(); merged_now = True
+        log(f"  فهرست کدال: {len(Lc)} نامه، {n_add} نامهٔ جدید به فهرست اضافه شد")
     # --- ۳) اکسل صورت مالی سالانه حسابرسی‌شده برای هر سال مالی ---
     cand = collections.defaultdict(list)
-    for x in st["letters"]:
-        if lcode(x["code"]) != "ن-10": continue
-        p = parse_title(x["title"])
-        if p["annual"] and p["audited"] and not p["other_company"] and (x.get("excel") or x.get("has_excel")) and p["fiscal_year"]: cand[p["fiscal_year"]].append((p, x))
+    for fy_, lst_ in fs_candidates(st["letters"]).items():
+        lst_ = [px for px in lst_ if px[1].get("excel") or px[1].get("has_excel")]
+        if lst_: cand[fy_] = lst_
     st.setdefault("excel", {})
     for fy, lst in (sorted(cand.items()) if args.stage != "docs-tse" else []):
         e0 = st["excel"].get(str(fy), {})
         if "f" in e0 or fy < args.fy_from or fy > args.fy_to: continue
         if e0 and not args.retry_failed and e0.get("tries", 1) >= 1 and codal is not None: continue   # قبلاً یک بار امتحان شده
-        lst.sort(key=lambda px: norm(px[1]["pub"]), reverse=True)            # جدیدترین اول
-        lst.sort(key=lambda px: (px[0]["consolidated"], px[0]["amendment"]))  # پایدار: غیرتلفیقی، بدون اصلاحیه
         best = lst[0][1]
         xb0 = file_base(args, st, fy, "FS_excel", best["no"]); xb = (xb0 + ".xls") if xb0 else None; html = None
         if xb and os.path.exists(xb) and os.path.getsize(xb) > 0: html = open(xb, "rb").read().decode("utf-8", "replace")
@@ -772,6 +833,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
         else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد: " + str(codal.excel_err if codal is not None else "اکسل از تی‌اس‌ای‌سی/دیسک در دسترس نبود"), "source_no": best["no"], "title": norm(best["title"])[:100], "tries": e0.get("tries", 0) + (1 if codal is not None else 0)}; log(f"  ⚠ اکسل FY{fy} خوانده نشد ({codal.excel_err if codal is not None else "اکسل از تی‌اس‌ای‌سی/دیسک در دسترس نبود"})")
         save()
     if args.docs: collect_docs(st, cand, args, codal, log, save, tse)
+    if args.docs and merged_now: collect_docs(st, cand, args, codal, log, save, tse, retry=True, source="both")
     if args.stage == "docs-tse": save(); return st
     st["done"] = True; st["complete_sig"] = sig; save(); return st
 
@@ -902,6 +964,7 @@ def main():
     ap.add_argument("--search-interval", type=float, default=5.0, help="فاصلهٔ درخواست‌های جست‌وجوی فهرست نامه‌ها (ثانیه)؛ جدا از --min-interval که برای فایل‌هاست")
     ap.add_argument("--docs-source", choices=["tse", "codal", "both"], default="tse", help="منبع PDF/پیوست‌ها: tse = cdn.tsetmc.com (بدون کپچا، پیش‌فرض)، codal، یا both")
     ap.add_argument("--list-source", choices=["tse", "codal"], default="tse", help="منبع فهرست نامه‌ها: tse = یک درخواست از cdn.tsetmc.com (بدون کپچا، پیش‌فرض)؛ codal = جست‌وجوی صفحه‌به‌صفحهٔ کدال")
+    ap.add_argument("--fill-codal", action="store_true", help="برای شرکت-سال‌هایی که از تی‌اس‌ای‌سی ناقص مانده، فهرست کامل کدال را بگیر و آنچه نبود را از کدال تکمیل کن")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
@@ -925,7 +988,7 @@ def main():
     if args.stage in ("tse", "docs-tse"):
         from concurrent.futures import ThreadPoolExecutor
         def work(item):
-            i, r = item; sym = norm(r["Symbol"]); fid = int(float(r.get("firm_id", i))); T = Tse(min_interval=0.3)
+            i, r = item; sym = norm(r["Symbol"]); fid = int(float(r.get("firm_id", i))); T = Tse(min_interval=0.15)
             try: process_firm(sym, r.get("company", ""), fid, args, None, T, args.out, lambda m, sym=sym: print(f"[{sym}]{m}"))
             except Exception as ex: print(f"[{sym}] ⚠ خطا: {type(ex).__name__} {str(ex)[:100]}")
         with ThreadPoolExecutor(args.workers) as ex: list(ex.map(work, list(S.iterrows())))
