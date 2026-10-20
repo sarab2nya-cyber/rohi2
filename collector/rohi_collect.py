@@ -1057,6 +1057,27 @@ def inspect_firm(S, args):
         d = (st.get("docs") or {}).get(str(fy), {})
         print("  ثبت‌شده:", {k: (v.get("br_status") or v.get("ic_status") or v.get("audit_status")) for k, v in d.items()})
 
+def pdf_check(args, n=60):
+    """نمونه‌ای از PDFهای ذخیره‌شده را می‌خواند و می‌گوید چند درصدشان لایهٔ متنی دارند (بقیه اسکن/عکس‌اند و OCR می‌خواهند)"""
+    import random
+    try: from pypdf import PdfReader
+    except Exception: print("pypdf نصب نیست: pip install pypdf"); return
+    files = []
+    for root, _, fs in os.walk(args.files_dir):
+        for f in fs:
+            if f.lower().endswith(".pdf") and not f.endswith("_notice.pdf"): files.append(os.path.join(root, f))
+    if not files: print("هیچ PDFای در", args.files_dir, "نیست"); return
+    random.seed(1); smp = random.sample(files, min(n, len(files))); res = []
+    for p in smp:
+        try:
+            rd = PdfReader(p); pg = len(rd.pages); k = min(pg, 4); ch = [len((rd.pages[i].extract_text() or "").strip()) for i in range(k)]
+            res.append((os.path.relpath(p, args.files_dir), os.path.getsize(p) // 1024, pg, sum(ch) / max(k, 1)))
+        except Exception as e: res.append((os.path.relpath(p, args.files_dir), os.path.getsize(p) // 1024, -1, -1))
+    ok = [r for r in res if r[3] >= 200]; bad = [r for r in res if 0 <= r[3] < 200]; err = [r for r in res if r[3] < 0]
+    print(f"از {len(files)} PDF، {len(res)} نمونه بررسی شد:  دارای متن: {len(ok)} | عکس/بدون متن: {len(bad)} | قابل‌خواندن‌نبودن: {len(err)}")
+    print("  (معیار: میانگین حروف در ۴ صفحهٔ اول ≥ ۲۰۰ ⇒ متن دارد)")
+    for r in sorted(res, key=lambda r: r[3])[:12]: print(f"  {r[3]:7.0f} حرف/صفحه | {r[2]:4d} صفحه | {r[1]:6d} KB | {r[0]}")
+
 def _parse_one(args, sym, company, fid):
     try: process_firm(sym, company, fid, args, None, None, args.out, lambda m: None); return sym, None
     except Exception as e: return sym, "%s %s" % (type(e).__name__, str(e)[:100])
@@ -1092,6 +1113,7 @@ def main():
     ap.add_argument("--download-only", action="store_true", help="فقط دانلود و ذخیرهٔ فایل؛ هیچ استخراجی (اکسل/PDF) انجام نشود. استخراج بعداً با --reparse")
     ap.add_argument("--file-gaps", action="store_true", help="فقط پوشهٔ codal_files را اسکن کن و گزارش بده کدام شرکت-سال کدام فایل را ندارد (file_gaps.csv)")
     ap.add_argument("--inspect", default=None, help="نماد یک شرکت: وضعیت و آزمایش زندهٔ دانلود گزارش هیئت‌مدیره/کنترل داخلی را برای همهٔ سال‌ها چاپ می‌کند")
+    ap.add_argument("--pdf-check", action="store_true", help="نمونه‌ای از PDFها را بررسی کن: متن دارند یا عکس‌اند؟ (برای تصمیم دربارهٔ OCR)")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
@@ -1109,6 +1131,7 @@ def main():
     codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests, cookie=args.cookie, user_agent=args.user_agent, search_interval=args.search_interval)), Tse()
     t0 = time.time(); wait_min = args.wait_start
     if args.file_gaps: return file_gaps(S, args)
+    if args.pdf_check: return pdf_check(args)
     if args.inspect: return inspect_firm(S, args)
     if args.reparse:
         from concurrent.futures import ProcessPoolExecutor, as_completed
