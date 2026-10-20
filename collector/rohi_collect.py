@@ -280,6 +280,10 @@ class Tse:
                 return None
             except Exception as ex: self.err = str(ex)[:100]; self.log(f"    … تی‌اس‌ای‌سی پاسخ نداد ({type(ex).__name__})، تلاش {i + 1}/3"); time.sleep(10 * (i + 1))
         return None
+    def codal_list(self, ins):
+        """فهرست کامل اطلاعیه‌های کدال یک نماد از تی‌اس‌ای‌سی (یک درخواست، بدون کپچا)"""
+        j = self.get(f"{TSE}/Codal/GetPreparedDataByInsCode/99999/{ins}")
+        return (j or {}).get("preparedData") or []
     def raw(self, url):
         """بایت‌های خام؛ (وضعیت, محتوا, نوع). برای فایل‌های کدال روی تی‌اس‌ای‌سی (بدون کپچا)"""
         dt = time.time() - self.last
@@ -591,6 +595,40 @@ def tse_letter_files(tse, no, base_dir, prefix, max_rows=6):
     txt = "\n".join(t for t in texts if t)
     return txt, ("tse_ok" if len(txt) > 200 else ("tse_بدون_متن" if files else "tse_بدون_فایل")), files
 
+def title_code(title):
+    """کد نوع نامه از روی عنوان (پاسخ تی‌اس‌ای‌سی کد ندارد)"""
+    t = norm(title)
+    for pat, c in ((r"گزارش کنترل|کنترل ?های داخلی", "ن-12"), (r"گزارش فعالیت ماهانه", "ن-30"), (r"گزارش فعالیت هیئت", "ن-11"), (r"توضیحات در خصوص اطلاعات", "ن-26"),
+                   (r"صورت ?های مالی", "ن-10"), (r"کمیته حسابرسی", "ن-41"), (r"تغییر در ترکیب اعضای", "ن-45"), (r"کمیته انتصابات", "ن-86"),
+                   (r"آگهی ثبت تصمیمات مجمع", "ن-42"), (r"تصمیمات مجمع", "ن-52"), (r"دعوت به مجمع عمومی فوق", "ن-56"), (r"دعوت به مجمع", "ن-50"),
+                   (r"افزایش سرمایه", "ن-60"), (r"اظهارنظر حسابرس", "ن-61")):
+        if re.search(pat, t): return c
+    return None
+
+def letters_from_tse(rows):
+    """ردیف‌های GetPreparedDataByInsCode (هر ردیف = یک پیوست) → فهرست نامه‌ها با ساختار سازگار با کدال"""
+    by = collections.OrderedDict()
+    for r_ in rows:
+        no = str(r_.get("tracingNo")); e = by.setdefault(no, {"no": int(no) if no.isdigit() else no, "code": title_code(r_.get("title") or ""), "title": r_.get("title"),
+              "pub": None, "excel": None, "has_excel": int(r_.get("hasExcelReport") or 0) == 1, "url": "", "pdf": "", "att": "", "atts": []})
+        pg = r_.get("publishDateTime_Gregorian")
+        if pg and not e["pub"]:
+            m = re.match(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2}:\d{2})", pg)
+            if m: jy, jm, jd = g2j(int(m.group(1)), int(m.group(2)), int(m.group(3))); e["pub"] = "%04d/%02d/%02d %s" % (jy, jm, jd, m.group(4))
+        if r_.get("attachmentID"): e["atts"].append({"id": r_.get("attachmentID"), "name": r_.get("fileName"), "ext": r_.get("fileExtension"), "ctype": r_.get("contentType")})
+    for e in by.values(): e["atts"].sort(key=lambda a: a["id"]); e["n_att"] = len(e["atts"])
+    return list(by.values())
+
+def tse_excel(tse, no, types=(2, 3, 4, 0, 5, 6)):
+    """تلاش برای گرفتن اکسل نامه از تی‌اس‌ای‌سی بر اساس TracingNo (نوع فایل را حدس می‌زند). متن HTML-xls یا None"""
+    for t in types:
+        st_, data, ct = tse.raw(f"{TSE}/Codal/GetContentFileByTracingNo/{no}/{t}")
+        if st_ == 200 and len(data) > 20000:
+            data, _ = unwrap_payload(data)
+            txt = data.decode("utf-8", "replace")
+            if "<table" in txt[:20000].lower() and "<h3" in txt.lower(): return txt
+    return None
+
 RETRY = {"فایل_موجود_نیست", "دریافت_نشد", "پیوست_بدون_لینک", "پیوست_بدون_متن", "pdf_بدون_متن", "بدون_pdf", "tse_بدون_فایل", "tse_بدون_متن"}
 def collect_docs(st, cand, args, codal, log, save, tse=None):
     docs = st.setdefault("docs", {}); letters = st["letters"]; fye_md = fye_of(letters)
@@ -606,7 +644,7 @@ def collect_docs(st, cand, args, codal, log, save, tse=None):
         """متن‌های یک نامه: ابتدا تی‌اس‌ای‌سی (بدون کپچا)، سپس در صورت --docs-source both از کدال"""
         fb = file_base(args, st, fy, kind, x["no"]); d_ = os.path.dirname(fb) if fb else None
         if args.docs_source in ("tse", "both") and (tse is not None or fb):
-            t, stt, _ = tse_letter_files(tse, x["no"], d_, os.path.basename(fb) if fb else kind + "_" + str(x["no"]))
+            t, stt, _ = tse_letter_files(tse, x["no"], d_, os.path.basename(fb) if fb else kind + "_" + str(x["no"]), max_rows=min(max(x.get("n_att", 6), 1), 8))
             if t or args.docs_source == "tse": return t, stt
         t, stt = doc_text(codal, x.get("pdf"), fb) if x.get("pdf") else (None, "بدون_pdf")
         if not t: t, stt, _ = attachment_texts(codal, x, d_, "%s_%s" % (kind, x["no"]))
@@ -689,18 +727,24 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
     if args.stage == "tse": return st
     # --- ۲) کدال: فهرست نامه‌ها ---
     if "letters" not in st:
-        if codal is None: return st
         lst = st.setdefault("_list", {})
         if lst.get("out"): log(f"  ادامهٔ فهرست‌گیری از صفحهٔ {lst.get('page', 1)} ({len(lst['out'])} نامه تا اینجا)")
-        L = codal.list_letters(sym, args.fy_from, args.fy_to, tuple(args.letter_types.split(",")) if args.fast_list else ("-1",), state=lst, save=save)
-        st["letters"] = [{"no": x.get("TracingNo"), "code": x.get("LetterCode"), "title": x.get("Title"), "pub": x.get("PublishDateTime"), "excel": x.get("ExcelUrl"), "url": x.get("Url"), "pdf": x.get("PdfUrl"), "att": x.get("AttachmentUrl")} for x in L]
-        st.pop("_list", None); save(); log(f"  کدال: {len(L)} نامه")
+        if args.list_source == "tse" and tse is not None and st.get("tse", {}).get("insCode"):
+            rows_ = tse.codal_list(st["tse"]["insCode"])
+            if rows_:
+                st["letters"] = letters_from_tse(rows_); st["letters_src"] = "tse"; st.pop("_list", None); save()
+                log(f"  فهرست از تی‌اس‌ای‌سی: {len(st['letters'])} نامه ({len(rows_)} ردیف پیوست)")
+        if "letters" not in st:
+            if codal is None: return st
+            L = codal.list_letters(sym, args.fy_from, args.fy_to, tuple(args.letter_types.split(",")) if args.fast_list else ("-1",), state=lst, save=save)
+            st["letters"] = [{"no": x.get("TracingNo"), "code": x.get("LetterCode"), "title": x.get("Title"), "pub": x.get("PublishDateTime"), "excel": x.get("ExcelUrl"), "url": x.get("Url"), "pdf": x.get("PdfUrl"), "att": x.get("AttachmentUrl")} for x in L]
+            st.pop("_list", None); save(); log(f"  کدال: {len(L)} نامه")
     # --- ۳) اکسل صورت مالی سالانه حسابرسی‌شده برای هر سال مالی ---
     cand = collections.defaultdict(list)
     for x in st["letters"]:
         if lcode(x["code"]) != "ن-10": continue
         p = parse_title(x["title"])
-        if p["annual"] and p["audited"] and not p["other_company"] and x.get("excel") and p["fiscal_year"]: cand[p["fiscal_year"]].append((p, x))
+        if p["annual"] and p["audited"] and not p["other_company"] and (x.get("excel") or x.get("has_excel")) and p["fiscal_year"]: cand[p["fiscal_year"]].append((p, x))
     st.setdefault("excel", {})
     for fy, lst in (sorted(cand.items()) if args.stage != "docs-tse" else []):
         e0 = st["excel"].get(str(fy), {})
@@ -711,14 +755,17 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
         best = lst[0][1]
         xb0 = file_base(args, st, fy, "FS_excel", best["no"]); xb = (xb0 + ".xls") if xb0 else None; html = None
         if xb and os.path.exists(xb) and os.path.getsize(xb) > 0: html = open(xb, "rb").read().decode("utf-8", "replace")
-        elif codal is not None:
+        elif best.get("excel") and codal is not None:
             html = codal.excel(best["excel"])
+            if html and xb: os.makedirs(os.path.dirname(xb), exist_ok=True); open(xb, "wb").write(html.encode("utf-8"))
+        elif best.get("has_excel") and tse is not None:
+            html = tse_excel(tse, best["no"])
             if html and xb: os.makedirs(os.path.dirname(xb), exist_ok=True); open(xb, "wb").write(html.encode("utf-8"))
         else: codal_err = "فایل_موجود_نیست"
         if html:
             f, members = parse_excel(html); f.update(source_no=best["no"], source_title=norm(best["title"])[:120]); st["excel"][str(fy)] = {"f": f, "members": members}
             log(f"  اکسل FY{fy}: هیئت {f.get('bd_size')}، کارکنان {f.get('staff_prod')}/{f.get('staff_nonprod')}، تفسیری={f.get('interp_report')}")
-        else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد: " + str(codal.excel_err if codal is not None else "فایل موجود نیست"), "source_no": best["no"], "title": norm(best["title"])[:100], "tries": e0.get("tries", 0) + (1 if codal is not None else 0)}; log(f"  ⚠ اکسل FY{fy} خوانده نشد ({codal.excel_err if codal is not None else "فایل موجود نیست"})")
+        else: st["excel"][str(fy)] = {"error": "اکسل خوانده نشد: " + str(codal.excel_err if codal is not None else "اکسل از تی‌اس‌ای‌سی/دیسک در دسترس نبود"), "source_no": best["no"], "title": norm(best["title"])[:100], "tries": e0.get("tries", 0) + (1 if codal is not None else 0)}; log(f"  ⚠ اکسل FY{fy} خوانده نشد ({codal.excel_err if codal is not None else "اکسل از تی‌اس‌ای‌سی/دیسک در دسترس نبود"})")
         save()
     if args.docs: collect_docs(st, cand, args, codal, log, save, tse)
     if args.stage == "docs-tse": save(); return st
@@ -850,6 +897,7 @@ def main():
     ap.add_argument("--letter-types", default="6,90", help="شناسهٔ LetterType برای --fast-list: 6=صورت مالی، 90=کنترل داخلی؛ شناسهٔ گزارش هیئت‌مدیره را با کاما اضافه کنید")
     ap.add_argument("--search-interval", type=float, default=5.0, help="فاصلهٔ درخواست‌های جست‌وجوی فهرست نامه‌ها (ثانیه)؛ جدا از --min-interval که برای فایل‌هاست")
     ap.add_argument("--docs-source", choices=["tse", "codal", "both"], default="tse", help="منبع PDF/پیوست‌ها: tse = cdn.tsetmc.com (بدون کپچا، پیش‌فرض)، codal، یا both")
+    ap.add_argument("--list-source", choices=["tse", "codal"], default="tse", help="منبع فهرست نامه‌ها: tse = یک درخواست از cdn.tsetmc.com (بدون کپچا، پیش‌فرض)؛ codal = جست‌وجوی صفحه‌به‌صفحهٔ کدال")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
