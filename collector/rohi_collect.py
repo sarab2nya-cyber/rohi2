@@ -361,7 +361,7 @@ def market_vars(daily, w_start, w_end, mkt_idx, ind_idx, shares=None):
         mk = widx(mkt_idx).resample("W").last().pct_change() if mkt_idx is not None and len(mkt_idx) else None
         ind = widx(ind_idx).resample("W").last().pct_change() if ind_idx is not None and len(ind_idx) else None
         if mk is not None:
-            D = pd.concat([rw.rename("r"), mk.rename("m")] + ([ind.rename("i")] if ind is not None else []), axis=1).dropna()
+            D = pd.concat([rw.rename("r"), mk.rename("m")] + ([ind.rename("i")] if ind is not None else []), axis=1, sort=False).dropna()
             if len(D) >= 30:
                 _, e1, r2a = _ols(D["r"].values, D[["m"] + (["i"] if "i" in D else [])].values)
                 out["mk_r2"] = float(r2a); out["mk_synch"] = float(math.log(max(r2a, 1e-6) / max(1 - r2a, 1e-6)))
@@ -749,10 +749,34 @@ def fiscal_year_of(pub, fye_md):
     y, m, d = j; fm, fd = fye_md
     return y if (m, d) <= (fm, fd) else y + 1
 
+def load_state(path):
+    """خواندن امن فایل وضعیت شرکت؛ اگر خراب بود به .corrupt منتقل می‌شود و None برمی‌گردد"""
+    if not os.path.exists(path): return None
+    try: return json.load(open(path, encoding="utf-8"))
+    except Exception as e:
+        try: os.replace(path, path + ".corrupt")
+        except Exception: pass
+        print(f"  ⚠ فایل وضعیت خراب بود و کنار گذاشته شد: {os.path.basename(path)} ({type(e).__name__})"); return None
+
+def dump_state(path, st):
+    """نوشتن اتمیک: اول فایل موقت، بعد جایگزینی؛ تا قطع ناگهانی فایل را خراب نکند"""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f: json.dump(st, f, ensure_ascii=False)
+    os.replace(tmp, path)
+
+def repair_firms(out_dir):
+    d = os.path.join(out_dir, "firms"); bad = []
+    for fn in os.listdir(d):
+        if fn.endswith(".json") and load_state(os.path.join(d, fn)) is None and not os.path.exists(os.path.join(d, fn)): bad.append(fn)
+        if fn.endswith(".tmp"):
+            try: os.remove(os.path.join(d, fn))
+            except Exception: pass
+    return bad
+
 def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
     path = os.path.join(out_dir, "firms", f"{re.sub(r'[^0-9A-Za-z_]', '_', sym) or 'x'}_{firm_id}.json")
-    st = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {"symbol": sym, "company": company, "firm_id": int(firm_id)}
-    def save(): json.dump(st, open(path, "w", encoding="utf-8"), ensure_ascii=False)
+    st = load_state(path) or {"symbol": sym, "company": company, "firm_id": int(firm_id)}
+    def save(): dump_state(path, st)
     sig = "%s-%s-%d-%s" % (args.fy_from, args.fy_to, int(args.docs), args.docs_from)
     if args.stage not in ("tse", "docs-tse") and not args.reparse and not args.force and st.get("complete_sig") == sig:
         log("  ✓ از قبل کامل است؛ رد شد (بدون درخواست)"); return st
@@ -843,7 +867,10 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
 def build(out_dir, args):
     rows = {}; ev_rows = []; mem_rows = []; hold = []; BT = Tse()
     for fn in sorted(os.listdir(os.path.join(out_dir, "firms"))):
-        st = json.load(open(os.path.join(out_dir, "firms", fn), encoding="utf-8")); sym, fid = st["symbol"], st["firm_id"]
+        if not fn.endswith(".json"): continue
+        st = load_state(os.path.join(out_dir, "firms", fn))
+        if st is None: continue
+        sym, fid = st["symbol"], st["firm_id"]
         L = st.get("letters", []); tse = st.get("tse", {})
         # پایان سال مالی شرکت (ماه/روز غالب)
         mds = collections.Counter()
@@ -978,6 +1005,8 @@ def main():
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
+    bad_ = repair_firms(args.out)
+    if bad_: print(f"{len(bad_)} فایل وضعیت خراب کنار گذاشته شد (فایل‌های دانلودشده سر جایشان است)؛ دوباره ساخته می‌شوند:", bad_[:10])
     if args.seed_from and args.seed_from != args.out and os.path.isdir(os.path.join(args.seed_from, "firms")):
         import shutil
         for fn in os.listdir(os.path.join(args.seed_from, "firms")):
