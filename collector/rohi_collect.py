@@ -982,13 +982,23 @@ def file_gaps(S, args):
     rows = []
     for i_, r_ in S.iterrows():
         sym = norm(r_["Symbol"]); fid = int(float(r_.get("firm_id", i_))); base = os.path.join(args.files_dir, "%s_%s" % (fid, re.sub(r'[\\/:*?"<>|]', "_", sym)))
+        st = load_state(os.path.join(args.out, "firms", f"{re.sub(r'[^0-9A-Za-z_]', '_', sym) or 'x'}_{fid}.json")) or {}
+        L = st.get("letters") or []; fye = fye_of(L) if L else (12, 29)
+        lt = collections.defaultdict(lambda: collections.Counter())      # نامه‌های موجود در فهرست به تفکیک سال و نوع
+        for x in L:
+            c = classify(x["code"], x["title"]); fy_ = letter_fy(x, fye) if c in ("board_report", "internal_control") else None
+            if c == "board_report" and fy_: lt[fy_]["b"] += 1; lt[fy_]["b_att"] += int((x.get("n_att", 1) or 0) > 0 or bool(x.get("pdf")))
+            if c == "internal_control" and fy_: lt[fy_]["i"] += 1; lt[fy_]["i_att"] += int((x.get("n_att", 1) or 0) > 0 or bool(x.get("pdf")))
         for fy in range(args.fy_from, args.fy_to + 1):
             d = os.path.join(base, str(fy)); fl = os.listdir(d) if os.path.isdir(d) else []
             has = lambda p: int(any(f.startswith(p) and not f.endswith("_manifest.json") for f in fl))
-            rows.append({"firm_id": fid, "symbol": sym, "fiscal_year": fy, "folder": int(os.path.isdir(d)), "excel": has("FS_excel"), "audit_fs_pdf": has("audit_FS"), "board_report": has("board_report"), "internal_control": has("internal_control")})
+            rows.append({"firm_id": fid, "symbol": sym, "fiscal_year": fy, "folder": int(os.path.isdir(d)), "excel": has("FS_excel"), "audit_fs_pdf": has("audit_FS"), "board_report": has("board_report"), "internal_control": has("internal_control"),
+                         "board_letters_in_list": int(lt[fy]["b"] > 0), "board_letters_with_files": int(lt[fy]["b_att"] > 0), "ic_letters_in_list": int(lt[fy]["i"] > 0), "ic_letters_with_files": int(lt[fy]["i_att"] > 0)})
     df = pd.DataFrame(rows); os.makedirs(args.out, exist_ok=True); df.to_csv(os.path.join(args.out, "file_gaps.csv"), index=False, encoding="utf-8-sig")
-    print("تعداد شرکت-سال دارای فایل، به تفکیک سال (از %d شرکت):" % len(S)); print(df.groupby("fiscal_year")[["folder", "excel", "audit_fs_pdf", "board_report", "internal_control"]].sum().to_string())
-    print("\nجزئیات:", os.path.join(args.out, "file_gaps.csv"), "(ستون‌های ۰/۱ برای هر شرکت-سال)")
+    print("تعداد شرکت-سال دارای فایل روی دیسک، به تفکیک سال (از %d شرکت):" % len(S)); print(df.groupby("fiscal_year")[["folder", "excel", "audit_fs_pdf", "board_report", "internal_control"]].sum().to_string())
+    print("\nتشخیص علت خالی‌ماندن گزارش هیئت‌مدیره/کنترل داخلی: آیا اصلاً نامه‌ای در فهرست هست؟ (۰ = نامه وجود ندارد، نه خطای دانلود)")
+    print(df.groupby("fiscal_year")[["board_letters_in_list", "board_letters_with_files", "board_report", "ic_letters_in_list", "ic_letters_with_files", "internal_control"]].sum().to_string())
+    print("\nجزئیات:", os.path.join(args.out, "file_gaps.csv"))
 
 def _parse_one(args, sym, company, fid):
     try: process_firm(sym, company, fid, args, None, None, args.out, lambda m: None); return sym, None
