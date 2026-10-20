@@ -914,6 +914,7 @@ def build(out_dir, args):
                 rows[(fid, fy_)].update(fs_report_lag_audited=d_.get("lag_audited"), fs_report_lag_unaudited=d_.get("lag_unaudited"), fs_amend_n=d_.get("amend_n", 0), fs_amend_any=int(d_.get("amend_n", 0) > 0))
         # اکسل
         for fy, e in st.get("excel", {}).items():
+            if (fid, int(fy)) in rows and ("f" in e or e.get("downloaded")): rows[(fid, int(fy))]["cov_excel"] = 1
             if (fid, int(fy)) in rows and "f" in e: rows[(fid, int(fy))].update(e["f"])
             for m in e.get("members", []): mem_rows.append({"firm_id": fid, "symbol": sym, "fiscal_year": int(fy), **m})
         for fy, dd_ in st.get("docs", {}).items():
@@ -964,9 +965,9 @@ def build(out_dir, args):
     if "fc_sales_est" in df:
         df["fc_sales_error"] = (df["fc_sales_last_actual"] - df.groupby("firm_id")["fc_sales_est"].shift(1)) / df.groupby("firm_id")["fc_sales_est"].shift(1).abs()
     if "export_total_row" in df: df["export_flag"] = df["export_total_row"].map(lambda s: int(isinstance(s, str) and any(abs(v) > 0 for v in json.loads(s))) if isinstance(s, str) else np.nan)
-    ok = lambda c: df[c].isin(["pdf_ok", "html_ok", "پیوست_ok"]).astype(int) if c in df else 0
+    ok = lambda c: df[c].isin(list(OKSTAT)).astype(int) if c in df else 0
     cov = pd.DataFrame({"fiscal_year": df["fiscal_year"], "firm_id": df["firm_id"], "symbol": df["symbol"],
-                        "excel": df["source_no"].notna().astype(int) if "source_no" in df else 0, "audit_pdf": ok("audit_status"), "board_report": ok("br_status"), "internal_control": ok("ic_status")})
+                        "excel": df["cov_excel"].fillna(0).astype(int) if "cov_excel" in df else 0, "audit_pdf": ok("audit_status"), "board_report": ok("br_status"), "internal_control": ok("ic_status")})
     cov.to_csv(os.path.join(out_dir, "coverage_by_firm_year.csv"), index=False, encoding="utf-8-sig")
     print("پوشش (تعداد شرکت-سال با فایل) به تفکیک سال:\n", cov.groupby("fiscal_year")[["excel", "audit_pdf", "board_report", "internal_control"]].sum().to_string())
     df.to_csv(os.path.join(out_dir, "features_firm_year.csv"), index=False, encoding="utf-8-sig")
