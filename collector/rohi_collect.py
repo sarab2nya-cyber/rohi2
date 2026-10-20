@@ -1002,8 +1002,11 @@ def file_gaps(S, args):
 
 def inspect_firm(S, args):
     """تشخیص یک شرکت: نامه‌های گزارش هیئت‌مدیره/کنترل داخلی هر سال، وضعیت ثبت‌شده، و آزمایش زندهٔ دانلود از تی‌اس‌ای‌سی"""
-    r_ = S[S["Symbol"].map(norm) == norm(args.inspect)]
-    if r_.empty: print("نماد در my_symbols.csv نیست"); return
+    q = norm(args.inspect); sy = S["Symbol"].map(norm)
+    r_ = S[sy == q]
+    if r_.empty: r_ = S[sy.str.contains(q, regex=False)]
+    if r_.empty and "firm_id" in S: r_ = S[S["firm_id"].astype(str).str.replace(r"\.0$", "", regex=True) == q]
+    if r_.empty: print("«%s» در my_symbols.csv پیدا نشد. چند نماد نمونه از فایل:" % q, list(sy.head(15))); return
     r_ = r_.iloc[0]; fid = int(float(r_.get("firm_id", 0))); sym = norm(r_["Symbol"])
     st = load_state(os.path.join(args.out, "firms", f"{re.sub(r'[^0-9A-Za-z_]', '_', sym) or 'x'}_{fid}.json")) or {}
     L = st.get("letters") or []; fye = fye_of(L) if L else (12, 29); T = Tse(min_interval=0.5)
