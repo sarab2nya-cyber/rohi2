@@ -667,6 +667,18 @@ def tse_excel(tse, no, types=(2, 3, 4, 0, 5, 6)):
             if "<table" in txt[:20000].lower() and "<h3" in txt.lower(): return txt
     return None
 
+def merge_tse_letters(st, rows):
+    """فهرست تی‌اس‌ای‌سی را روی فهرست موجود (مثلاً از کدال) ادغام می‌کند: تعداد/نام پیوست‌ها به نامه‌های موجود اضافه، نامه‌های جدید افزوده می‌شود"""
+    T_ = letters_from_tse(rows); idx = {str(x["no"]): x for x in st["letters"]}; upd = add = 0
+    for t in T_:
+        k = str(t["no"])
+        if k in idx:
+            e = idx[k]; e["n_att"] = t["n_att"]; e["atts"] = t["atts"]; e["has_excel"] = t["has_excel"]; e["co_name"] = t["co_name"]; e["other_co"] = t["other_co"]
+            if not e.get("code") and t["code"]: e["code"] = t["code"]
+            upd += 1
+        else: st["letters"].append(t); add += 1
+    return upd, add
+
 OKSTAT = {"tse_ok", "tse_downloaded", "pdf_ok", "html_ok", "پیوست_ok", "downloaded"}
 def doc_gaps(st, args):
     gaps = []
@@ -827,6 +839,14 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
             L = codal.list_letters(sym, args.fy_from, args.fy_to, tuple(args.letter_types.split(",")) if args.fast_list else ("-1",), state=lst, save=save)
             st["letters"] = [{"no": x.get("TracingNo"), "code": x.get("LetterCode"), "title": x.get("Title"), "pub": x.get("PublishDateTime"), "excel": x.get("ExcelUrl"), "url": x.get("Url"), "pdf": x.get("PdfUrl"), "att": x.get("AttachmentUrl")} for x in L]
             st.pop("_list", None); save(); log(f"  کدال: {len(L)} نامه")
+    if args.list_source == "tse" and tse is not None and st.get("letters") and not st.get("tse_merged") and st.get("tse", {}).get("insCode"):
+        rows_ = tse.codal_list(st["tse"]["insCode"])
+        if rows_:
+            u_, a_ = merge_tse_letters(st, rows_); st["tse_merged"] = True
+            for d_ in (st.get("docs") or {}).values():           # موردهایی که قبلاً «بدون فایل» ثبت شده‌اند دوباره امتحان شوند
+                for k_ in list(d_):
+                    if (d_[k_] or {}).get("br_status") in RETRY or (d_[k_] or {}).get("ic_status") in RETRY or (d_[k_] or {}).get("audit_status") in RETRY: del d_[k_]
+            save(); log(f"  ادغام فهرست تی‌اس‌ای‌سی: {u_} نامه به‌روز، {a_} نامهٔ جدید")
     if args.docs and st.get("docs_v") != 2: st["docs"] = {}; st["docs_v"] = 2            # تخصیص سال بر اساس عنوان (نسخهٔ ۲)
     merged_now = False
     if args.fill_codal and codal is not None and not st.get("codal_merged") and doc_gaps(st, args):
@@ -987,8 +1007,8 @@ def file_gaps(S, args):
         lt = collections.defaultdict(lambda: collections.Counter())      # نامه‌های موجود در فهرست به تفکیک سال و نوع
         for x in L:
             c = classify(x["code"], x["title"]); fy_ = letter_fy(x, fye) if c in ("board_report", "internal_control") else None
-            if c == "board_report" and fy_: lt[fy_]["b"] += 1; lt[fy_]["b_att"] += int((x.get("n_att", 1) or 0) > 0 or bool(x.get("pdf")))
-            if c == "internal_control" and fy_: lt[fy_]["i"] += 1; lt[fy_]["i_att"] += int((x.get("n_att", 1) or 0) > 0 or bool(x.get("pdf")))
+            if c == "board_report" and fy_: lt[fy_]["b"] += 1; lt[fy_]["b_att"] += int((x.get("n_att") or 0) > 0 or bool(x.get("pdf")))
+            if c == "internal_control" and fy_: lt[fy_]["i"] += 1; lt[fy_]["i_att"] += int((x.get("n_att") or 0) > 0 or bool(x.get("pdf")))
         for fy in range(args.fy_from, args.fy_to + 1):
             d = os.path.join(base, str(fy)); fl = os.listdir(d) if os.path.isdir(d) else []
             has = lambda p: int(any(f.startswith(p) and not f.endswith("_manifest.json") for f in fl))
