@@ -1000,6 +1000,27 @@ def file_gaps(S, args):
     print(df.groupby("fiscal_year")[["board_letters_in_list", "board_letters_with_files", "board_report", "ic_letters_in_list", "ic_letters_with_files", "internal_control"]].sum().to_string())
     print("\nجزئیات:", os.path.join(args.out, "file_gaps.csv"))
 
+def inspect_firm(S, args):
+    """تشخیص یک شرکت: نامه‌های گزارش هیئت‌مدیره/کنترل داخلی هر سال، وضعیت ثبت‌شده، و آزمایش زندهٔ دانلود از تی‌اس‌ای‌سی"""
+    r_ = S[S["Symbol"].map(norm) == norm(args.inspect)]
+    if r_.empty: print("نماد در my_symbols.csv نیست"); return
+    r_ = r_.iloc[0]; fid = int(float(r_.get("firm_id", 0))); sym = norm(r_["Symbol"])
+    st = load_state(os.path.join(args.out, "firms", f"{re.sub(r'[^0-9A-Za-z_]', '_', sym) or 'x'}_{fid}.json")) or {}
+    L = st.get("letters") or []; fye = fye_of(L) if L else (12, 29); T = Tse(min_interval=0.5)
+    for fy in range(args.fy_from, args.fy_to + 1):
+        print(f"\n=== سال {fy}")
+        for x in L:
+            c = classify(x["code"], x["title"])
+            if c not in ("board_report", "internal_control") or letter_fy(x, fye) != fy: continue
+            print(f"  [{c}] شماره={x['no']} | {x['pub']} | n_att={x.get('n_att')} | pdf={x.get('pdf')!r} | {x['title'][:70]}")
+            print("     پیوست‌ها:", [(a_.get('name'), a_.get('ext'), a_.get('ctype')) for a_ in (x.get('atts') or [])][:3])
+            for row in (1, 2):
+                stt, data, ct = T.raw(f"{TSE}/Codal/GetAttachmentContentFileByTracingNoAndRowOrder/{x['no']}/{row}")
+                print(f"     آزمایش زنده ردیف {row}: HTTP {stt} | {len(data)} بایت | {ct} | {data[:12]!r}")
+                if stt != 200: break
+        d = (st.get("docs") or {}).get(str(fy), {})
+        print("  ثبت‌شده:", {k: (v.get("br_status") or v.get("ic_status") or v.get("audit_status")) for k, v in d.items()})
+
 def _parse_one(args, sym, company, fid):
     try: process_firm(sym, company, fid, args, None, None, args.out, lambda m: None); return sym, None
     except Exception as e: return sym, "%s %s" % (type(e).__name__, str(e)[:100])
@@ -1034,6 +1055,7 @@ def main():
     ap.add_argument("--procs", type=int, default=0, help="تعداد پردازش موازی برای --reparse (پیش‌فرض: تعداد هسته‌ها منهای یک)")
     ap.add_argument("--download-only", action="store_true", help="فقط دانلود و ذخیرهٔ فایل؛ هیچ استخراجی (اکسل/PDF) انجام نشود. استخراج بعداً با --reparse")
     ap.add_argument("--file-gaps", action="store_true", help="فقط پوشهٔ codal_files را اسکن کن و گزارش بده کدام شرکت-سال کدام فایل را ندارد (file_gaps.csv)")
+    ap.add_argument("--inspect", default=None, help="نماد یک شرکت: وضعیت و آزمایش زندهٔ دانلود گزارش هیئت‌مدیره/کنترل داخلی را برای همهٔ سال‌ها چاپ می‌کند")
     ap.add_argument("--wait-start", type=float, default=30, help="اولین استراحت پس از ۴۲۹/کپچا (دقیقه)"); ap.add_argument("--wait-max", type=float, default=180, help="سقف استراحت (دقیقه)")
     ap.add_argument("--burst-rest", type=float, default=20, help="استراحت پس از رسیدن به سقف درخواست (دقیقه)"); ap.add_argument("--max-hours", type=float, default=96, help="حداکثر زمان کل اجرا (ساعت)")
     args = ap.parse_args(); os.makedirs(os.path.join(args.out, "firms"), exist_ok=True)
@@ -1051,6 +1073,7 @@ def main():
     codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests, cookie=args.cookie, user_agent=args.user_agent, search_interval=args.search_interval)), Tse()
     t0 = time.time(); wait_min = args.wait_start
     if args.file_gaps: return file_gaps(S, args)
+    if args.inspect: return inspect_firm(S, args)
     if args.reparse:
         from concurrent.futures import ProcessPoolExecutor, as_completed
         n = args.procs or max((os.cpu_count() or 2) - 1, 1); print(f"استخراج از روی فایل‌های ذخیره‌شده با {n} پردازش موازی…")
