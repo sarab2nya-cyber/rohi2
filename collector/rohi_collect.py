@@ -1001,7 +1001,7 @@ def process_firm(sym, company, firm_id, args, codal, tse, out_dir, log):
     st = load_state(path) or {"symbol": sym, "company": company, "firm_id": int(firm_id)}
     def save(): dump_state(path, st)
     sig = "%s-%s-%d-%s" % (args.fy_from, args.fy_to, int(args.docs), args.docs_from)
-    if args.stage not in ("tse", "docs-tse") and not args.reparse and not args.force and st.get("complete_sig") == sig:
+    if args.stage not in ("tse", "docs-tse") and not args.reparse and not args.force and not args.urls_only and st.get("complete_sig") == sig:
         log("  ✓ از قبل کامل است؛ رد شد (بدون درخواست)"); return st
     if args.reparse: st.pop("excel", None); st.pop("docs", None)
     # --- ۱) TSETMC (بدون کپچا) ---
@@ -1351,6 +1351,7 @@ def main():
         print("OCR استفاده شد:" , bool(u_), "| طول متن:", len(t_)); rep_, nts_ = split_fs_pdf(t_); print({k: v for k, v in audit_features(rep_ or t_).items()}); print("نمونهٔ متن:", t_[:400]); return
     S = pd.read_csv(args.symbols, dtype=str, encoding="utf-8-sig"); S = S.head(args.pilot) if args.pilot else S
     pk, pn = (int(x) for x in args.part.split("/")); sz = -(-len(S) // pn); S = S.iloc[(pk - 1) * sz: pk * sz]; print(f"بخش {pk}/{pn}: {len(S)} شرکت | مرحله: {args.stage}")
+    if args.urls_only: args.max_requests = max(args.max_requests, 800); args.burst_rest = min(args.burst_rest, 2)   # فقط جست‌وجوی سبک؛ استراحت‌های طولانی لازم نیست
     codal, tse = (None if args.reparse else Codal(args.min_interval, args.max_requests, cookie=args.cookie, user_agent=args.user_agent, search_interval=args.search_interval)), Tse()
     t0 = time.time(); wait_min = args.wait_start
     if args.make_links: return make_links(S, args)
