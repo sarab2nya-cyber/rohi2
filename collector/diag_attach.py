@@ -1,5 +1,8 @@
 # بررسی صفحهٔ پیوست کدال: python diag_attach.py > diag_attach.txt
 # اگر کپچا آمد: ابتدا در مرورگر حل کنید، سپس با --cookie "..." --user-agent "..." اجرا کنید.
+import sys
+try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception: pass
 import argparse, re, sys, time, requests
 URLS = ["https://codal.ir/Reports/Attachment.aspx?LetterSerial=XCZEfwG5j0GuFxnaKD6qfw%3d%3d",
         "https://codal.ir/Reports/Attachment.aspx?LetterSerial=GcPCDJO8M8OKWwMszH6s6Q%3d%3d"]

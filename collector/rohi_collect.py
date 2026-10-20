@@ -15,6 +15,9 @@ rohi_collect.py — جمع‌آوری یک‌مرحله‌ای و جریانی �
 فایل my_symbols.csv: ستون‌های Symbol (نماد) ,company ,firm_id
 نصب: pip install requests pandas numpy lxml openpyxl
 """
+import sys as _sys
+try: _sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception: pass
 import argparse, csv, io, json, math, os, random, re, sys, time, unicodedata, collections
 import numpy as np, pandas as pd, requests
 

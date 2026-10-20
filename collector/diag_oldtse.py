@@ -1,4 +1,7 @@
 # بررسی old.tsetmc.com برای اطلاعیه‌ها: python diag_oldtse.py > diag_oldtse.txt   (فیلترشکن را طوری بگذارید که سایت باز شود)
+import sys
+try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception: pass
 import re, requests, time
 H = {"User-Agent": "Mozilla/5.0 (research; academic use)", "Accept": "*/*"}
 INS = "68488673556087148"

@@ -1,4 +1,7 @@
 # تست چند آدرس تی‌اس‌ای‌سی برای «حقیقی/حقوقی» — خروجی را کپی کنید و بفرستید
+import sys
+try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception: pass
 import requests, json
 H = {"User-Agent": "Mozilla/5.0 (research; academic use)", "Accept": "*/*", "Connection": "close"}
 ins = "18004480270695404"   # فمراد

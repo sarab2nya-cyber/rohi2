@@ -1,4 +1,7 @@
 # بررسی سایت zarvanfund.ir/codal — خروجی را بفرستید (فیلترشکن را مطابق نیاز روشن/خاموش کنید تا سایت باز شود)
+import sys
+try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception: pass
 import re, requests, json, sys
 H = {"User-Agent": "Mozilla/5.0 (research; academic use)", "Accept": "*/*"}
 BASE = "https://zarvanfund.ir"

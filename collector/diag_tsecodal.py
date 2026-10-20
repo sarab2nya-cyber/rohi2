@@ -1,4 +1,7 @@
 # ساختار پاسخ GetPreparedDataByInsCode را بررسی می‌کند: python diag_tsecodal.py > diag_tsecodal.txt
+import sys
+try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception: pass
 import json, requests, sys
 H = {"User-Agent": "Mozilla/5.0 (research; academic use)", "Accept": "*/*", "Connection": "close"}
 INS = "68488673556087148"
