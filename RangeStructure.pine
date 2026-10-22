@@ -1,0 +1,553 @@
+//@version=5
+indicator("Range Structure | Maru-Pinbar-Pullback-FBO", shorttitle="RangeStruct", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+// =====================================================================
+//  INPUTS
+// =====================================================================
+gC = "1) Candle definitions (% of candle range)"
+iDojiBody   = input.float(20, "Doji: max body %", minval=0, maxval=100, group=gC)
+iDojiShadow = input.float(20, "Doji: min each shadow %", minval=0, maxval=100, group=gC)
+iDojiMid    = input.float(30, "Doji: Open/Close max distance from mid %", minval=0, maxval=100, group=gC)
+iPinBody    = input.float(35, "Pinbar: max body %", minval=0, maxval=100, group=gC)
+iPinMain    = input.float(45, "Pinbar: min dominant shadow %", minval=0, maxval=100, group=gC)
+iPinMult    = input.float(2.0, "Pinbar: dominant shadow >= x body", minval=0, group=gC)
+iPinOpp     = input.float(35, "Pinbar: max opposite shadow %", minval=0, maxval=100, group=gC)
+iMaruBody   = input.float(70, "Marubozu: min body %", minval=0, maxval=100, group=gC)
+iMaruShadow = input.float(30, "Marubozu: max sum of shadows %", minval=0, maxval=100, group=gC)
+iBigN       = input.int(5, "Big: compare with last N candles", minval=1, group=gC)
+iBigMin     = input.int(3, "Big: longer than at least", minval=1, group=gC)
+
+gP = "2) Pattern thresholds"
+iR70    = input.float(70, "Cond.1: C2 length >= % of C1", group=gP)
+iR30    = input.float(30, "Cond.2/3: C2 length <= % of C1 (cond.3) / beyond-line share %", group=gP)
+iLine30 = input.float(30, "Cond.2/3: share of C1 beyond the line > %", group=gP)
+iR40    = input.float(40, "Pattern C: C1,C2 length >= % of C3", group=gP)
+iNear   = input.float(5, "Pattern B: C2 close within % of C1 length from C1 extreme", group=gP)
+
+gR = "3) Range"
+iConfirm    = input.int(2, "Anchor range: confirmation candles after anchor", minval=1, group=gR)
+iHide       = input.bool(false, "Hide Ranges inside the Correction Zone", group=gR)
+iShowLbl    = input.bool(true, "Show labels", group=gR)
+iColorTypes = input.bool(false, "Color Candles by Type", group=gR)
+
+gK = "4) Colors"
+cUp   = input.color(color.teal, "Up range / CTS", group=gK)
+cDn   = input.color(color.red, "Down range", group=gK)
+cPB   = input.color(color.orange, "Closed by pullback", group=gK)
+cFBO  = input.color(color.gray, "FBO", group=gK)
+cBOS  = input.color(color.blue, "BOS", group=gK)
+
+// =====================================================================
+//  STATE
+// =====================================================================
+// --- candle size memory for "Big"
+var array<float> mBull = array.new_float()
+var array<float> mBear = array.new_float()
+var array<float> mAll  = array.new_float()
+var array<float> pBull = array.new_float()
+var array<float> pBear = array.new_float()
+var array<float> pAll  = array.new_float()
+
+// --- market structure (index 0 = up side tracker, 1 = down side tracker)
+var int trend = 0
+var int lastDir = 0
+var array<float> ext     = array.new_float(2, na)   // wave extreme (H* / L*)
+var array<int>   extBar  = array.new_int(2, 0)
+var array<float> corr    = array.new_float(2, na)   // correction extreme (future BOS)
+var array<int>   corrBar = array.new_int(2, 0)
+var array<int>   phase   = array.new_int(2, 0)      // 0 = wave, 1 = locked (pullback counted)
+var array<float> fake    = array.new_float(2, na)   // highest fake above locked H*
+var array<float> bos     = array.new_float(2, na)
+
+// --- range box (only one active)
+var int boxState = 0          // 0 none, 1 pending anchor, 2 confirmed range, 3 FBO box
+var int boxType = 0
+var int boxDir = 0
+var int boxStart = 0
+var float boxTop = na
+var float boxBot = na
+var float exitHi = na
+var float exitLo = na
+var int pendCnt = 0
+var int closedBar = -1
+var box curBox = na
+var label curLbl = na
+
+// --- FBO
+var float fboLine = na
+var float fboLastLine = na
+var bool fboConfirmed = false
+var int fboStart = 0
+var label fboLbl = na
+
+// --- stored ranges (for Hide option)
+var array<box>   rBoxes = array.new<box>()
+var array<label> rLbls  = array.new<label>()
+var array<int>   rStart = array.new_int()
+
+var bool bearPLp = false
+var bool bullPLp = false
+
+// per-bar series
+float noLine = na
+bool bigMaru = false
+bool bigPin = false
+bool ctsUpEvt = false
+bool ctsDnEvt = false
+bool tcEvt = false
+bool ctsEvt = false
+bool startedFbo = false
+
+// =====================================================================
+//  CANDLE HELPERS (k = offset)
+// =====================================================================
+f_rng(int k) =>
+    high[k] - low[k]
+
+f_col(int k) =>
+    close[k] > open[k] ? 1 : close[k] < open[k] ? -1 : 0
+
+// 0 none, 1 doji, 2 bullish pinbar, 3 bearish pinbar, 4 marubozu, 5 normal
+f_type(int k) =>
+    float r = high[k] - low[k]
+    int t = 0
+    if r > 0
+        float body = math.abs(close[k] - open[k])
+        float topS = high[k] - math.max(open[k], close[k])
+        float botS = math.min(open[k], close[k]) - low[k]
+        float mid = (high[k] + low[k]) / 2
+        float bp = body / r * 100
+        float tp = topS / r * 100
+        float btp = botS / r * 100
+        bool doji = bp <= iDojiBody and tp >= iDojiShadow and btp >= iDojiShadow and math.abs(open[k] - mid) / r * 100 <= iDojiMid and math.abs(close[k] - mid) / r * 100 <= iDojiMid
+        bool pinBull = not doji and bp <= iPinBody and btp >= iPinMain and botS >= iPinMult * body and tp <= iPinOpp
+        bool pinBear = not doji and bp <= iPinBody and tp >= iPinMain and topS >= iPinMult * body and btp <= iPinOpp
+        bool maru = not doji and not pinBull and not pinBear and bp >= iMaruBody and (tp + btp) <= iMaruShadow
+        t := doji ? 1 : pinBull ? 2 : pinBear ? 3 : maru ? 4 : 5
+    t
+
+int ctype = f_type(0)
+int ccol = f_col(0)
+float hh3 = ta.highest(high, 3)
+float ll3 = ta.lowest(low, 3)
+
+f_isBig(array<float> same, array<float> allArr, float len) =>
+    array<float> ref = same.size() >= iBigMin ? same : allArr
+    int cnt = 0
+    int n = ref.size()
+    if n > 0
+        for j = 0 to n - 1
+            if len > ref.get(j)
+                cnt += 1
+    cnt >= iBigMin
+
+f_bigDirMaru(int k, int dir) =>
+    bigMaru[k] and f_col(k) == dir
+
+f_pinDir(int k, int dir) =>
+    dir == 1 ? f_type(k) == 2 : f_type(k) == 3
+
+f_pinDoji(int k, int dir) =>
+    f_type(k) == 1 or f_pinDir(k, dir)
+
+f_beyond(int dir, float price, float lv) =>
+    dir == 1 ? price > lv : price < lv
+
+// shapes of the 2-candle conditions 2 and 3 (C1 = offset a, C2 = offset b)
+f_c23(int dir, int a, int b) =>
+    float m = (high[a] + low[a]) / 2
+    bool big1 = bigMaru[a] and f_col(a) == dir
+    bool half = dir == 1 ? low[b] > m : high[b] < m
+    bool c2 = f_col(b) == dir
+    bool c3 = f_col(b) == -dir and f_rng(b) <= iR30 / 100 * f_rng(a)
+    big1 and half and (c2 or c3)
+
+// =====================================================================
+//  SIX PATTERNS  (dir = +1 bullish patterns, -1 bearish patterns)
+//  lv = na      -> shape only (used for real pullback without a line)
+//  lv given     -> line conditions applied (real breakout / pullback of a line)
+//  confirm      -> conditions 2/3 are registered one candle later (C3 check)
+// =====================================================================
+f_pat(int dir, float lv, bool confirm) =>
+    bool hasLine = not na(lv)
+    bool useConf = hasLine and confirm
+
+    // cond 1 : C1=[1], C2=[0]
+    bool p1 = f_type(1) == 4 and f_type(0) == 4 and f_col(1) == dir and f_col(0) == dir and (dir == 1 ? close > high[1] : close < low[1]) and f_rng(0) >= iR70 / 100 * f_rng(1)
+    if p1 and hasLine
+        p1 := f_beyond(dir, close[1], lv) and f_beyond(dir, close, lv)
+
+    // cond 2 / 3
+    int a = useConf ? 2 : 1
+    int b = useConf ? 1 : 0
+    bool p23 = f_c23(dir, a, b)
+    if p23 and hasLine
+        float beyondLen = dir == 1 ? high[a] - lv : lv - low[a]
+        p23 := beyondLen > iLine30 / 100 * f_rng(a)
+    if p23 and useConf
+        p23 := not (f_type(0) == 4 and f_col(0) == -dir and f_beyond(-dir, close, lv))
+
+    // three-candle patterns : C1=[2], C2=[1], C3=[0]
+    bool pre = dir == 1 ? close > math.max(high[2], high[1]) : close < math.min(low[2], low[1])
+    bool pA = pre and f_bigDirMaru(2, dir) and f_pinDoji(1, dir) and f_bigDirMaru(0, dir)
+    bool insideOrNear = (high[1] <= high[2] and low[1] >= low[2]) or (dir == 1 ? close[1] >= high[2] - iNear / 100 * f_rng(2) : close[1] <= low[2] + iNear / 100 * f_rng(2))
+    bool pB = pre and f_pinDoji(2, dir) and (f_type(1) == 4 or f_type(1) == 5) and f_col(1) == dir and insideOrNear and f_bigDirMaru(0, dir)
+    bool pC = pre and f_type(2) == 5 and f_type(1) == 5 and f_col(2) == dir and f_col(1) == dir and f_rng(2) >= iR40 / 100 * f_rng(0) and f_rng(1) >= iR40 / 100 * f_rng(0) and f_bigDirMaru(0, dir)
+    if hasLine
+        pA := pA and f_beyond(dir, close[2], lv) and f_beyond(dir, close, lv)
+        pB := pB and f_beyond(dir, close, lv)
+        pC := pC and f_beyond(dir, close, lv)
+
+    p1 or p23 or pA or pB or pC
+
+// =====================================================================
+//  DRAWING HELPERS
+// =====================================================================
+f_lbl(int x, float y, string txt, color c, bool up) =>
+    label l = na
+    if iShowLbl
+        l := label.new(x, y, txt, style = up ? label.style_label_up : label.style_label_down, color = c, textcolor = color.white, size = size.tiny)
+    l
+
+f_makeBox(int st, float tp, float bt, color bc) =>
+    box.new(st, tp, bar_index, bt, border_color = bc, bgcolor = color.new(bc, 88), border_width = 1)
+
+// =====================================================================
+//  MAIN  (everything runs on confirmed bars only)
+// =====================================================================
+if barstate.isconfirmed
+    // ---------------------------------------------------------------
+    // [1] Big marubozu / Big pinbar
+    // ---------------------------------------------------------------
+    float curLen = f_rng(0)
+    if ctype == 4
+        array<float> same = mBull
+        if ccol != 1
+            same := mBear
+        bigMaru := f_isBig(same, mAll, curLen)
+        same.push(curLen)
+        if same.size() > iBigN
+            same.shift()
+        mAll.push(curLen)
+        if mAll.size() > iBigN
+            mAll.shift()
+    if ctype == 2 or ctype == 3
+        array<float> sameP = pBull
+        if ctype == 3
+            sameP := pBear
+        bigPin := f_isBig(sameP, pAll, curLen)
+        sameP.push(curLen)
+        if sameP.size() > iBigN
+            sameP.shift()
+        pAll.push(curLen)
+        if pAll.size() > iBigN
+            pAll.shift()
+
+    // ---------------------------------------------------------------
+    // [2] shape-only pullback patterns (no line)
+    // ---------------------------------------------------------------
+    bool bullPL = f_pat(1, noLine, false)
+    bool bearPL = f_pat(-1, noLine, false)
+
+    // ---------------------------------------------------------------
+    // [3] Market structure  (wave -> lock -> CTS / BOS / trend change)
+    // ---------------------------------------------------------------
+    for i = 0 to 1
+        int s = i == 0 ? 1 : -1
+        int j = 1 - i
+        if trend == 0 or trend == s
+            float hiS = s == 1 ? high : low
+            float loS = s == 1 ? low : high
+            if na(ext.get(i))
+                ext.set(i, hiS)
+                extBar.set(i, bar_index)
+                corr.set(i, loS)
+                corrBar.set(i, bar_index)
+                phase.set(i, 0)
+                fake.set(i, na)
+            else
+                // ---- trend change : real breakout of the last BOS in the opposite direction
+                bool tc = false
+                if trend == s and not na(bos.get(i))
+                    tc := f_pat(-s, bos.get(i), true)
+                if tc
+                    float oldExt = ext.get(i)
+                    float bosLvl = bos.get(i)
+                    trend := -s
+                    lastDir := -s
+                    tcEvt := true
+                    ext.set(j, s == 1 ? ll3 : hh3)
+                    extBar.set(j, bar_index)
+                    corr.set(j, s == 1 ? high : low)
+                    corrBar.set(j, bar_index)
+                    phase.set(j, 0)
+                    fake.set(j, na)
+                    bos.set(j, oldExt)
+                    ext.set(i, na)
+                    bos.set(i, na)
+                    phase.set(i, 0)
+                    fake.set(i, na)
+                    f_lbl(bar_index, bosLvl, "CHoCH", cBOS, s == 1)
+                else if phase.get(i) == 0
+                    // ---- stage A : wave
+                    if hiS * s > ext.get(i) * s
+                        ext.set(i, hiS)
+                        extBar.set(i, bar_index)
+                        corr.set(i, loS)
+                        corrBar.set(i, bar_index)
+                    else
+                        if loS * s < corr.get(i) * s
+                            corr.set(i, loS)
+                            corrBar.set(i, bar_index)
+                        // real pullback with no confirmed box -> lock the wave top
+                        bool pbNow = s == 1 ? bearPL : bullPL
+                        if boxState <= 1 and bar_index > extBar.get(i) and pbNow
+                            phase.set(i, 1)
+                            fake.set(i, na)
+                else
+                    // ---- stage B : locked, waiting for a real breakout of H*
+                    bool fboFar = boxState == 3 and boxDir == s and (bar_index - fboStart + 1) > 2
+                    float lineC = fboFar ? (s == 1 ? boxTop : boxBot) : ext.get(i)
+                    bool cts = f_pat(s, lineC, true)
+                    if cts
+                        float lvl = ext.get(i)
+                        int tb = extBar.get(i)
+                        float bosLvl2 = corr.get(i)
+                        line.new(tb, lvl, bar_index, lvl, color = cUp, width = 1)
+                        f_lbl(bar_index, lvl, "CTS", cUp, s == -1)
+                        bos.set(i, bosLvl2)
+                        line.new(corrBar.get(i), bosLvl2, bar_index, bosLvl2, color = cBOS, style = line.style_dashed)
+                        f_lbl(corrBar.get(i), bosLvl2, "BOS", cBOS, s == 1)
+                        ctsEvt := true
+                        if s == 1
+                            ctsUpEvt := true
+                        else
+                            ctsDnEvt := true
+                        lastDir := s
+                        if trend == 0
+                            ext.set(j, na)
+                            bos.set(j, na)
+                            phase.set(j, 0)
+                            fake.set(j, na)
+                        trend := s
+                        // Hide Ranges inside the Correction Zone (FBO boxes are never removed)
+                        if iHide
+                            int n = rBoxes.size()
+                            if n > 0
+                                for k = n - 1 to 0
+                                    if rStart.get(k) >= tb
+                                        box.delete(rBoxes.get(k))
+                                        label.delete(rLbls.get(k))
+                                        rBoxes.remove(k)
+                                        rLbls.remove(k)
+                                        rStart.remove(k)
+                            if (boxState == 1 or boxState == 2) and boxStart >= tb
+                                boxState := 0
+                                closedBar := bar_index
+                        // new wave starts on this candle
+                        ext.set(i, s == 1 ? hh3 : ll3)
+                        extBar.set(i, bar_index)
+                        corr.set(i, loS)
+                        corrBar.set(i, bar_index)
+                        phase.set(i, 0)
+                        fake.set(i, na)
+                    else
+                        // new correction (V17.9): fake high then a Low below the old correction floor
+                        if not na(fake.get(i)) and loS * s < corr.get(i) * s
+                            ext.set(i, fake.get(i))
+                            extBar.set(i, bar_index)
+                            corr.set(i, loS)
+                            corrBar.set(i, bar_index)
+                            fake.set(i, na)
+                        else if loS * s < corr.get(i) * s
+                            corr.set(i, loS)
+                            corrBar.set(i, bar_index)
+                        if hiS * s > ext.get(i) * s
+                            float fk = fake.get(i)
+                            fake.set(i, na(fk) ? hiS : (s == 1 ? math.max(fk, hiS) : math.min(fk, hiS)))
+
+    // ---------------------------------------------------------------
+    // [4] FBO
+    // ---------------------------------------------------------------
+    // CTS / trend change while an FBO box is alive
+    if boxState == 3 and (ctsEvt or tcEvt)
+        int age = bar_index - fboStart + 1
+        if age <= 2
+            box.delete(curBox)
+            label.delete(fboLbl)
+        else
+            box.set_right(curBox, bar_index)
+            if not fboConfirmed
+                label.delete(fboLbl)
+        boxState := 0
+        closedBar := bar_index
+
+    // start
+    if trend != 0 and boxState != 3 and not ctsEvt and not tcEvt
+        int fi = trend == 1 ? 0 : 1
+        int fs = trend
+        if phase.get(fi) == 1 and not na(ext.get(fi)) and (na(fboLastLine) or ext.get(fi) != fboLastLine)
+            float fhi = fs == 1 ? high : low
+            if fhi * fs > ext.get(fi) * fs
+                if boxState == 2
+                    box.set_right(curBox, bar_index)
+                    f_lbl(bar_index, fs == 1 ? boxTop : boxBot, "Range Closed (FBO)", cFBO, fs == -1)
+                boxState := 0
+                closedBar := bar_index
+                fboLine := ext.get(fi)
+                fboLastLine := fboLine
+                fboStart := bar_index
+                fboConfirmed := false
+                boxState := 3
+                boxType := 4
+                boxDir := fs
+                exitHi := na
+                exitLo := na
+                if fs == 1
+                    boxTop := high
+                    boxBot := fboLine
+                else
+                    boxTop := fboLine
+                    boxBot := low
+                curBox := f_makeBox(bar_index, boxTop, boxBot, cFBO)
+                fboLbl := f_lbl(bar_index, fhi, "FBO", cFBO, fs == -1)
+                startedFbo := true
+
+    // confirmation of the FBO : Close back on the original side of the line
+    if boxState == 3 and not fboConfirmed and close * boxDir <= fboLine * boxDir
+        fboConfirmed := true
+        if not na(fboLbl)
+            label.set_color(fboLbl, color.red)
+
+    // ---------------------------------------------------------------
+    // [5] Active box : end / extension / confirmation
+    // ---------------------------------------------------------------
+    if boxState != 0 and not startedFbo
+        if boxState == 3
+            int s3 = boxDir
+            if f_pat(-s3, fboLine, true)
+                box.set_right(curBox, bar_index)
+                closedBar := bar_index
+                boxState := 0
+            else
+                if s3 == 1
+                    if close > boxTop
+                        exitHi := na(exitHi) ? high : math.max(exitHi, high)
+                    else if not na(exitHi)
+                        boxTop := math.max(boxTop, exitHi, high)
+                        exitHi := na
+                else
+                    if close < boxBot
+                        exitLo := na(exitLo) ? low : math.min(exitLo, low)
+                    else if not na(exitLo)
+                        boxBot := math.min(boxBot, exitLo, low)
+                        exitLo := na
+        else
+            float lineD = boxDir == 1 ? boxTop : boxBot
+            float lineP = boxDir == 1 ? boxBot : boxTop
+            int ek = 0
+            if boxState == 2
+                if f_pat(boxDir, lineD, true)
+                    ek := 1
+                else if f_pat(-boxDir, lineP, true)
+                    ek := 2
+            else
+                pendCnt += 1
+                bool againstD = boxDir == 1 ? bearPL : bullPL
+                if againstD or f_pat(boxDir, lineD, true)
+                    ek := 3
+            if ek != 0
+                if boxState == 2
+                    box.set_right(curBox, bar_index)
+                    bool atTop = (ek == 1) == (boxDir == 1)
+                    color kc = ek == 1 ? (boxDir == 1 ? cUp : cDn) : cPB
+                    f_lbl(bar_index, atTop ? boxTop : boxBot, "Range Closed", kc, not atTop)
+                    lastDir := ek == 1 ? boxDir : -boxDir
+                    if ek == 2
+                        int ti = boxDir == 1 ? 0 : 1
+                        if phase.get(ti) == 0 and not na(ext.get(ti))
+                            phase.set(ti, 1)
+                            fake.set(ti, na)
+                // (anchor killed before confirmation: removed silently, no label)
+                boxState := 0
+                closedBar := bar_index
+            else
+                if close > boxTop
+                    exitHi := na(exitHi) ? high : math.max(exitHi, high)
+                else if not na(exitHi)
+                    boxTop := math.max(boxTop, exitHi, high)
+                    exitHi := na
+                if close < boxBot
+                    exitLo := na(exitLo) ? low : math.min(exitLo, low)
+                else if not na(exitLo)
+                    boxBot := math.min(boxBot, exitLo, low)
+                    exitLo := na
+                if boxState == 1 and pendCnt >= iConfirm
+                    boxState := 2
+                    curBox := f_makeBox(boxStart, boxTop, boxBot, boxDir == 1 ? cUp : cDn)
+                    curLbl := f_lbl(boxStart, boxTop, str.tostring(boxType), color.gray, false)
+                    rBoxes.push(curBox)
+                    rLbls.push(curLbl)
+                    rStart.push(boxStart)
+
+    // ---------------------------------------------------------------
+    // [6] Start of a new range (only when no box is active)
+    //     priority: FBO (above) -> type 3 -> type 1/2
+    // ---------------------------------------------------------------
+    int dS = lastDir != 0 ? lastDir : trend
+    if boxState == 0 and not startedFbo and dS != 0 and bar_index >= 2
+        int idD = dS == 1 ? 0 : 1
+        // ---- type 3 : invalid pullback
+        bool c1 = f_col(1) == -dS
+        float ceilRef = phase.get(idD) == 1 ? (dS == 1 ? high[1] : low[1]) : ext.get(idD)
+        bool c2 = not na(ceilRef) and close * dS <= ceilRef * dS
+        bool c3 = not (dS == 1 ? (bearPL or bearPLp) : (bullPL or bullPLp))
+        bool c4 = bar_index - 1 > closedBar
+        if c1 and c2 and c3 and c4
+            boxState := 2
+            boxType := 3
+            boxDir := dS
+            boxStart := bar_index - 1
+            boxTop := math.max(high, high[1])
+            boxBot := math.min(low, low[1])
+            exitHi := na
+            exitLo := na
+            curBox := f_makeBox(boxStart, boxTop, boxBot, dS == 1 ? cUp : cDn)
+            curLbl := f_lbl(boxStart, boxTop, "3", color.gray, false)
+            rBoxes.push(curBox)
+            rLbls.push(curLbl)
+            rStart.push(boxStart)
+        else
+            // ---- type 1 / 2 : Big marubozu or Big pinbar against the trend direction
+            bool anchorMaru = bigMaru and ccol == -dS
+            bool anchorPin = bigPin and ctype == (dS == 1 ? 3 : 2)
+            if bar_index > closedBar and (anchorMaru or anchorPin)
+                boxState := 1
+                boxType := anchorMaru ? 1 : 2
+                boxDir := dS
+                boxStart := bar_index
+                boxTop := high
+                boxBot := low
+                exitHi := na
+                exitLo := na
+                pendCnt := 0
+
+    // ---------------------------------------------------------------
+    // [7] Update drawing + remember flags
+    // ---------------------------------------------------------------
+    if boxState >= 2 and not na(curBox)
+        box.set_right(curBox, bar_index)
+        box.set_top(curBox, boxTop)
+        box.set_bottom(curBox, boxBot)
+    bearPLp := bearPL
+    bullPLp := bullPL
+
+// =====================================================================
+//  VISUALS / ALERTS
+// =====================================================================
+color typeCol = ctype == 1 ? color.gray : ctype == 2 ? color.blue : ctype == 3 ? color.purple : ctype == 4 ? color.orange : ctype == 5 ? color.silver : na
+barcolor(iColorTypes ? typeCol : na)
+
+alertcondition(ctsUpEvt, "CTS Up", "Real breakout of locked high (CTS up)")
+alertcondition(ctsDnEvt, "CTS Down", "Real breakout of locked low (CTS down)")
+alertcondition(tcEvt, "Trend change", "Trend change (BOS broken)")
