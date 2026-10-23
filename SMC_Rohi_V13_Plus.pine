@@ -781,10 +781,18 @@ if msShow and msSignal != 0
     isBull_MS  = msSignal > 0
     isReversal = math.abs(msSignal) == 2
     col        = isBull_MS ? msBullColor : msBearColor
-    txt        = isReversal ? "BOS" : "CTS"
+    txt        = isReversal ? "CHoCH" : "CTS"
 
     line.new(brokenLevelBar, brokenLevelPrice, bar_index, brokenLevelPrice, color=col, style=line.style_dotted, width=1)
     f_pill(math.round((brokenLevelBar + bar_index) / 2), brokenLevelPrice, txt, col)
+
+    // BOS = the extreme of the whole correction (drawn together with every CTS)
+    if not isReversal
+        int bsB = isBull_MS ? lastSwingLowBar : lastSwingHighBar
+        float bsP = isBull_MS ? lastSwingLowPrice : lastSwingHighPrice
+        if not na(bsB) and not na(bsP)
+            line.new(bsB, bsP, bar_index, bsP, color=color.new(col, 35), width=1)
+            f_pill(math.round((bsB + bar_index) / 2), bsP, "BOS", col)
 
     if isBull_MS
         if iShowDots
