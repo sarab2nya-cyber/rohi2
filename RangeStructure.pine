@@ -41,7 +41,8 @@ gD = "6) Style / debug"
 iStrict  = input.bool(true, "Strict confirm: cond.2/3 cancelled if C2 or C3 closes back on the original side of the line", group=gD)
 iFboNear = input.bool(false, "FBO box also closes on a real breakout of the near side (the line)", group=gD)
 iClassic = input.bool(true, "Classic CTS/BOS style (thin black line + centered text)", group=gD)
-iFboDelay = input.int(2, "FBO registration delay (candles after the first crossing); a real breakout gets priority meanwhile", minval=0, maxval=5, group=gD)
+iFboDelay = input.int(0, "FBO registration delay in candles (0 = exactly like the reference code: FBO starts on the first crossing)", minval=0, maxval=5, group=gD)
+iMarks   = input.bool(false, "Show pattern shapes (1 / 2-3 / A / B / C), bearish above, bullish below, WITHOUT the level test", group=gD)
 iDbg     = input.bool(false, "Debug: show which pattern fired (CTS#id / lock#id)", group=gD)
 
 gZ = "5) Waves (zig-zag)"
@@ -127,6 +128,8 @@ bool ctsDnEvt = false
 bool tcEvt = false
 bool ctsEvt = false
 bool startedFbo = false
+int mkBull = 0
+int mkBear = 0
 
 // =====================================================================
 //  CANDLE HELPERS (k = offset)
@@ -319,6 +322,16 @@ if barstate.isconfirmed
     // ---------------------------------------------------------------
     bool bullPL = f_pat(1, noLine, false)
     bool bearPL = f_pat(-1, noLine, false)
+    mkBull := f_patId(1, noLine, false)
+    mkBear := f_patId(-1, noLine, false)
+
+    // pending CTS level as it was BEFORE this bar updates the structure (used by the FBO)
+    int fbTrendPre = trend
+    float fbLevelPre = na
+    if trend != 0
+        int pi0 = trend == 1 ? 0 : 1
+        if phase.get(pi0) == 1
+            fbLevelPre := ext.get(pi0)
 
     // ---------------------------------------------------------------
     // [3] Market structure  (wave -> lock -> CTS / BOS / trend change)
@@ -389,7 +402,7 @@ if barstate.isconfirmed
                 else
                     // ---- stage B : locked, waiting for a real breakout of H*
                     bool fboFar = boxState == 3 and boxDir == s and (bar_index - fboStart) > 2
-                    float lineC = fboFar ? (s == 1 ? boxTop : boxBot) : ext.get(i)
+                    float lineC = fboFar ? (s == 1 ? math.max(ext.get(i), boxTop) : math.min(ext.get(i), boxBot)) : ext.get(i)
                     int cid = f_patId(s, lineC, true)
                     bool cts = cid != 0
                     if cts
@@ -474,14 +487,8 @@ if barstate.isconfirmed
     //     confirmed: Close back on the other side of the line (can be the start candle)
     //     done level is stored only when the FBO is confirmed
     // ---------------------------------------------------------------
-    float pendLvl = na
-    if trend != 0
-        int pi = trend == 1 ? 0 : 1
-        if phase.get(pi) == 1
-            pendLvl := ext.get(pi)
-
     // in-progress label dies on a CTS / trend change or when the pending CTS level changes
-    if fboLive and (ctsEvt or tcEvt or na(pendLvl) or pendLvl != fboLine)
+    if fboLive and (ctsEvt or tcEvt or na(fbLevelPre) or fbLevelPre != fboLine)
         if not na(fboLbl)
             label.delete(fboLbl)
         fboLbl := na
@@ -498,26 +505,25 @@ if barstate.isconfirmed
         closedBar := bar_index
 
     // a crossing that is still pending is dropped on CTS / trend change / level change
-    if fboPend and (ctsEvt or tcEvt or na(pendLvl) or pendLvl != fboPLine)
+    if fboPend and (ctsEvt or tcEvt or na(fbLevelPre) or fbLevelPre != fboPLine)
         fboPend := false
 
     // first crossing of the pending CTS level: only remembered, the FBO is registered
     // iFboDelay candles later if no real breakout formed in the meantime
-    if trend != 0 and not fboLive and not fboPend and not ctsEvt and not tcEvt
-        int fi = trend == 1 ? 0 : 1
-        int fs = trend
-        if phase.get(fi) == 1 and not na(ext.get(fi)) and (na(fboLastLine) or ext.get(fi) != fboLastLine)
-            float fhi = fs == 1 ? high : low
-            if fhi * fs > ext.get(fi) * fs
-                fboPend := true
-                fboPLine := ext.get(fi)
-                fboPBar := bar_index
-                fboPExt := fhi
-                fboPConf := false
-                fboPDir := fs
+    if fbTrendPre != 0 and not na(fbLevelPre) and not fboLive and not fboPend and not ctsEvt and not tcEvt and (na(fboLastLine) or fbLevelPre != fboLastLine)
+        float fhi = fbTrendPre == 1 ? high : low
+        if fhi * fbTrendPre > fbLevelPre * fbTrendPre
+            fboPend := true
+            fboPLine := fbLevelPre
+            fboPBar := bar_index
+            fboPExt := fhi
+            fboPConf := false
+            fboPDir := fbTrendPre
 
     // pending progress + registration
     if fboPend
+        if iDbg
+            f_lbl(bar_index, fboPDir == 1 ? high : low, "S" + str.tostring(f_patId(fboPDir, noLine, false)) + " L" + str.tostring(f_patId(fboPDir, fboPLine, true)), color.purple, fboPDir == -1)
         fboPExt := fboPDir == 1 ? math.max(fboPExt, high) : math.min(fboPExt, low)
         if fboPDir == 1 ? close < fboPLine : close > fboPLine
             fboPConf := true
@@ -748,6 +754,17 @@ if barstate.isconfirmed
 // =====================================================================
 color typeCol = ctype == 1 ? color.gray : ctype == 2 ? color.blue : ctype == 3 ? color.purple : ctype == 4 ? color.orange : ctype == 5 ? color.silver : na
 barcolor(iColorTypes ? typeCol : na)
+
+plotshape(iMarks and mkBear == 1, title = "bear cond.1", style = shape.circle, location = location.abovebar, color = color.maroon, text = "1", textcolor = color.maroon, size = size.tiny)
+plotshape(iMarks and mkBear == 2, title = "bear cond.2/3", style = shape.circle, location = location.abovebar, color = color.maroon, text = "2/3", textcolor = color.maroon, size = size.tiny)
+plotshape(iMarks and mkBear == 3, title = "bear A", style = shape.circle, location = location.abovebar, color = color.purple, text = "A", textcolor = color.purple, size = size.tiny)
+plotshape(iMarks and mkBear == 4, title = "bear B", style = shape.circle, location = location.abovebar, color = color.purple, text = "B", textcolor = color.purple, size = size.tiny)
+plotshape(iMarks and mkBear == 5, title = "bear C", style = shape.circle, location = location.abovebar, color = color.purple, text = "C", textcolor = color.purple, size = size.tiny)
+plotshape(iMarks and mkBull == 1, title = "bull cond.1", style = shape.circle, location = location.belowbar, color = color.teal, text = "1", textcolor = color.teal, size = size.tiny)
+plotshape(iMarks and mkBull == 2, title = "bull cond.2/3", style = shape.circle, location = location.belowbar, color = color.teal, text = "2/3", textcolor = color.teal, size = size.tiny)
+plotshape(iMarks and mkBull == 3, title = "bull A", style = shape.circle, location = location.belowbar, color = color.blue, text = "A", textcolor = color.blue, size = size.tiny)
+plotshape(iMarks and mkBull == 4, title = "bull B", style = shape.circle, location = location.belowbar, color = color.blue, text = "B", textcolor = color.blue, size = size.tiny)
+plotshape(iMarks and mkBull == 5, title = "bull C", style = shape.circle, location = location.belowbar, color = color.blue, text = "C", textcolor = color.blue, size = size.tiny)
 
 alertcondition(ctsUpEvt, "CTS Up", "Real breakout of locked high (CTS up)")
 alertcondition(ctsDnEvt, "CTS Down", "Real breakout of locked low (CTS down)")
