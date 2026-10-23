@@ -37,6 +37,12 @@ cPB   = input.color(color.orange, "Closed by pullback", group=gK)
 cFBO  = input.color(color.gray, "FBO", group=gK)
 cBOS  = input.color(color.blue, "BOS", group=gK)
 
+gD = "6) Style / debug"
+iStrict  = input.bool(true, "Strict confirm: cond.2/3 cancelled if C2 or C3 closes back on the original side of the line", group=gD)
+iFboNear = input.bool(false, "FBO box also closes on a real breakout of the near side (the line)", group=gD)
+iClassic = input.bool(true, "Classic CTS/BOS style (thin black line + centered text)", group=gD)
+iDbg     = input.bool(false, "Debug: show which pattern fired (CTS#id / lock#id)", group=gD)
+
 gZ = "5) Waves (zig-zag)"
 iZZ    = input.bool(true, "Show wave zig-zag (BOS -> CTS -> higher/lower BOS)", group=gZ)
 iZZCol = input.color(color.blue, "Zig-zag color", group=gZ)
@@ -180,7 +186,7 @@ f_c23(int dir, int a, int b) =>
 //  lv given     -> line conditions applied (real breakout / pullback of a line)
 //  confirm      -> conditions 2/3 are registered one candle later (C3 check)
 // =====================================================================
-f_pat(int dir, float lv, bool confirm) =>
+f_patId(int dir, float lv, bool confirm) =>
     bool hasLine = not na(lv)
     bool useConf = hasLine and confirm
 
@@ -197,7 +203,9 @@ f_pat(int dir, float lv, bool confirm) =>
         float beyondLen = dir == 1 ? high[a] - lv : lv - low[a]
         p23 := beyondLen > iLine30 / 100 * f_rng(a)
     if p23 and useConf
-        p23 := not (f_type(0) == 4 and f_col(0) == -dir and f_beyond(-dir, close, lv))
+        bool strongBack = f_type(0) == 4 and f_col(0) == -dir and f_beyond(-dir, close, lv)
+        bool anyBack = not f_beyond(dir, close, lv) or not f_beyond(dir, close[1], lv)
+        p23 := not (strongBack or (iStrict and anyBack))
 
     // three-candle patterns : C1=[2], C2=[1], C3=[0]
     bool pre = dir == 1 ? close > math.max(high[2], high[1]) : close < math.min(low[2], low[1])
@@ -210,11 +218,21 @@ f_pat(int dir, float lv, bool confirm) =>
         pB := pB and f_beyond(dir, close, lv)
         pC := pC and f_beyond(dir, close, lv)
 
-    p1 or p23 or pA or pB or pC
+    // 0 = none, 1 = cond.1, 2 = cond.2/3, 3 = pattern A, 4 = pattern B, 5 = pattern C
+    p1 ? 1 : p23 ? 2 : pA ? 3 : pB ? 4 : pC ? 5 : 0
+
+f_pat(int dir, float lv, bool confirm) =>
+    f_patId(dir, lv, confirm) != 0
 
 // =====================================================================
 //  DRAWING HELPERS
 // =====================================================================
+f_txt(int x, float y, string txt) =>
+    label l = na
+    if iShowLbl
+        l := label.new(x, y, txt, style = label.style_none, textcolor = color.black, size = size.small)
+    l
+
 f_lbl(int x, float y, string txt, color c, bool up) =>
     label l = na
     if iShowLbl
@@ -343,20 +361,32 @@ if barstate.isconfirmed
                         if boxState <= 1 and bar_index > extBar.get(i) and pbNow
                             phase.set(i, 1)
                             fake.set(i, na)
+                            if iDbg
+                                f_lbl(bar_index, hiS, "lock#" + str.tostring(f_patId(-s, noLine, false)), color.gray, s == -1)
                 else
                     // ---- stage B : locked, waiting for a real breakout of H*
                     bool fboFar = boxState == 3 and boxDir == s and (bar_index - fboStart + 1) > 2
                     float lineC = fboFar ? (s == 1 ? boxTop : boxBot) : ext.get(i)
-                    bool cts = f_pat(s, lineC, true)
+                    int cid = f_patId(s, lineC, true)
+                    bool cts = cid != 0
                     if cts
                         float lvl = ext.get(i)
                         int tb = extBar.get(i)
                         float bosLvl2 = corr.get(i)
-                        line.new(tb, lvl, bar_index, lvl, color = cUp, width = 1)
-                        f_lbl(bar_index, lvl, "CTS", cUp, s == -1)
+                        string ctsTxt = iDbg ? "CTS#" + str.tostring(cid) : "CTS"
+                        if iClassic
+                            line.new(tb, lvl, bar_index, lvl, color = color.black, width = 1)
+                            f_txt(int(math.round((tb + bar_index) / 2.0)), lvl, ctsTxt)
+                        else
+                            line.new(tb, lvl, bar_index, lvl, color = cUp, width = 1)
+                            f_lbl(bar_index, lvl, ctsTxt, cUp, s == -1)
                         bos.set(i, bosLvl2)
-                        line.new(corrBar.get(i), bosLvl2, bar_index, bosLvl2, color = cBOS, style = line.style_dashed)
-                        f_lbl(corrBar.get(i), bosLvl2, "BOS", cBOS, s == 1)
+                        if iClassic
+                            line.new(corrBar.get(i), bosLvl2, bar_index, bosLvl2, color = color.black, width = 1)
+                            f_txt(int(math.round((corrBar.get(i) + bar_index) / 2.0)), bosLvl2, "BOS")
+                        else
+                            line.new(corrBar.get(i), bosLvl2, bar_index, bosLvl2, color = cBOS, style = line.style_dashed)
+                            f_lbl(corrBar.get(i), bosLvl2, "BOS", cBOS, s == 1)
                         ctsEvt := true
                         if s == 1
                             ctsUpEvt := true
@@ -464,7 +494,7 @@ if barstate.isconfirmed
     if boxState != 0 and not startedFbo
         if boxState == 3
             int s3 = boxDir
-            if f_pat(-s3, fboLine, true)
+            if iFboNear and f_pat(-s3, fboLine, true)
                 box.set_right(curBox, bar_index)
                 closedBar := bar_index
                 boxState := 0
