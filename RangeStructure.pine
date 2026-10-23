@@ -42,6 +42,7 @@ iStrict  = input.bool(true, "Strict confirm: cond.2/3 cancelled if C2 or C3 clos
 iFboNear = input.bool(false, "FBO box also closes on a real breakout of the near side (the line)", group=gD)
 iClassic = input.bool(true, "Classic CTS/BOS style (thin black line + centered text)", group=gD)
 iFboDelay = input.int(0, "FBO registration delay in candles (0 = exactly like the reference code: FBO starts on the first crossing)", minval=0, maxval=5, group=gD)
+iFarAfter = input.int(3, "FBO: far-side rule starts after N candles from the first crossing (reference code: 2; 3 because cond.2/3 is registered one candle later)", minval=1, maxval=6, group=gD)
 iMarks   = input.bool(false, "Show pattern shapes (1 / 2-3 / A / B / C), bearish above, bullish below, WITHOUT the level test", group=gD)
 iDbg     = input.bool(false, "Debug: show which pattern fired (CTS#id / lock#id)", group=gD)
 
@@ -401,7 +402,7 @@ if barstate.isconfirmed
                             f_lbl(bar_index, hiS, "lock#" + str.tostring(f_patId(-s, noLine, false)), color.gray, s == -1)
                 else
                     // ---- stage B : locked, waiting for a real breakout of H*
-                    bool fboFar = boxState == 3 and boxDir == s and (bar_index - fboStart) > 2
+                    bool fboFar = boxState == 3 and boxDir == s and (bar_index - fboStart) > iFarAfter
                     float lineC = fboFar ? (s == 1 ? math.max(ext.get(i), boxTop) : math.min(ext.get(i), boxBot)) : ext.get(i)
                     int cid = f_patId(s, lineC, true)
                     bool cts = cid != 0
@@ -497,7 +498,7 @@ if barstate.isconfirmed
     // FBO box (range type 4) ends on a structural signal
     if boxState == 3 and (ctsEvt or tcEvt)
         int age = bar_index - fboStart   // 0 = start candle; deleted if a CTS / trend change comes within 3 candles
-        if age <= 2
+        if age <= iFarAfter
             box.delete(curBox)
         else
             box.set_right(curBox, bar_index)
@@ -559,6 +560,11 @@ if barstate.isconfirmed
             if fboPConf
                 fboLastLine := fboLine
                 fboLive := false
+
+    // debug: pattern ids on every candle of a young FBO box (S = shape, L = with the level used for CTS)
+    if iDbg and boxState == 3 and not startedFbo and (bar_index - fboStart) <= 8
+        float dbgL = (bar_index - fboStart) > iFarAfter ? (boxDir == 1 ? math.max(fboLine, boxTop) : math.min(fboLine, boxBot)) : fboLine
+        f_lbl(bar_index, boxDir == 1 ? low : high, "S" + str.tostring(f_patId(boxDir, noLine, false)) + " L" + str.tostring(f_patId(boxDir, dbgL, true)), color.purple, boxDir == 1)
 
     // confirmation : Close strictly back on the other side of the line
     if fboLive and not ctsEvt and not tcEvt and (trend == 1 ? close < fboLine : close > fboLine)
