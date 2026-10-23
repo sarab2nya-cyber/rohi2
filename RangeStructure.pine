@@ -41,6 +41,7 @@ gD = "6) Style / debug"
 iStrict  = input.bool(true, "Strict confirm: cond.2/3 cancelled if C2 or C3 closes back on the original side of the line", group=gD)
 iFboNear = input.bool(false, "FBO box also closes on a real breakout of the near side (the line)", group=gD)
 iClassic = input.bool(true, "Classic CTS/BOS style (thin black line + centered text)", group=gD)
+iFboDelay = input.int(2, "FBO registration delay (candles after the first crossing); a real breakout gets priority meanwhile", minval=0, maxval=5, group=gD)
 iDbg     = input.bool(false, "Debug: show which pattern fired (CTS#id / lock#id)", group=gD)
 
 gZ = "5) Waves (zig-zag)"
@@ -88,6 +89,12 @@ var float fboLine = na
 var float fboLastLine = na
 var bool fboConfirmed = false
 var bool fboLive = false
+var bool fboPend = false      // first crossing seen, FBO not registered yet (real breakout has priority)
+var float fboPLine = na
+var int fboPBar = 0
+var float fboPExt = na
+var bool fboPConf = false
+var int fboPDir = 0
 var int fboStart = 0
 var label fboLbl = na
 
@@ -490,40 +497,62 @@ if barstate.isconfirmed
         boxState := 0
         closedBar := bar_index
 
-    // start
-    if trend != 0 and not fboLive and not ctsEvt and not tcEvt
+    // a crossing that is still pending is dropped on CTS / trend change / level change
+    if fboPend and (ctsEvt or tcEvt or na(pendLvl) or pendLvl != fboPLine)
+        fboPend := false
+
+    // first crossing of the pending CTS level: only remembered, the FBO is registered
+    // iFboDelay candles later if no real breakout formed in the meantime
+    if trend != 0 and not fboLive and not fboPend and not ctsEvt and not tcEvt
         int fi = trend == 1 ? 0 : 1
         int fs = trend
         if phase.get(fi) == 1 and not na(ext.get(fi)) and (na(fboLastLine) or ext.get(fi) != fboLastLine)
             float fhi = fs == 1 ? high : low
             if fhi * fs > ext.get(fi) * fs
-                fboLive := true
-                fboLine := ext.get(fi)
-                fboConfirmed := false
-                // a type 1-3 range still active is closed here (a pending anchor is dropped silently)
-                if boxState == 2
-                    box.set_right(curBox, bar_index)
-                    f_lbl(bar_index, fs == 1 ? boxTop : boxBot, "Range Closed (FBO)", cFBO, fs == -1)
-                if boxState == 1 or boxState == 2
-                    boxState := 0
-                    closedBar := bar_index
-                // the FBO box is created only when no box is active
-                if boxState == 0
-                    fboStart := bar_index
-                    boxState := 3
-                    boxType := 4
-                    boxDir := fs
-                    exitHi := na
-                    exitLo := na
-                    if fs == 1
-                        boxTop := high
-                        boxBot := fboLine
-                    else
-                        boxTop := fboLine
-                        boxBot := low
-                    curBox := f_makeBox(bar_index, boxTop, boxBot, cFBO)
-                    startedFbo := true
-                fboLbl := f_lbl(bar_index, fhi, "FBO", cFBO, fs == -1)
+                fboPend := true
+                fboPLine := ext.get(fi)
+                fboPBar := bar_index
+                fboPExt := fhi
+                fboPConf := false
+                fboPDir := fs
+
+    // pending progress + registration
+    if fboPend
+        fboPExt := fboPDir == 1 ? math.max(fboPExt, high) : math.min(fboPExt, low)
+        if fboPDir == 1 ? close < fboPLine : close > fboPLine
+            fboPConf := true
+        if bar_index - fboPBar >= iFboDelay
+            fboPend := false
+            fboLine := fboPLine
+            fboLive := not fboPConf
+            fboConfirmed := fboPConf
+            // a type 1-3 range still active is closed here (a pending anchor is dropped silently)
+            if boxState == 2
+                box.set_right(curBox, bar_index)
+                f_lbl(bar_index, fboPDir == 1 ? boxTop : boxBot, "Range Closed (FBO)", cFBO, fboPDir == -1)
+            if boxState == 1 or boxState == 2
+                boxState := 0
+                closedBar := bar_index
+            // the FBO box is created only when no box is active; it starts at the first crossing candle
+            if boxState == 0
+                fboStart := fboPBar
+                boxState := 3
+                boxType := 4
+                boxDir := fboPDir
+                exitHi := na
+                exitLo := na
+                if fboPDir == 1
+                    boxTop := fboPExt
+                    boxBot := fboLine
+                else
+                    boxTop := fboLine
+                    boxBot := fboPExt
+                curBox := f_makeBox(fboPBar, boxTop, boxBot, cFBO)
+                startedFbo := true
+            fboLbl := f_lbl(fboPBar, fboPDir == 1 ? high[bar_index - fboPBar] : low[bar_index - fboPBar], "FBO", fboPConf ? color.red : cFBO, fboPDir == -1)
+            if fboPConf
+                fboLastLine := fboLine
+                fboLive := false
 
     // confirmation : Close strictly back on the other side of the line
     if fboLive and not ctsEvt and not tcEvt and (trend == 1 ? close < fboLine : close > fboLine)
