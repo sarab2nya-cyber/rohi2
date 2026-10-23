@@ -33,7 +33,6 @@ iShowVol      = input.bool(true, "Show volume inside those boxes", group=gS)
 iBoxExt       = input.int(12, "Boxes extend N bars to the right", minval=0, group=gS)
 iShowDots     = input.bool(false, "Mark the confirmed real pullback (dot)", group=gS)
 iNeedBrk      = input.bool(true, "A real pullback is recognized only after a real breakout", group=gS)
-iBootN        = input.int(20, "Real breakout reference: swing of the last N candles", minval=5, group=gS)
 iShowLbl      = input.bool(true, "Show CTS / BOS tags", group=gS)
 
 gC = "Candle definitions (% of candle range)"
@@ -482,12 +481,10 @@ if low < runningLow
 bool no_single_candle_dn = (bar_index - nz(runningHighBar, bar_index)) >= 2
 bool no_single_candle_up = (bar_index - nz(runningLowBar, bar_index)) >= 2
 
-// real breakout gate : until one real breakout (of the recent swing, or a CTS / trend change) has been seen,
-// no real pullback is recognized even if its pattern formed
-float bootHi = ta.highest(high, iBootN)[3]
-float bootLo = ta.lowest(low, iBootN)[3]
+// real breakout gate : until one real breakout (of the last swing level, or a CTS / trend change) has been seen,
+// no real pullback is recognized even if its pattern formed. No candle count is used.
 var bool brkSeen = false
-bool bootBrk = (not na(bootHi) and f_pat(1, bootHi, true)) or (not na(bootLo) and f_pat(-1, bootLo, true))
+bool bootBrk = (not na(lastSwingHighPrice) and f_pat(1, lastSwingHighPrice, true)) or (not na(lastSwingLowPrice) and f_pat(-1, lastSwingLowPrice, true))
 if barstate.isconfirmed and bootBrk
     brkSeen := true
 bool pbGate = brkSeen or not iNeedBrk
