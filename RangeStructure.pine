@@ -381,7 +381,7 @@ if barstate.isconfirmed
                             f_lbl(bar_index, hiS, "lock#" + str.tostring(f_patId(-s, noLine, false)), color.gray, s == -1)
                 else
                     // ---- stage B : locked, waiting for a real breakout of H*
-                    bool fboFar = boxState == 3 and boxDir == s and (bar_index - fboStart + 1) > 2
+                    bool fboFar = boxState == 3 and boxDir == s and (bar_index - fboStart) > 2
                     float lineC = fboFar ? (s == 1 ? boxTop : boxBot) : ext.get(i)
                     int cid = f_patId(s, lineC, true)
                     bool cts = cid != 0
@@ -482,7 +482,7 @@ if barstate.isconfirmed
 
     // FBO box (range type 4) ends on a structural signal
     if boxState == 3 and (ctsEvt or tcEvt)
-        int age = bar_index - fboStart + 1
+        int age = bar_index - fboStart   // 0 = start candle; deleted if a CTS / trend change comes within 3 candles
         if age <= 2
             box.delete(curBox)
         else
