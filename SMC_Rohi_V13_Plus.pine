@@ -29,8 +29,8 @@ msShow        = input.bool(true, "Show Market Structure (BOS / CTS)", group=gS)
 msStrictClose = input.bool(true, "Strict Confirm on Close (Anti-Repaint)", group=gS)
 iZigW         = input.int(1, "Wave line width", minval=1, maxval=3, group=gS)
 iShowKL       = input.bool(true, "Show Recent High-Low / Key Level boxes", group=gS)
-iShowVol      = input.bool(true, "Show volume inside those boxes", group=gS)
-iBoxExt       = input.int(12, "Boxes extend N bars to the right", minval=0, group=gS)
+iShowVol      = input.bool(false, "Show volume inside those boxes", group=gS)
+iBoxExt       = input.int(8, "Boxes extend N bars to the right", minval=0, group=gS)
 iShowDots     = input.bool(false, "Mark the confirmed real pullback (dot)", group=gS)
 iNeedBrk      = input.bool(true, "A real pullback is recognized only after a real breakout", group=gS)
 iShowLbl      = input.bool(true, "Show CTS / BOS tags", group=gS)
@@ -65,6 +65,8 @@ iHide             = input.bool(false, "Hide Ranges inside the Correction Zone", 
 iFarAfter         = input.int(3, "FBO: far-side rule starts after N candles from the first crossing", minval=1, maxval=6, group=gR)
 rngBlockStructure = input.bool(false, "Let an active range block BOS / CTS (off = real breakout / pullback always have priority)", group=gR)
 rngBlockFVG       = input.bool(true, "Block FVG Inside Range", group=gR)
+iRng3Min          = input.float(50, "Range 3: C1 length >= % of the 20-bar average range", minval=0, group=gR)
+iRngCool          = input.int(3, "Range: cool-down candles after a range closes", minval=0, group=gR)
 
 gI = "Imbalance Settings"
 showImbBox       = input.bool(true, "Show Imbalance Lines (FVG)", group=gI)
@@ -108,6 +110,11 @@ var float candidateHigh    = na
 var int   candidateHighBar = na
 var float candidateLow     = na
 var int   candidateLowBar  = na
+// correction extremes measured FROM the wave top (candidate) / bottom: the real BOS
+var float pbLowP   = na
+var int   pbLowBar = na
+var float pbHighP   = na
+var int   pbHighBar = na
 
 // range engine state (only one active box)
 var int boxState = 0          // 0 none, 1 pending anchor, 2 confirmed range, 3 FBO box
@@ -138,6 +145,7 @@ var float fboPExt = na
 var bool fboPConf = false
 var int fboPDir = 0
 var int fboStart = 0
+var float fboBoxLine = na
 
 // per-bar series
 float noLine = na
@@ -334,6 +342,7 @@ int   preBoxState = boxState
 int   preBoxDir = boxDir
 float preBoxTop = boxTop
 float preBoxBot = boxBot
+float avgR = ta.sma(high - low, 20)
 
 // =====================================================================
 // PRICE ACTION RANGE ENGINE  (types 1 / 2 / 3, FBO box type 4)
@@ -376,7 +385,7 @@ if barstate.isconfirmed
             if boxState == 2
                 rngRealUp := upBreak
                 rngRealDown := dnBreak
-                f_closeBox(curBox, ek, boxDir, "R" + str.tostring(boxType) + (ek == 1 ? (boxDir == 1 ? "  breakout up" : "  breakout down") : "  pullback"))
+                f_closeBox(curBox, ek, boxDir, "R" + str.tostring(boxType) + (ek == 1 ? (boxDir == 1 ? " ▲" : " ▼") : " pb"))
                 lastDirMS := ek == 1 ? boxDir : -boxDir
             boxState := 0
             closedBar := bar_index
@@ -404,8 +413,10 @@ if barstate.isconfirmed
         bool c1 = f_col(1) == -dS
         bool c2 = not na(ceilRef) and close * dS <= ceilRef * dS
         bool c3 = not (dS == 1 ? (pb_pattern_down or pbDnP) : (pb_pattern_up or pbUpP))
-        bool c4 = bar_index - 1 > closedBar
-        if c1 and c2 and c3 and c4
+        bool c4 = bar_index - 1 > closedBar and bar_index - closedBar > iRngCool
+        bool c5 = not na(avgR) and f_rng(1) >= iRng3Min / 100 * avgR
+        bool c6 = high <= high[1] + 0.3 * f_rng(1) and low >= low[1] - 0.3 * f_rng(1)
+        if c1 and c2 and c3 and c4 and c5 and c6
             boxState := 2
             boxType := 3
             boxDir := dS
@@ -422,7 +433,7 @@ if barstate.isconfirmed
             // type 1 / 2 : Big marubozu or Big pinbar against the trend direction
             bool anchorMaru = bigMaru and ccol == -dS
             bool anchorPin = bigPin and ctype == (dS == 1 ? 3 : 2)
-            if bar_index > closedBar and (anchorMaru or anchorPin)
+            if bar_index > closedBar + iRngCool and (anchorMaru or anchorPin)
                 boxState := 1
                 boxType := anchorMaru ? 1 : 2
                 boxDir := dS
@@ -507,6 +518,15 @@ if strict_pb_down and (not inRange or not rngBlockStructure)
         candidateHighBar := runningHighBar
         runningLow := low
         runningLowBar := bar_index
+        float mnL = low
+        int mnLb = bar_index
+        int spanL = math.min(bar_index - candidateHighBar, 1500)
+        for b = 0 to spanL
+            if low[b] < mnL
+                mnL := low[b]
+                mnLb := bar_index - b
+        pbLowP := mnL
+        pbLowBar := mnLb
 
 if strict_pb_up and (not inRange or not rngBlockStructure)
     if msTrendState <= 0 and (na(candidateLow) or runningLow < candidateLow)
@@ -514,6 +534,22 @@ if strict_pb_up and (not inRange or not rngBlockStructure)
         candidateLowBar := runningLowBar
         runningHigh := high
         runningHighBar := bar_index
+        float mxH = high
+        int mxHb = bar_index
+        int spanH = math.min(bar_index - candidateLowBar, 1500)
+        for b = 0 to spanH
+            if high[b] > mxH
+                mxH := high[b]
+                mxHb := bar_index - b
+        pbHighP := mxH
+        pbHighBar := mxHb
+
+if not na(candidateHigh) and msTrendState >= 0 and (na(pbLowP) or low < pbLowP)
+    pbLowP := low
+    pbLowBar := bar_index
+if not na(candidateLow) and msTrendState <= 0 and (na(pbHighP) or high > pbHighP)
+    pbHighP := high
+    pbHighBar := bar_index
 
 // While an FBO box older than iFarAfter candles exists, the pending CTS is broken only by
 // a real breakout of the box's far side (the fake extreme); the CTS is still drawn on its line.
@@ -549,13 +585,16 @@ if msTrendState == 1
         candidateLow := na
         runningLow := low
         runningLowBar := bar_index
+        pbLowP := na
+        pbHighP := na
 
     else if break_candidate_high
         msSignal := 1
         brokenLevelPrice := candidateHigh
         brokenLevelBar := candidateHighBar
-        lastSwingLowPrice := runningLow
-        lastSwingLowBar := runningLowBar
+        lastSwingLowPrice := na(pbLowP) ? runningLow : pbLowP
+        lastSwingLowBar := na(pbLowP) ? runningLowBar : pbLowBar
+        pbLowP := na
         candidateHigh := na
         runningHigh := high
         runningHighBar := bar_index
@@ -571,13 +610,16 @@ else if msTrendState == -1
         candidateHigh := na
         runningHigh := high
         runningHighBar := bar_index
+        pbLowP := na
+        pbHighP := na
 
     else if break_candidate_low
         msSignal := -1
         brokenLevelPrice := candidateLow
         brokenLevelBar := candidateLowBar
-        lastSwingHighPrice := runningHigh
-        lastSwingHighBar := runningHighBar
+        lastSwingHighPrice := na(pbHighP) ? runningHigh : pbHighP
+        lastSwingHighBar := na(pbHighP) ? runningHighBar : pbHighBar
+        pbHighP := na
         candidateLow := na
         runningLow := low
         runningLowBar := bar_index
@@ -607,9 +649,9 @@ if barstate.isconfirmed
     if (msSignal != 0 or pbEvtStruct) and (boxState == 1 or boxState == 2)
         if boxState == 2
             if msSignal != 0
-                f_closeBox(curBox, 1, msSignal > 0 ? 1 : -1, "R" + str.tostring(boxType) + "  " + (math.abs(msSignal) == 2 ? "CHoCH" : "CTS"))
+                f_closeBox(curBox, 1, msSignal > 0 ? 1 : -1, "R" + str.tostring(boxType) + (msSignal > 0 ? " ▲" : " ▼"))
             else
-                f_closeBox(curBox, 2, boxDir, "R" + str.tostring(boxType) + "  pullback")
+                f_closeBox(curBox, 2, boxDir, "R" + str.tostring(boxType) + " pb")
                 lastDirMS := -boxDir
         boxState := 0
         closedBar := bar_index
@@ -626,6 +668,16 @@ if barstate.isconfirmed
         boxState := 0
         closedBar := bar_index
         rangeActive := false
+
+    // the FBO box belongs to one pending CTS level: when a new candidate replaces it, the box ends
+    if boxState == 3 and msSignal == 0
+        float curCand = boxDir == 1 ? candidateHigh : candidateLow
+        if na(curCand) or curCand != fboBoxLine
+            box.set_right(curBox, bar_index)
+            box.set_border_style(curBox, line.style_solid)
+            boxState := 0
+            closedBar := bar_index
+            rangeActive := false
 
     // Hide Ranges inside the Correction Zone (FBO boxes are never removed)
     if iHide and math.abs(msSignal) == 1 and not na(brokenLevelBar)
@@ -664,7 +716,7 @@ if barstate.isconfirmed
             fboEvt := true
             // a type 1-3 range still active is closed here (a pending anchor is dropped silently)
             if boxState == 2
-                f_closeBox(curBox, 3, 0, "R" + str.tostring(boxType) + "  x FBO")
+                f_closeBox(curBox, 3, 0, "R" + str.tostring(boxType) + " x")
             if boxState == 1 or boxState == 2
                 boxState := 0
                 closedBar := bar_index
@@ -672,6 +724,7 @@ if barstate.isconfirmed
             // the FBO box is created only when no box is active; it starts at the first crossing candle
             if boxState == 0
                 fboStart := fboPBar
+                fboBoxLine := fboPLine
                 boxState := 3
                 boxType := 4
                 boxDir := fboPDir
@@ -774,6 +827,23 @@ if msShow and msSignal != 0
             if bot_bos_bear >= top_bos_bear
                 bot_bos_bear := top_bos_bear - (syminfo.mintick * 10)
             box.new(left=lastSwingHighBar, top=top_bos_bear, right=bar_index + iBoxExt, bottom=bot_bos_bear, bgcolor=color.new(cKeyD, 90), border_color=cKeyD, border_width=1, border_style=line.style_solid, text="Key Level" + vTxtB2, text_size=size.tiny, text_color=cKeyD, text_halign=text.align_right, text_valign=text.align_center, text_font_family=fontFam)
+
+// live (unfinished) legs: last pivot -> wave extreme -> correction extreme
+var line liveA = na
+var line liveB = na
+if barstate.isconfirmed and msShow
+    float exP = msTrendState == 1 ? (na(candidateHigh) ? runningHigh : candidateHigh) : (na(candidateLow) ? runningLow : candidateLow)
+    int exB = msTrendState == 1 ? (na(candidateHigh) ? runningHighBar : candidateHighBar) : (na(candidateLow) ? runningLowBar : candidateLowBar)
+    float pbP = msTrendState == 1 ? (na(candidateHigh) ? na : pbLowP) : (na(candidateLow) ? na : pbHighP)
+    int pbB = msTrendState == 1 ? pbLowBar : pbHighBar
+    line.delete(liveA)
+    line.delete(liveB)
+    liveA := na
+    liveB := na
+    if not na(lastPivotBar) and not na(exP) and not na(exB) and exB > lastPivotBar
+        liveA := line.new(lastPivotBar, lastPivotPrice, exB, exP, color = color.new(msZigColor, 30), style = line.style_dashed, width = iZigW)
+        if not na(pbP) and not na(pbB) and pbB > exB
+            liveB := line.new(exB, exP, pbB, pbP, color = color.new(msZigColor, 30), style = line.style_dashed, width = iZigW)
 
 plotshape(msSignal == 1, title="CTS up", style=shape.triangleup, location=location.belowbar, color=msBullColor, size=size.tiny)
 plotshape(msSignal == -1, title="CTS down", style=shape.triangledown, location=location.abovebar, color=msBearColor, size=size.tiny)
