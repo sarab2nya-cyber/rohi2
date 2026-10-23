@@ -49,7 +49,7 @@ iMaruShadow = input.float(40, "Marubozu: max sum of shadows % (acceptable)", min
 iMaruPref   = input.float(70, "Marubozu: preferred body % (strong marubozu)", minval=0, maxval=100, group=gC)
 iBigStrong  = input.bool(true, "Big marubozu must be a strong (preferred) marubozu", group=gC)
 iBigN       = input.int(5, "Big: compare with last N candles", minval=1, group=gC)
-iBigMin     = input.int(3, "Big: longer than at least", minval=1, group=gC)
+iBigMin     = input.int(3, "Big: longer than at least N of the previous marubozu (any color)", minval=1, group=gC)
 
 gP = "Real Breakout / Real Pullback patterns"
 iR70    = input.float(70, "Cond.1: C2 length >= % of C1", group=gP)
@@ -303,7 +303,7 @@ if barstate.isconfirmed
         array<float> same = mBull
         if ccol != 1
             same := mBear
-        bigMaru := f_isBig(same, mAll, curLen) and (not iBigStrong or f_maruStrong(0))
+        bigMaru := f_isBig(mAll, mAll, curLen) and (not iBigStrong or f_maruStrong(0))
         same.push(curLen)
         if same.size() > iBigN
             same.shift()
