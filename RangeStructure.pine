@@ -41,7 +41,7 @@ gD = "6) Style / debug"
 iStrict  = input.bool(true, "Strict confirm: cond.2/3 cancelled if C2 or C3 closes back on the original side of the line", group=gD)
 iFboNear = input.bool(false, "FBO box also closes on a real breakout of the near side (the line)", group=gD)
 iClassic = input.bool(true, "Classic CTS/BOS style (thin black line + centered text)", group=gD)
-iFboDelay = input.int(0, "FBO registration delay in candles (0 = exactly like the reference code: FBO starts on the first crossing)", minval=0, maxval=5, group=gD)
+iFboDelay = input.int(0, "FBO minimum delay in candles after the first crossing (the FBO is registered only after a Close back across the line)", minval=0, maxval=5, group=gD)
 iFarAfter = input.int(3, "FBO: far-side rule starts after N candles from the first crossing (reference code: 2; 3 because cond.2/3 is registered one candle later)", minval=1, maxval=6, group=gD)
 iMarks   = input.bool(false, "Show pattern shapes (1 / 2-3 / A / B / C), bearish above, bullish below, WITHOUT the level test", group=gD)
 iDbg     = input.bool(false, "Debug: show which pattern fired (CTS#id / lock#id)", group=gD)
@@ -528,7 +528,9 @@ if barstate.isconfirmed
         fboPExt := fboPDir == 1 ? math.max(fboPExt, high) : math.min(fboPExt, low)
         if fboPDir == 1 ? close < fboPLine : close > fboPLine
             fboPConf := true
-        if bar_index - fboPBar >= iFboDelay
+        // FBO is registered only when the attempt FAILED: Close back on the other side of the line,
+        // with no real breakout (CTS / trend change) in between. The box starts at the first crossing candle.
+        if fboPConf and bar_index - fboPBar >= iFboDelay
             fboPend := false
             fboLine := fboPLine
             fboLive := not fboPConf
