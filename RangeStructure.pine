@@ -109,6 +109,7 @@ var array<int>   sCorrBar = array.new_int(2, 0)
 var array<int>   fakeBar  = array.new_int(2, 0)
 var line zzL1 = na
 var line zzL2 = na
+var line keyLine = na
 
 // per-bar series
 float noLine = na
@@ -324,7 +325,7 @@ if barstate.isconfirmed
             if na(ext.get(i))
                 ext.set(i, hiS)
                 extBar.set(i, bar_index)
-                corr.set(i, loS)
+                corr.set(i, na)
                 corrBar.set(i, bar_index)
                 phase.set(i, 0)
                 fake.set(i, na)
@@ -339,9 +340,13 @@ if barstate.isconfirmed
                     trend := -s
                     lastDir := -s
                     tcEvt := true
-                    ext.set(j, s == 1 ? ll3 : hh3)
-                    extBar.set(j, s == 1 ? lb3 : hb3)
-                    corr.set(j, s == 1 ? high : low)
+                    float oldCorr = corr.get(i)
+                    int oldCorrBar = corrBar.get(i)
+                    float curX = s == 1 ? low : high
+                    bool useCur = na(oldCorr) or (s == 1 ? curX < oldCorr : curX > oldCorr)
+                    ext.set(j, useCur ? curX : oldCorr)
+                    extBar.set(j, useCur ? bar_index : oldCorrBar)
+                    corr.set(j, na)
                     corrBar.set(j, bar_index)
                     phase.set(j, 0)
                     fake.set(j, na)
@@ -351,24 +356,29 @@ if barstate.isconfirmed
                     phase.set(i, 0)
                     fake.set(i, na)
                     f_lbl(bar_index, bosLvl, "CHoCH", cBOS, s == 1)
+                    if not na(keyLine)
+                        line.set_x2(keyLine, bar_index)
+                        keyLine := na
                 else if phase.get(i) == 0
                     // ---- stage A : wave
                     if hiS * s > ext.get(i) * s
                         ext.set(i, hiS)
                         extBar.set(i, bar_index)
+                        corr.set(i, na)
+                        corrBar.set(i, bar_index)
+                    else if na(corr.get(i)) or loS * s < corr.get(i) * s
                         corr.set(i, loS)
                         corrBar.set(i, bar_index)
-                    else
-                        if loS * s < corr.get(i) * s
+                    // real pullback with no confirmed box -> lock the wave top (also on a new-top candle)
+                    bool pbNow = s == 1 ? bearPL : bullPL
+                    if boxState <= 1 and pbNow
+                        phase.set(i, 1)
+                        fake.set(i, na)
+                        if na(corr.get(i))
                             corr.set(i, loS)
                             corrBar.set(i, bar_index)
-                        // real pullback with no confirmed box -> lock the wave top
-                        bool pbNow = s == 1 ? bearPL : bullPL
-                        if boxState <= 1 and bar_index > extBar.get(i) and pbNow
-                            phase.set(i, 1)
-                            fake.set(i, na)
-                            if iDbg
-                                f_lbl(bar_index, hiS, "lock#" + str.tostring(f_patId(-s, noLine, false)), color.gray, s == -1)
+                        if iDbg
+                            f_lbl(bar_index, hiS, "lock#" + str.tostring(f_patId(-s, noLine, false)), color.gray, s == -1)
                 else
                     // ---- stage B : locked, waiting for a real breakout of H*
                     bool fboFar = boxState == 3 and boxDir == s and (bar_index - fboStart + 1) > 2
@@ -387,11 +397,13 @@ if barstate.isconfirmed
                             line.new(tb, lvl, bar_index, lvl, color = cUp, width = 1)
                             f_lbl(bar_index, lvl, ctsTxt, cUp, s == -1)
                         bos.set(i, bosLvl2)
+                        if not na(keyLine)
+                            line.set_x2(keyLine, bar_index)
                         if iClassic
-                            line.new(corrBar.get(i), bosLvl2, bar_index, bosLvl2, color = color.black, width = 1)
+                            keyLine := line.new(corrBar.get(i), bosLvl2, bar_index, bosLvl2, color = color.black, width = 1)
                             f_txt(int(math.round((corrBar.get(i) + bar_index) / 2.0)), bosLvl2, "BOS")
                         else
-                            line.new(corrBar.get(i), bosLvl2, bar_index, bosLvl2, color = cBOS, style = line.style_dashed)
+                            keyLine := line.new(corrBar.get(i), bosLvl2, bar_index, bosLvl2, color = cBOS, style = line.style_dashed)
                             f_lbl(corrBar.get(i), bosLvl2, "BOS", cBOS, s == 1)
                         ctsEvt := true
                         if s == 1
@@ -420,28 +432,33 @@ if barstate.isconfirmed
                                 boxState := 0
                                 closedBar := bar_index
                         // new wave starts on this candle
-                        ext.set(i, s == 1 ? hh3 : ll3)
-                        extBar.set(i, s == 1 ? hb3 : lb3)
-                        corr.set(i, loS)
+                        ext.set(i, hiS)
+                        extBar.set(i, bar_index)
+                        corr.set(i, na)
                         corrBar.set(i, bar_index)
                         phase.set(i, 0)
                         fake.set(i, na)
                     else
                         // new correction (V17.9): fake high then a Low below the old correction floor
-                        if not na(fake.get(i)) and loS * s < corr.get(i) * s
+                        if not na(fake.get(i)) and not na(corr.get(i)) and loS * s < corr.get(i) * s
                             ext.set(i, fake.get(i))
                             extBar.set(i, fakeBar.get(i))
                             corr.set(i, loS)
                             corrBar.set(i, bar_index)
                             fake.set(i, na)
-                        else if loS * s < corr.get(i) * s
-                            corr.set(i, loS)
-                            corrBar.set(i, bar_index)
-                        if hiS * s > ext.get(i) * s
-                            float fk = fake.get(i)
-                            if na(fk) or (s == 1 ? hiS > fk : hiS < fk)
-                                fakeBar.set(i, bar_index)
-                            fake.set(i, na(fk) ? hiS : (s == 1 ? math.max(fk, hiS) : math.min(fk, hiS)))
+                        else
+                            if na(corr.get(i)) or loS * s < corr.get(i) * s
+                                corr.set(i, loS)
+                                corrBar.set(i, bar_index)
+                            if hiS * s > ext.get(i) * s
+                                float fk = fake.get(i)
+                                if na(fk) or (s == 1 ? hiS > fk : hiS < fk)
+                                    fakeBar.set(i, bar_index)
+                                fake.set(i, na(fk) ? hiS : (s == 1 ? math.max(fk, hiS) : math.min(fk, hiS)))
+
+    // BOS line keeps extending to the right until a CTS / trend change replaces or ends it
+    if not na(keyLine) and not ctsEvt and not tcEvt
+        line.set_x2(keyLine, bar_index)
 
     // ---------------------------------------------------------------
     // [4] FBO  (label state machine like the reference code + range type 4 box)
@@ -688,11 +705,6 @@ if barstate.isconfirmed
             int lx = zzX.get(zn - 1)
             if not na(le) and eb > lx
                 zzL1 := line.new(lx, zzY.get(zn - 1), eb, le, color = iZZCol, width = 1)
-                if phase.get(li) == 1
-                    float lc = corr.get(li)
-                    int cb = corrBar.get(li)
-                    if cb > eb
-                        zzL2 := line.new(eb, le, cb, lc, color = iZZCol, width = 1)
     sExt.set(0, ext.get(0))
     sExt.set(1, ext.get(1))
     sCorr.set(0, corr.get(0))
