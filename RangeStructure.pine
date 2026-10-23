@@ -87,6 +87,7 @@ var label curLbl = na
 var float fboLine = na
 var float fboLastLine = na
 var bool fboConfirmed = false
+var bool fboLive = false
 var int fboStart = 0
 var label fboLbl = na
 
@@ -443,57 +444,78 @@ if barstate.isconfirmed
                             fake.set(i, na(fk) ? hiS : (s == 1 ? math.max(fk, hiS) : math.min(fk, hiS)))
 
     // ---------------------------------------------------------------
-    // [4] FBO
+    // [4] FBO  (label state machine like the reference code + range type 4 box)
+    //     start    : first candle trading beyond the pending CTS level (wick or close),
+    //                no CTS / trend change on that candle, level not already "done"
+    //     confirmed: Close back on the other side of the line (can be the start candle)
+    //     done level is stored only when the FBO is confirmed
     // ---------------------------------------------------------------
-    // CTS / trend change while an FBO box is alive
+    float pendLvl = na
+    if trend != 0
+        int pi = trend == 1 ? 0 : 1
+        if phase.get(pi) == 1
+            pendLvl := ext.get(pi)
+
+    // in-progress label dies on a CTS / trend change or when the pending CTS level changes
+    if fboLive and (ctsEvt or tcEvt or na(pendLvl) or pendLvl != fboLine)
+        if not na(fboLbl)
+            label.delete(fboLbl)
+        fboLbl := na
+        fboLive := false
+
+    // FBO box (range type 4) ends on a structural signal
     if boxState == 3 and (ctsEvt or tcEvt)
         int age = bar_index - fboStart + 1
         if age <= 2
             box.delete(curBox)
-            label.delete(fboLbl)
         else
             box.set_right(curBox, bar_index)
-            if not fboConfirmed
-                label.delete(fboLbl)
         boxState := 0
         closedBar := bar_index
 
     // start
-    if trend != 0 and boxState != 3 and not ctsEvt and not tcEvt
+    if trend != 0 and not fboLive and not ctsEvt and not tcEvt
         int fi = trend == 1 ? 0 : 1
         int fs = trend
         if phase.get(fi) == 1 and not na(ext.get(fi)) and (na(fboLastLine) or ext.get(fi) != fboLastLine)
             float fhi = fs == 1 ? high : low
             if fhi * fs > ext.get(fi) * fs
+                fboLive := true
+                fboLine := ext.get(fi)
+                fboConfirmed := false
+                // a type 1-3 range still active is closed here (a pending anchor is dropped silently)
                 if boxState == 2
                     box.set_right(curBox, bar_index)
                     f_lbl(bar_index, fs == 1 ? boxTop : boxBot, "Range Closed (FBO)", cFBO, fs == -1)
-                boxState := 0
-                closedBar := bar_index
-                fboLine := ext.get(fi)
-                fboLastLine := fboLine
-                fboStart := bar_index
-                fboConfirmed := false
-                boxState := 3
-                boxType := 4
-                boxDir := fs
-                exitHi := na
-                exitLo := na
-                if fs == 1
-                    boxTop := high
-                    boxBot := fboLine
-                else
-                    boxTop := fboLine
-                    boxBot := low
-                curBox := f_makeBox(bar_index, boxTop, boxBot, cFBO)
+                if boxState == 1 or boxState == 2
+                    boxState := 0
+                    closedBar := bar_index
+                // the FBO box is created only when no box is active
+                if boxState == 0
+                    fboStart := bar_index
+                    boxState := 3
+                    boxType := 4
+                    boxDir := fs
+                    exitHi := na
+                    exitLo := na
+                    if fs == 1
+                        boxTop := high
+                        boxBot := fboLine
+                    else
+                        boxTop := fboLine
+                        boxBot := low
+                    curBox := f_makeBox(bar_index, boxTop, boxBot, cFBO)
+                    startedFbo := true
                 fboLbl := f_lbl(bar_index, fhi, "FBO", cFBO, fs == -1)
-                startedFbo := true
 
-    // confirmation of the FBO : Close back on the original side of the line
-    if boxState == 3 and not fboConfirmed and close * boxDir <= fboLine * boxDir
+    // confirmation : Close strictly back on the other side of the line
+    if fboLive and not ctsEvt and not tcEvt and (trend == 1 ? close < fboLine : close > fboLine)
+        fboLive := false
         fboConfirmed := true
+        fboLastLine := fboLine
         if not na(fboLbl)
             label.set_color(fboLbl, color.red)
+        fboLbl := na
 
     // ---------------------------------------------------------------
     // [5] Active box : end / extension / confirmation
