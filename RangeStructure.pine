@@ -37,6 +37,10 @@ cPB   = input.color(color.orange, "Closed by pullback", group=gK)
 cFBO  = input.color(color.gray, "FBO", group=gK)
 cBOS  = input.color(color.blue, "BOS", group=gK)
 
+gZ = "5) Waves (zig-zag)"
+iZZ    = input.bool(true, "Show wave zig-zag (BOS -> CTS -> higher/lower BOS)", group=gZ)
+iZZCol = input.color(color.blue, "Zig-zag color", group=gZ)
+
 // =====================================================================
 //  STATE
 // =====================================================================
@@ -87,6 +91,14 @@ var array<int>   rStart = array.new_int()
 
 var bool bearPLp = false
 var bool bullPLp = false
+
+// --- wave zig-zag
+var array<int>   zzX  = array.new_int()
+var array<float> zzY  = array.new_float()
+var array<float> sExt  = array.new_float(2, na)    // snapshot of ext / corr at the end of the previous bar
+var array<float> sCorr = array.new_float(2, na)
+var line zzL1 = na
+var line zzL2 = na
 
 // per-bar series
 float noLine = na
@@ -211,6 +223,33 @@ f_lbl(int x, float y, string txt, color c, bool up) =>
 
 f_makeBox(int st, float tp, float bt, color bc) =>
     box.new(st, tp, bar_index, bt, border_color = bc, bgcolor = color.new(bc, 88), border_width = 1)
+
+// bar index of the most recent candle (searching back from offset fromOff, at most maxBack bars)
+// whose High (isHigh) or Low equals price
+f_findBack(float price, bool isHigh, int fromOff, int maxBack) =>
+    int res = na
+    int mb = math.min(maxBack, bar_index)
+    if fromOff <= mb
+        for b = fromOff to mb
+            if na(res)
+                if (isHigh ? high[b] == price : low[b] == price)
+                    res := bar_index - b
+    res
+
+// add a structural point to the zig-zag and connect it to the previous one
+f_zzAdd(int x, float y) =>
+    int n = zzX.size()
+    bool ok = true
+    if n > 0
+        ok := x > zzX.get(n - 1)
+        if ok
+            line.new(zzX.get(n - 1), zzY.get(n - 1), x, y, color = iZZCol, width = 1)
+    if ok
+        zzX.push(x)
+        zzY.push(y)
+        if zzX.size() > 400
+            zzX.shift()
+            zzY.shift()
 
 // =====================================================================
 //  MAIN  (everything runs on confirmed bars only)
@@ -541,6 +580,69 @@ if barstate.isconfirmed
         box.set_bottom(curBox, boxBot)
     bearPLp := bearPL
     bullPLp := bullPL
+
+    // ---------------------------------------------------------------
+    // [8] FBO box : the far side follows the fake candles (wicks included)
+    //     until a real breakout closes the box (box right edge already follows each bar)
+    // ---------------------------------------------------------------
+    if boxState == 3 and not startedFbo and not na(curBox)
+        if boxDir == 1 and close <= boxTop
+            boxTop := math.max(boxTop, high)
+        if boxDir == -1 and close >= boxBot
+            boxBot := math.min(boxBot, low)
+        box.set_top(curBox, boxTop)
+        box.set_bottom(curBox, boxBot)
+        box.set_right(curBox, bar_index)
+        box.set_text(curBox, "FBO")
+        box.set_text_halign(curBox, text.align_center)
+        box.set_text_valign(curBox, text.align_center)
+        box.set_text_color(curBox, color.new(color.black, 20))
+        box.set_text_size(curBox, size.small)
+
+    // ---------------------------------------------------------------
+    // [9] Wave zig-zag : tops (CTS) and correction extremes (BOS), higher lows in
+    //     an uptrend / lower highs in a downtrend, plus the live (unfinished) legs
+    // ---------------------------------------------------------------
+    if iZZ
+        if ctsEvt
+            int zi = ctsUpEvt ? 0 : 1
+            float zTop = sExt.get(zi)
+            float zLow = sCorr.get(zi)
+            if not na(zTop) and not na(zLow)
+                int bl = f_findBack(zLow, not ctsUpEvt, 0, 400)
+                if not na(bl)
+                    int bt = f_findBack(zTop, ctsUpEvt, bar_index - bl, 400)
+                    if not na(bt) and bt < bl
+                        f_zzAdd(bt, zTop)
+                        f_zzAdd(bl, zLow)
+        if tcEvt
+            int oi = trend == 1 ? 1 : 0
+            float oTop = sExt.get(oi)
+            if not na(oTop)
+                int ob = f_findBack(oTop, trend == -1, 0, 400)
+                if not na(ob)
+                    f_zzAdd(ob, oTop)
+        line.delete(zzL1)
+        line.delete(zzL2)
+        int zn = zzX.size()
+        if trend != 0 and zn > 0
+            int li = trend == 1 ? 0 : 1
+            float le = ext.get(li)
+            if not na(le)
+                int lx = zzX.get(zn - 1)
+                float ly = zzY.get(zn - 1)
+                int eb = f_findBack(le, trend == 1, 0, math.min(bar_index - lx, 400))
+                if not na(eb) and eb > lx
+                    zzL1 := line.new(lx, ly, eb, le, color = iZZCol, width = 1)
+                    if phase.get(li) == 1
+                        float lc = corr.get(li)
+                        int cb = f_findBack(lc, trend == -1, 0, bar_index - eb)
+                        if not na(cb) and cb > eb
+                            zzL2 := line.new(eb, le, cb, lc, color = iZZCol, width = 1)
+    sExt.set(0, ext.get(0))
+    sExt.set(1, ext.get(1))
+    sCorr.set(0, corr.get(0))
+    sCorr.set(1, corr.get(1))
 
 // =====================================================================
 //  VISUALS / ALERTS
