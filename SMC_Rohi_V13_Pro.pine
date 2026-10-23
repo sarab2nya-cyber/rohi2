@@ -1,0 +1,928 @@
+//@version=5
+indicator("SMC Follow Trend V13.2 [Rohi] - Pro Edition", shorttitle="SMC Rohi Pro", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+
+// =====================================================================
+//  V13.1 structure engine (running extremes, candidates, strict lock, CTS / BOS, waves,
+//  FVG, Fib) kept as is.  Replaced by the written specification:
+//    - candle definitions (doji / pinbar / marubozu / normal, Big marubozu, no Ref)
+//    - the six real-breakout patterns and the six real-pullback patterns (rule 4 removed)
+//    - range detection (types 1-3) and FBO (type 4)
+// =====================================================================
+
+// =====================================================================
+// INPUTS
+// =====================================================================
+gT = "Theme"
+msBullColor = input.color(#089981, "Bullish", group=gT)
+msBearColor = input.color(#F23645, "Bearish", group=gT)
+cPB         = input.color(#FF9800, "Pullback / warning", group=gT)
+cFBO        = input.color(#787B86, "FBO / neutral", group=gT)
+cRng        = input.color(#7E57C2, "Active range", group=gT)
+msZigColor  = input.color(#787B86, "Wave line", group=gT)
+msFibColor  = input.color(color.new(color.purple, 50), "Fib zone", group=gT)
+cKeyU       = input.color(#00BFA5, "Key Level (bullish)", group=gT)
+cKeyD       = input.color(#FF5252, "Key Level (bearish)", group=gT)
+iFont       = input.string("Monospace", "Font", options=["Monospace", "Default"], group=gT)
+
+gS = "Market Structure"
+msShow        = input.bool(true, "Show Market Structure (BOS / CTS)", group=gS)
+msStrictClose = input.bool(true, "Strict Confirm on Close (Anti-Repaint)", group=gS)
+iZigW         = input.int(1, "Wave line width", minval=1, maxval=3, group=gS)
+iShowKL       = input.bool(true, "Show Recent High-Low / Key Level boxes", group=gS)
+iShowVol      = input.bool(true, "Show volume inside those boxes", group=gS)
+iBoxExt       = input.int(12, "Boxes extend N bars to the right", minval=0, group=gS)
+iShowDots     = input.bool(false, "Mark the confirmed real pullback (dot)", group=gS)
+iShowLbl      = input.bool(true, "Show CTS / BOS tags", group=gS)
+
+gC = "Candle definitions (% of candle range)"
+iDojiBody   = input.float(20, "Doji: max body %", minval=0, maxval=100, group=gC)
+iDojiShadow = input.float(20, "Doji: min each shadow %", minval=0, maxval=100, group=gC)
+iDojiMid    = input.float(30, "Doji: Open/Close max distance from mid %", minval=0, maxval=100, group=gC)
+iPinBody    = input.float(35, "Pinbar: max body %", minval=0, maxval=100, group=gC)
+iPinMain    = input.float(45, "Pinbar: min dominant shadow %", minval=0, maxval=100, group=gC)
+iPinMult    = input.float(2.0, "Pinbar: dominant shadow >= x body", minval=0, group=gC)
+iPinOpp     = input.float(35, "Pinbar: max opposite shadow %", minval=0, maxval=100, group=gC)
+iMaruBody   = input.float(70, "Marubozu: min body %", minval=0, maxval=100, group=gC)
+iMaruShadow = input.float(30, "Marubozu: max sum of shadows %", minval=0, maxval=100, group=gC)
+iBigN       = input.int(5, "Big: compare with last N candles", minval=1, group=gC)
+iBigMin     = input.int(3, "Big: longer than at least", minval=1, group=gC)
+
+gP = "Real Breakout / Real Pullback patterns"
+iR70    = input.float(70, "Cond.1: C2 length >= % of C1", group=gP)
+iR30    = input.float(30, "Cond.3: C2 length <= % of C1", group=gP)
+iLine30 = input.float(30, "Cond.2/3: share of C1 beyond the line > %", group=gP)
+iR40    = input.float(40, "Pattern C: C1, C2 length >= % of C3", group=gP)
+iNear   = input.float(5, "Pattern B: C2 close within % of C1 length", group=gP)
+iStrict = input.bool(true, "Strict confirm: cond.2/3 cancelled if C2 or C3 closes back on the original side", group=gP)
+
+gR = "Price Action Range"
+rngShow           = input.bool(true, "Show Range Box", group=gR)
+iConfirm          = input.int(2, "Anchor range: confirmation candles after the anchor", minval=1, group=gR)
+iHide             = input.bool(false, "Hide Ranges inside the Correction Zone", group=gR)
+iFarAfter         = input.int(3, "FBO: far-side rule starts after N candles from the first crossing", minval=1, maxval=6, group=gR)
+rngBlockStructure = input.bool(true, "Block BOS / CTS / Key Level / Recent High-Low inside a range", group=gR)
+rngBlockFVG       = input.bool(true, "Block FVG Inside Range", group=gR)
+
+gI = "Imbalance Settings"
+showImbBox       = input.bool(true, "Show Imbalance Lines (FVG)", group=gI)
+colBullStrongest = input.color(color.new(color.teal, 0), "Bullish Strongest Color", group=gI)
+colBullStrong    = input.color(color.new(color.blue, 0), "Bullish Strong Color", group=gI)
+colBullWeak      = input.color(color.new(color.gray, 0), "Bullish Weak Color", group=gI)
+colBearStrongest = input.color(color.new(color.maroon, 0), "Bearish Strongest Color", group=gI)
+colBearStrong    = input.color(color.new(color.red, 0), "Bearish Strong Color", group=gI)
+colBearWeak      = input.color(color.new(color.gray, 0), "Bearish Weak Color", group=gI)
+
+gD = "Dashboard / debug"
+iDash       = input.bool(true, "Show dashboard", group=gD)
+iDashPos    = input.string("Top Right", "Dashboard position", options=["Top Left", "Top Right", "Bottom Left", "Bottom Right"], group=gD)
+iColorTypes = input.bool(false, "Color candles by type", group=gD)
+iMarks      = input.bool(false, "Show pattern shapes (1 / 2-3 / A / B / C) and Big candles", group=gD)
+
+string fontFam = iFont == "Monospace" ? font.family_monospace : font.family_default
+
+// =====================================================================
+// STATE
+// =====================================================================
+var array<float> mBull = array.new_float()
+var array<float> mBear = array.new_float()
+var array<float> mAll  = array.new_float()
+var array<float> pBull = array.new_float()
+var array<float> pBear = array.new_float()
+var array<float> pAll  = array.new_float()
+
+// structure state (declared early because the range engine reads it)
+var int   msTrendState = 0
+var int   lastDirMS    = 0
+var float runningHigh    = na
+var int   runningHighBar = na
+var float runningLow     = na
+var int   runningLowBar  = na
+var float lastSwingHighPrice = na
+var int   lastSwingHighBar   = na
+var float lastSwingLowPrice  = na
+var int   lastSwingLowBar    = na
+var float candidateHigh    = na
+var int   candidateHighBar = na
+var float candidateLow     = na
+var int   candidateLowBar  = na
+
+// range engine state (only one active box)
+var int boxState = 0          // 0 none, 1 pending anchor, 2 confirmed range, 3 FBO box
+var int boxType = 0
+var int boxDir = 0
+var int boxStart = 0
+var float boxTop = na
+var float boxBot = na
+var float exitHi = na
+var float exitLo = na
+var int pendCnt = 0
+var int closedBar = -1
+var box curBox = na
+var bool rangeActive = false
+var float rangeHigh = na
+var float rangeLow  = na
+var array<box> rBoxes = array.new<box>()
+var array<int> rStart = array.new_int()
+var bool pbDnP = false
+var bool pbUpP = false
+
+// FBO state
+var float fboLastLine = na
+var bool fboPend = false
+var float fboPLine = na
+var int fboPBar = 0
+var float fboPExt = na
+var bool fboPConf = false
+var int fboPDir = 0
+var int fboStart = 0
+
+// per-bar series
+float noLine = na
+bool bigMaru = false
+bool bigPin = false
+bool rngRealUp = false
+bool rngRealDown = false
+bool rangeSeed = false
+bool fboEvt = false
+int mkBull = 0
+int mkBear = 0
+
+// =====================================================================
+// CANDLE HELPERS (k = offset)
+// =====================================================================
+f_rng(int k) =>
+    high[k] - low[k]
+
+f_col(int k) =>
+    close[k] > open[k] ? 1 : close[k] < open[k] ? -1 : 0
+
+// 0 none, 1 doji, 2 bullish pinbar, 3 bearish pinbar, 4 marubozu, 5 normal
+f_type(int k) =>
+    float r = high[k] - low[k]
+    int t = 0
+    if r > 0
+        float body = math.abs(close[k] - open[k])
+        float topS = high[k] - math.max(open[k], close[k])
+        float botS = math.min(open[k], close[k]) - low[k]
+        float mid = (high[k] + low[k]) / 2
+        float bp = body / r * 100
+        float tp = topS / r * 100
+        float btp = botS / r * 100
+        bool doji = bp <= iDojiBody and tp >= iDojiShadow and btp >= iDojiShadow and math.abs(open[k] - mid) / r * 100 <= iDojiMid and math.abs(close[k] - mid) / r * 100 <= iDojiMid
+        bool pinBull = not doji and bp <= iPinBody and btp >= iPinMain and botS >= iPinMult * body and tp <= iPinOpp
+        bool pinBear = not doji and bp <= iPinBody and tp >= iPinMain and topS >= iPinMult * body and btp <= iPinOpp
+        bool maru = not doji and not pinBull and not pinBear and bp >= iMaruBody and (tp + btp) <= iMaruShadow
+        t := doji ? 1 : pinBull ? 2 : pinBear ? 3 : maru ? 4 : 5
+    t
+
+int ctype = f_type(0)
+int ccol = f_col(0)
+
+// basic metrics used by the imbalance module
+c_range = math.max(high - low, syminfo.mintick)
+is_bull = close > open
+is_bear = close < open
+is_marubozu = ctype == 4
+
+f_isBig(array<float> same, array<float> allArr, float len) =>
+    array<float> ref = same.size() >= iBigMin ? same : allArr
+    int cnt = 0
+    int n = ref.size()
+    if n > 0
+        for j = 0 to n - 1
+            if len > ref.get(j)
+                cnt += 1
+    cnt >= iBigMin
+
+f_bigDirMaru(int k, int dir) =>
+    bigMaru[k] and f_col(k) == dir
+
+f_pinDir(int k, int dir) =>
+    dir == 1 ? f_type(k) == 2 : f_type(k) == 3
+
+f_pinDoji(int k, int dir) =>
+    f_type(k) == 1 or f_pinDir(k, dir)
+
+f_beyond(int dir, float price, float lv) =>
+    dir == 1 ? price > lv : price < lv
+
+// shapes of the 2-candle conditions 2 and 3 (C1 = offset a, C2 = offset b)
+f_c23(int dir, int a, int b) =>
+    float m = (high[a] + low[a]) / 2
+    bool big1 = bigMaru[a] and f_col(a) == dir
+    bool half = dir == 1 ? low[b] > m : high[b] < m
+    bool c2 = f_col(b) == dir
+    bool c3 = f_col(b) == -dir and f_rng(b) <= iR30 / 100 * f_rng(a)
+    big1 and half and (c2 or c3)
+
+// =====================================================================
+// THE SIX PATTERNS (dir = +1 bullish, -1 bearish)
+//   lv = na  -> shape only (real pullback without a line)
+//   lv given -> level conditions applied (real breakout of a line)
+//   confirm  -> conditions 2/3 are registered one candle later (C3 check)
+//   returns 0 none, 1 cond.1, 2 cond.2/3, 3 pattern A, 4 pattern B, 5 pattern C
+// =====================================================================
+f_patId(int dir, float lv, bool confirm) =>
+    bool hasLine = not na(lv)
+    bool useConf = hasLine and confirm
+
+    bool p1 = f_type(1) == 4 and f_type(0) == 4 and f_col(1) == dir and f_col(0) == dir and (dir == 1 ? close > high[1] : close < low[1]) and f_rng(0) >= iR70 / 100 * f_rng(1)
+    if p1 and hasLine
+        p1 := f_beyond(dir, close[1], lv) and f_beyond(dir, close, lv)
+
+    int a = useConf ? 2 : 1
+    int b = useConf ? 1 : 0
+    bool p23 = f_c23(dir, a, b)
+    if p23 and hasLine
+        float beyondLen = dir == 1 ? high[a] - lv : lv - low[a]
+        p23 := beyondLen > iLine30 / 100 * f_rng(a)
+    if p23 and useConf
+        bool strongBack = f_type(0) == 4 and f_col(0) == -dir and f_beyond(-dir, close, lv)
+        bool anyBack = not f_beyond(dir, close, lv) or not f_beyond(dir, close[1], lv)
+        p23 := not (strongBack or (iStrict and anyBack))
+
+    bool pre = dir == 1 ? close > math.max(high[2], high[1]) : close < math.min(low[2], low[1])
+    bool pA = pre and f_bigDirMaru(2, dir) and f_pinDoji(1, dir) and f_bigDirMaru(0, dir)
+    bool insideOrNear = (high[1] <= high[2] and low[1] >= low[2]) or (dir == 1 ? close[1] >= high[2] - iNear / 100 * f_rng(2) : close[1] <= low[2] + iNear / 100 * f_rng(2))
+    bool pB = pre and f_pinDoji(2, dir) and (f_type(1) == 4 or f_type(1) == 5) and f_col(1) == dir and insideOrNear and f_bigDirMaru(0, dir)
+    bool pC = pre and f_type(2) == 5 and f_type(1) == 5 and f_col(2) == dir and f_col(1) == dir and f_rng(2) >= iR40 / 100 * f_rng(0) and f_rng(1) >= iR40 / 100 * f_rng(0) and f_bigDirMaru(0, dir)
+    if hasLine
+        pA := pA and f_beyond(dir, close[2], lv) and f_beyond(dir, close, lv)
+        pB := pB and f_beyond(dir, close, lv)
+        pC := pC and f_beyond(dir, close, lv)
+
+    p1 ? 1 : p23 ? 2 : pA ? 3 : pB ? 4 : pC ? 5 : 0
+
+f_pat(int dir, float lv, bool confirm) =>
+    f_patId(dir, lv, confirm) != 0
+
+// =====================================================================
+// DRAWING HELPERS
+// =====================================================================
+// small pill centered on a line
+f_pill(int x, float y, string txt, color c) =>
+    label l = na
+    if iShowLbl
+        l := label.new(x, y, txt, style = label.style_label_center, color = color.new(c, 85), textcolor = c, size = size.small, text_font_family = fontFam)
+    l
+
+// range box with the tag inside (no label clutter)
+f_rangeBox(int st, float tp, float bt, color c, string txt) =>
+    color bd = rngShow ? color.new(c, 25) : color(na)
+    color bg = rngShow ? color.new(c, 90) : color(na)
+    color tx = rngShow ? color.new(c, 5) : color(na)
+    box.new(st, tp, bar_index, bt, border_color = bd, bgcolor = bg, border_width = 1, border_style = line.style_dashed, text = txt, text_size = size.tiny, text_color = tx, text_halign = text.align_left, text_valign = text.align_top, text_font_family = fontFam)
+
+// kind 1 = breakout (green / red by dir), 2 = pullback, 3 = FBO / neutral
+f_closeBox(box b, int kind, int dir, string txt) =>
+    color c = kind == 1 ? (dir == 1 ? msBullColor : msBearColor) : kind == 2 ? cPB : cFBO
+    if rngShow and not na(b)
+        box.set_right(b, bar_index)
+        box.set_bgcolor(b, color.new(c, 84))
+        box.set_border_color(b, color.new(c, 15))
+        box.set_border_style(b, line.style_solid)
+        box.set_text(b, txt)
+        box.set_text_color(b, color.new(c, 0))
+
+// =====================================================================
+// BIG MARUBOZU / BIG PINBAR TRACKER (confirmed bars only)
+// =====================================================================
+if barstate.isconfirmed
+    float curLen = f_rng(0)
+    if ctype == 4
+        array<float> same = mBull
+        if ccol != 1
+            same := mBear
+        bigMaru := f_isBig(same, mAll, curLen)
+        same.push(curLen)
+        if same.size() > iBigN
+            same.shift()
+        mAll.push(curLen)
+        if mAll.size() > iBigN
+            mAll.shift()
+    if ctype == 2 or ctype == 3
+        array<float> sameP = pBull
+        if ctype == 3
+            sameP := pBear
+        bigPin := f_isBig(sameP, pAll, curLen)
+        sameP.push(curLen)
+        if sameP.size() > iBigN
+            sameP.shift()
+        pAll.push(curLen)
+        if pAll.size() > iBigN
+            pAll.shift()
+
+// shape-only pullback patterns (no line) - used by the structure and by the range engine
+bool pb_pattern_down = f_pat(-1, noLine, false)
+bool pb_pattern_up   = f_pat(1, noLine, false)
+mkBull := f_patId(1, noLine, false)
+mkBear := f_patId(-1, noLine, false)
+
+// state as it was BEFORE this bar updates anything (used by the FBO and by the far-side CTS rule)
+int   fbTrendPre = msTrendState
+float fbLevelPre = msTrendState == 1 ? candidateHigh : msTrendState == -1 ? candidateLow : na
+int   preBoxState = boxState
+int   preBoxDir = boxDir
+float preBoxTop = boxTop
+float preBoxBot = boxBot
+
+// =====================================================================
+// PRICE ACTION RANGE ENGINE  (types 1 / 2 / 3, FBO box type 4)
+// =====================================================================
+if barstate.isconfirmed
+    int dS = lastDirMS != 0 ? lastDirMS : msTrendState
+
+    // ---- active box : end / extension / confirmation ----
+    if boxState == 3
+        // FBO box: only the far side grows (closing is handled together with CTS / trend change)
+        if boxDir == 1
+            if close > boxTop
+                exitHi := na(exitHi) ? high : math.max(exitHi, high)
+            else if not na(exitHi)
+                boxTop := math.max(boxTop, exitHi, high)
+                exitHi := na
+        else
+            if close < boxBot
+                exitLo := na(exitLo) ? low : math.min(exitLo, low)
+            else if not na(exitLo)
+                boxBot := math.min(boxBot, exitLo, low)
+                exitLo := na
+    else if boxState != 0
+        bool upBreak = f_pat(1, boxTop, true)
+        bool dnBreak = f_pat(-1, boxBot, true)
+        int ek = 0
+        if boxState == 2
+            // breakout in the direction of the range first, then the opposite side (= real pullback)
+            if boxDir == 1
+                ek := upBreak ? 1 : dnBreak ? 2 : 0
+            else
+                ek := dnBreak ? 1 : upBreak ? 2 : 0
+        else
+            pendCnt += 1
+            bool againstD = boxDir == 1 ? pb_pattern_down : pb_pattern_up
+            bool dirBreak = boxDir == 1 ? upBreak : dnBreak
+            if againstD or dirBreak
+                ek := 3
+        if ek != 0
+            if boxState == 2
+                rngRealUp := upBreak
+                rngRealDown := dnBreak
+                f_closeBox(curBox, ek, boxDir, "R" + str.tostring(boxType) + (ek == 1 ? (boxDir == 1 ? "  breakout up" : "  breakout down") : "  pullback"))
+                lastDirMS := ek == 1 ? boxDir : -boxDir
+            boxState := 0
+            closedBar := bar_index
+        else
+            if close > boxTop
+                exitHi := na(exitHi) ? high : math.max(exitHi, high)
+            else if not na(exitHi)
+                boxTop := math.max(boxTop, exitHi, high)
+                exitHi := na
+            if close < boxBot
+                exitLo := na(exitLo) ? low : math.min(exitLo, low)
+            else if not na(exitLo)
+                boxBot := math.min(boxBot, exitLo, low)
+                exitLo := na
+            if boxState == 1 and pendCnt >= iConfirm
+                boxState := 2
+                rangeSeed := true
+                curBox := f_rangeBox(boxStart, boxTop, boxBot, cRng, "R" + str.tostring(boxType))
+                rBoxes.push(curBox)
+                rStart.push(boxStart)
+
+    // ---- start of a new range (no box active): type 3, then type 1 / 2 ----
+    if boxState == 0 and dS != 0 and bar_index >= 2
+        float ceilRef = dS == 1 ? (na(candidateHigh) ? runningHigh : high[1]) : (na(candidateLow) ? runningLow : low[1])
+        bool c1 = f_col(1) == -dS
+        bool c2 = not na(ceilRef) and close * dS <= ceilRef * dS
+        bool c3 = not (dS == 1 ? (pb_pattern_down or pbDnP) : (pb_pattern_up or pbUpP))
+        bool c4 = bar_index - 1 > closedBar
+        if c1 and c2 and c3 and c4
+            boxState := 2
+            boxType := 3
+            boxDir := dS
+            boxStart := bar_index - 1
+            boxTop := math.max(high, high[1])
+            boxBot := math.min(low, low[1])
+            exitHi := na
+            exitLo := na
+            rangeSeed := true
+            curBox := f_rangeBox(boxStart, boxTop, boxBot, cRng, "R3")
+            rBoxes.push(curBox)
+            rStart.push(boxStart)
+        else
+            // type 1 / 2 : Big marubozu or Big pinbar against the trend direction
+            bool anchorMaru = bigMaru and ccol == -dS
+            bool anchorPin = bigPin and ctype == (dS == 1 ? 3 : 2)
+            if bar_index > closedBar and (anchorMaru or anchorPin)
+                boxState := 1
+                boxType := anchorMaru ? 1 : 2
+                boxDir := dS
+                boxStart := bar_index
+                boxTop := high
+                boxBot := low
+                exitHi := na
+                exitLo := na
+                pendCnt := 0
+
+    // ---- drawing + published state ----
+    if boxState >= 2 and not na(curBox)
+        box.set_right(curBox, bar_index)
+        box.set_top(curBox, boxTop)
+        box.set_bottom(curBox, boxBot)
+    if boxState == 3 and not na(curBox)
+        // the far side follows the fake candles (wicks included) until CTS / trend change
+        if boxDir == 1 and close <= boxTop
+            boxTop := math.max(boxTop, high)
+        if boxDir == -1 and close >= boxBot
+            boxBot := math.min(boxBot, low)
+        box.set_top(curBox, boxTop)
+        box.set_bottom(curBox, boxBot)
+    rangeActive := boxState == 2
+    rangeHigh := rangeActive ? boxTop : na
+    rangeLow := rangeActive ? boxBot : na
+    pbDnP := pb_pattern_down
+    pbUpP := pb_pattern_up
+
+bool rangeLock = rngBlockStructure and rangeActive
+bool inRange = rangeActive
+bool rangeBlock = rangeLock
+
+f_levelInsideRange(_level) => rangeActive and not na(_level) and _level <= rangeHigh and _level >= rangeLow
+levelInRange(_lvl) => f_levelInsideRange(_lvl)
+
+bgcolor(boxState == 2 ? color.new(cRng, 96) : na, title="Range Active Background")
+
+// =====================================================================
+// MARKET STRUCTURE TRACKING (Running Extremes)  -- as in V13.1
+// =====================================================================
+if na(runningHigh)
+    runningHigh := high
+    runningHighBar := bar_index
+    runningLow := low
+    runningLowBar := bar_index
+    msTrendState := 1
+
+if high > runningHigh
+    runningHigh := high
+    runningHighBar := bar_index
+if low < runningLow
+    runningLow := low
+    runningLowBar := bar_index
+
+bool no_single_candle_dn = (bar_index - nz(runningHighBar, bar_index)) >= 2
+bool no_single_candle_up = (bar_index - nz(runningLowBar, bar_index)) >= 2
+
+bool strict_pb_down = (pb_pattern_down or rngRealDown) and no_single_candle_dn
+bool strict_pb_up   = (pb_pattern_up   or rngRealUp)   and no_single_candle_up
+
+// =====================================================================
+// MARKET STRUCTURE (Strict BOS / CTS Lock)  -- as in V13.1
+// =====================================================================
+if na(lastSwingHighPrice)
+    lastSwingHighPrice := high
+    lastSwingHighBar := bar_index
+    lastSwingLowPrice := low
+    lastSwingLowBar := bar_index
+
+if strict_pb_down and not inRange
+    if msTrendState >= 0 and (na(candidateHigh) or runningHigh > candidateHigh)
+        candidateHigh := runningHigh
+        candidateHighBar := runningHighBar
+        runningLow := low
+        runningLowBar := bar_index
+
+if strict_pb_up and not inRange
+    if msTrendState <= 0 and (na(candidateLow) or runningLow < candidateLow)
+        candidateLow := runningLow
+        candidateLowBar := runningLowBar
+        runningHigh := high
+        runningHighBar := bar_index
+
+// While an FBO box older than iFarAfter candles exists, the pending CTS is broken only by
+// a real breakout of the box's far side (the fake extreme); the CTS is still drawn on its line.
+bool fboFarUp = preBoxState == 3 and preBoxDir == 1 and (bar_index - fboStart) > iFarAfter
+bool fboFarDn = preBoxState == 3 and preBoxDir == -1 and (bar_index - fboStart) > iFarAfter
+float ctsLvlUp = na(candidateHigh) ? na : (fboFarUp ? math.max(candidateHigh, preBoxTop) : candidateHigh)
+float ctsLvlDn = na(candidateLow) ? na : (fboFarDn ? math.min(candidateLow, preBoxBot) : candidateLow)
+
+bool strict_CTS_bull = not na(candidateHigh)      and f_pat(1, ctsLvlUp, true)
+bool strict_CTS_bear = not na(candidateLow)       and f_pat(-1, ctsLvlDn, true)
+bool strict_BOS_bull = not na(lastSwingHighPrice) and f_pat(1, lastSwingHighPrice, true)
+bool strict_BOS_bear = not na(lastSwingLowPrice)  and f_pat(-1, lastSwingLowPrice, true)
+
+bool is_confirmed = msStrictClose ? barstate.isconfirmed : true
+
+bool break_candidate_high = strict_CTS_bull and not rangeBlock and not levelInRange(candidateHigh)      and is_confirmed
+bool break_candidate_low  = strict_CTS_bear and not rangeBlock and not levelInRange(candidateLow)       and is_confirmed
+bool break_swing_high     = strict_BOS_bull and not rangeBlock and not levelInRange(lastSwingHighPrice) and is_confirmed
+bool break_swing_low      = strict_BOS_bear and not rangeBlock and not levelInRange(lastSwingLowPrice)  and is_confirmed
+
+msSignal = 0
+float brokenLevelPrice = na
+int   brokenLevelBar   = na
+
+if msTrendState == 1
+    if break_swing_low
+        msTrendState := -1
+        msSignal := -2
+        brokenLevelPrice := lastSwingLowPrice
+        brokenLevelBar := lastSwingLowBar
+        lastSwingHighPrice := na(candidateHigh) ? runningHigh : math.max(runningHigh, candidateHigh)
+        lastSwingHighBar := runningHigh >= (na(candidateHigh)?0:candidateHigh) ? runningHighBar : candidateHighBar
+        candidateLow := na
+        runningLow := low
+        runningLowBar := bar_index
+
+    else if break_candidate_high
+        msSignal := 1
+        brokenLevelPrice := candidateHigh
+        brokenLevelBar := candidateHighBar
+        lastSwingLowPrice := runningLow
+        lastSwingLowBar := runningLowBar
+        candidateHigh := na
+        runningHigh := high
+        runningHighBar := bar_index
+
+else if msTrendState == -1
+    if break_swing_high
+        msTrendState := 1
+        msSignal := 2
+        brokenLevelPrice := lastSwingHighPrice
+        brokenLevelBar := lastSwingHighBar
+        lastSwingLowPrice := na(candidateLow) ? runningLow : math.min(runningLow, candidateLow)
+        lastSwingLowBar := runningLow <= (na(candidateLow)?999999:candidateLow) ? runningLowBar : candidateLowBar
+        candidateHigh := na
+        runningHigh := high
+        runningHighBar := bar_index
+
+    else if break_candidate_low
+        msSignal := -1
+        brokenLevelPrice := candidateLow
+        brokenLevelBar := candidateLowBar
+        lastSwingHighPrice := runningHigh
+        lastSwingHighBar := runningHighBar
+        candidateLow := na
+        runningLow := low
+        runningLowBar := bar_index
+
+bull_break_confirmed = (msSignal == 1) or (msSignal == 2)
+bear_break_confirmed = (msSignal == -1) or (msSignal == -2)
+
+var bool has_real_breakout = false
+if bull_break_confirmed or bear_break_confirmed
+    has_real_breakout := true
+
+// =====================================================================
+// FBO (type 4) + range bookkeeping after the structure
+//   first crossing of the pending CTS level is only remembered; a real breakout has priority.
+//   The FBO is registered only when the attempt FAILED: Close back on the other side of the
+//   line with no real breakout (CTS / trend change) in between. The box starts at the first
+//   crossing candle and follows the fake candles until CTS / trend change.
+// =====================================================================
+if barstate.isconfirmed
+    // last real direction for the next range
+    if msSignal != 0
+        lastDirMS := msSignal > 0 ? 1 : -1
+
+    // FBO box ends on a structural signal
+    if boxState == 3 and msSignal != 0
+        int age = bar_index - fboStart
+        if age <= iFarAfter
+            box.delete(curBox)
+        else
+            box.set_right(curBox, bar_index)
+            box.set_border_style(curBox, line.style_solid)
+        boxState := 0
+        closedBar := bar_index
+        rangeActive := false
+
+    // Hide Ranges inside the Correction Zone (FBO boxes are never removed)
+    if iHide and math.abs(msSignal) == 1 and not na(brokenLevelBar)
+        int nR = rBoxes.size()
+        if nR > 0
+            for k = nR - 1 to 0
+                if rStart.get(k) >= brokenLevelBar
+                    box.delete(rBoxes.get(k))
+                    rBoxes.remove(k)
+                    rStart.remove(k)
+        if (boxState == 1 or boxState == 2) and boxStart >= brokenLevelBar
+            boxState := 0
+            closedBar := bar_index
+            rangeActive := false
+
+    if fboPend and (msSignal != 0 or na(fbLevelPre) or fbLevelPre != fboPLine)
+        fboPend := false
+
+    if fbTrendPre != 0 and not na(fbLevelPre) and not fboPend and msSignal == 0 and (na(fboLastLine) or fbLevelPre != fboLastLine)
+        float fhi = fbTrendPre == 1 ? high : low
+        if fhi * fbTrendPre > fbLevelPre * fbTrendPre
+            fboPend := true
+            fboPLine := fbLevelPre
+            fboPBar := bar_index
+            fboPExt := fhi
+            fboPConf := false
+            fboPDir := fbTrendPre
+
+    if fboPend
+        fboPExt := fboPDir == 1 ? math.max(fboPExt, high) : math.min(fboPExt, low)
+        if fboPDir == 1 ? close < fboPLine : close > fboPLine
+            fboPConf := true
+        if fboPConf
+            fboPend := false
+            fboLastLine := fboPLine
+            fboEvt := true
+            // a type 1-3 range still active is closed here (a pending anchor is dropped silently)
+            if boxState == 2
+                f_closeBox(curBox, 3, 0, "R" + str.tostring(boxType) + "  x FBO")
+            if boxState == 1 or boxState == 2
+                boxState := 0
+                closedBar := bar_index
+                rangeActive := false
+            // the FBO box is created only when no box is active; it starts at the first crossing candle
+            if boxState == 0
+                fboStart := fboPBar
+                boxState := 3
+                boxType := 4
+                boxDir := fboPDir
+                exitHi := na
+                exitLo := na
+                if fboPDir == 1
+                    boxTop := fboPExt
+                    boxBot := fboPLine
+                else
+                    boxTop := fboPLine
+                    boxBot := fboPExt
+                curBox := f_rangeBox(fboPBar, boxTop, boxBot, cFBO, "FBO")
+                if rngShow
+                    box.set_text_halign(curBox, text.align_center)
+                    box.set_text_valign(curBox, text.align_center)
+
+// =====================================================================
+// WAVE DRAWING (ZigZag Structure)  -- logic as in V13.1, quieter style
+// =====================================================================
+var float lastPivotPrice = na
+var int   lastPivotBar   = na
+
+if na(lastPivotPrice) and not na(lastSwingLowPrice)
+    lastPivotPrice := lastSwingLowPrice
+    lastPivotBar := lastSwingLowBar
+
+if msShow and msSignal != 0
+    if msSignal == 1
+        if not na(lastPivotBar)
+            line.new(lastPivotBar, lastPivotPrice, brokenLevelBar, brokenLevelPrice, color=msZigColor, width=iZigW)
+        line.new(brokenLevelBar, brokenLevelPrice, lastSwingLowBar, lastSwingLowPrice, color=msZigColor, width=iZigW)
+        lastPivotBar := lastSwingLowBar
+        lastPivotPrice := lastSwingLowPrice
+
+    else if msSignal == -1
+        if not na(lastPivotBar)
+            line.new(lastPivotBar, lastPivotPrice, brokenLevelBar, brokenLevelPrice, color=msZigColor, width=iZigW)
+        line.new(brokenLevelBar, brokenLevelPrice, lastSwingHighBar, lastSwingHighPrice, color=msZigColor, width=iZigW)
+        lastPivotBar := lastSwingHighBar
+        lastPivotPrice := lastSwingHighPrice
+
+    else if msSignal == -2
+        if not na(lastPivotBar)
+            line.new(lastPivotBar, lastPivotPrice, lastSwingHighBar, lastSwingHighPrice, color=msZigColor, width=iZigW)
+        lastPivotBar := lastSwingHighBar
+        lastPivotPrice := lastSwingHighPrice
+
+    else if msSignal == 2
+        if not na(lastPivotBar)
+            line.new(lastPivotBar, lastPivotPrice, lastSwingLowBar, lastSwingLowPrice, color=msZigColor, width=iZigW)
+        lastPivotBar := lastSwingLowBar
+        lastPivotPrice := lastSwingLowPrice
+
+    isBull_MS  = msSignal > 0
+    isReversal = math.abs(msSignal) == 2
+    col        = isBull_MS ? msBullColor : msBearColor
+    txt        = isReversal ? "BOS" : "CTS"
+
+    line.new(brokenLevelBar, brokenLevelPrice, bar_index, brokenLevelPrice, color=col, style=line.style_dotted, width=1)
+    f_pill(math.round((brokenLevelBar + bar_index) / 2), brokenLevelPrice, txt, col)
+
+    if isBull_MS
+        if iShowDots
+            label.new(lastSwingLowBar, lastSwingLowPrice, "•", style=label.style_none, textcolor=cPB, size=size.normal, tooltip="Real Pullback Confirmed")
+
+        if iShowKL
+            int hb = math.min(4999, math.max(0, bar_index - brokenLevelBar))
+            string vTxtC = iShowVol ? "\nVol: " + str.tostring(nz(volume[hb], 1), format.volume) : ""
+            float top_cts = high[hb]
+            float bot_cts = math.min(open[hb], close[hb])
+            if bot_cts >= top_cts
+                bot_cts := top_cts - (syminfo.mintick * 10)
+            box.new(left=brokenLevelBar, top=top_cts, right=bar_index + iBoxExt, bottom=bot_cts, bgcolor=color.new(msBullColor, 90), border_color=color.new(msBullColor, 40), border_width=1, border_style=line.style_dotted, text="Recent High" + vTxtC, text_size=size.tiny, text_color=msBullColor, text_halign=text.align_right, text_valign=text.align_center, text_font_family=fontFam)
+
+            int lb = math.min(4999, math.max(0, bar_index - lastSwingLowBar))
+            string vTxtB = iShowVol ? "\nVol: " + str.tostring(nz(volume[lb], 1), format.volume) : ""
+            float bot_bos = low[lb]
+            float top_bos = math.max(open[lb], close[lb])
+            if top_bos <= bot_bos
+                top_bos := bot_bos + (syminfo.mintick * 10)
+            box.new(left=lastSwingLowBar, top=top_bos, right=bar_index + iBoxExt, bottom=bot_bos, bgcolor=color.new(cKeyU, 90), border_color=cKeyU, border_width=1, border_style=line.style_solid, text="Key Level" + vTxtB, text_size=size.tiny, text_color=cKeyU, text_halign=text.align_right, text_valign=text.align_center, text_font_family=fontFam)
+
+    else
+        if iShowDots
+            label.new(lastSwingHighBar, lastSwingHighPrice, "•", style=label.style_none, textcolor=cPB, size=size.normal, tooltip="Real Pullback Confirmed")
+
+        if iShowKL
+            int lb_bear_cts = math.min(4999, math.max(0, bar_index - brokenLevelBar))
+            string vTxtC2 = iShowVol ? "\nVol: " + str.tostring(nz(volume[lb_bear_cts], 1), format.volume) : ""
+            float bot_cts_bear = low[lb_bear_cts]
+            float top_cts_bear = math.max(open[lb_bear_cts], close[lb_bear_cts])
+            if top_cts_bear <= bot_cts_bear
+                top_cts_bear := bot_cts_bear + (syminfo.mintick * 10)
+            box.new(left=brokenLevelBar, top=top_cts_bear, right=bar_index + iBoxExt, bottom=bot_cts_bear, bgcolor=color.new(msBearColor, 90), border_color=color.new(msBearColor, 40), border_width=1, border_style=line.style_dotted, text="Recent Low" + vTxtC2, text_size=size.tiny, text_color=msBearColor, text_halign=text.align_right, text_valign=text.align_center, text_font_family=fontFam)
+
+            int hb_bear_bos = math.min(4999, math.max(0, bar_index - lastSwingHighBar))
+            string vTxtB2 = iShowVol ? "\nVol: " + str.tostring(nz(volume[hb_bear_bos], 1), format.volume) : ""
+            float top_bos_bear = high[hb_bear_bos]
+            float bot_bos_bear = math.min(open[hb_bear_bos], close[hb_bear_bos])
+            if bot_bos_bear >= top_bos_bear
+                bot_bos_bear := top_bos_bear - (syminfo.mintick * 10)
+            box.new(left=lastSwingHighBar, top=top_bos_bear, right=bar_index + iBoxExt, bottom=bot_bos_bear, bgcolor=color.new(cKeyD, 90), border_color=cKeyD, border_width=1, border_style=line.style_solid, text="Key Level" + vTxtB2, text_size=size.tiny, text_color=cKeyD, text_halign=text.align_right, text_valign=text.align_center, text_font_family=fontFam)
+
+plotshape(msSignal == 1, title="CTS up", style=shape.triangleup, location=location.belowbar, color=msBullColor, size=size.tiny)
+plotshape(msSignal == -1, title="CTS down", style=shape.triangledown, location=location.abovebar, color=msBearColor, size=size.tiny)
+plotshape(math.abs(msSignal) == 2, title="Trend change", style=shape.diamond, location=location.abovebar, color=cPB, size=size.tiny)
+
+// =====================================================================
+// CANDLE COLORS / DEBUG MARKERS
+// =====================================================================
+color typeCol = ctype == 1 ? color.gray : ctype == 2 ? color.blue : ctype == 3 ? color.purple : ctype == 4 ? color.orange : ctype == 5 ? color.silver : na
+barcolor(iColorTypes ? typeCol : na)
+
+plotshape(iMarks and mkBear == 1, title = "bear cond.1", style = shape.circle, location = location.abovebar, color = color.maroon, text = "1", textcolor = color.maroon, size = size.tiny)
+plotshape(iMarks and mkBear == 2, title = "bear cond.2/3", style = shape.circle, location = location.abovebar, color = color.maroon, text = "2/3", textcolor = color.maroon, size = size.tiny)
+plotshape(iMarks and mkBear == 3, title = "bear A", style = shape.circle, location = location.abovebar, color = color.purple, text = "A", textcolor = color.purple, size = size.tiny)
+plotshape(iMarks and mkBear == 4, title = "bear B", style = shape.circle, location = location.abovebar, color = color.purple, text = "B", textcolor = color.purple, size = size.tiny)
+plotshape(iMarks and mkBear == 5, title = "bear C", style = shape.circle, location = location.abovebar, color = color.purple, text = "C", textcolor = color.purple, size = size.tiny)
+plotshape(iMarks and mkBull == 1, title = "bull cond.1", style = shape.circle, location = location.belowbar, color = color.teal, text = "1", textcolor = color.teal, size = size.tiny)
+plotshape(iMarks and mkBull == 2, title = "bull cond.2/3", style = shape.circle, location = location.belowbar, color = color.teal, text = "2/3", textcolor = color.teal, size = size.tiny)
+plotshape(iMarks and mkBull == 3, title = "bull A", style = shape.circle, location = location.belowbar, color = color.blue, text = "A", textcolor = color.blue, size = size.tiny)
+plotshape(iMarks and mkBull == 4, title = "bull B", style = shape.circle, location = location.belowbar, color = color.blue, text = "B", textcolor = color.blue, size = size.tiny)
+plotshape(iMarks and mkBull == 5, title = "bull C", style = shape.circle, location = location.belowbar, color = color.blue, text = "C", textcolor = color.blue, size = size.tiny)
+plotshape(iMarks and bigMaru and ccol == -1, title = "Big bearish marubozu", style = shape.triangleup, location = location.belowbar, color = color.red, text = "B", textcolor = color.red, size = size.tiny)
+plotshape(iMarks and bigMaru and ccol == 1, title = "Big bullish marubozu", style = shape.triangledown, location = location.abovebar, color = color.green, text = "B", textcolor = color.green, size = size.tiny)
+plotshape(iMarks and bigPin, title = "Big pinbar", style = shape.diamond, location = location.abovebar, color = color.orange, text = "P", textcolor = color.orange, size = size.tiny)
+
+// =====================================================================
+// IMBALANCE / FVG  -- as in V13.1
+// =====================================================================
+avg_range = ta.sma(c_range, 20)
+
+bull_gap          = low - nz(high[2], high)
+has_bull_maru     = (f_col(2) == 1 and f_type(2) == 4) or (f_col(1) == 1 and f_type(1) == 4) or (is_bull and is_marubozu)
+bull_maru_count   = (f_col(2) == 1 and f_type(2) == 4 ? 1 : 0) + (f_col(1) == 1 and f_type(1) == 4 ? 1 : 0) + (is_bull and is_marubozu ? 1 : 0)
+bull_is_small_gap = (bull_gap > 0) and (bull_gap < (avg_range * 0.25))
+
+bull_imb_type = 0
+if bull_gap > 0 and has_bull_maru
+    if bull_is_small_gap
+        bull_imb_type := 1
+    else if f_col(2) == -1
+        bull_imb_type := 2
+    else if f_col(2) == 1 and f_col(1) == 1 and is_bull and bull_maru_count >= 2
+        bull_imb_type := 3
+    else
+        bull_imb_type := 2
+
+bear_gap          = nz(low[2], low) - high
+has_bear_maru     = (f_col(2) == -1 and f_type(2) == 4) or (f_col(1) == -1 and f_type(1) == 4) or (is_bear and is_marubozu)
+bear_maru_count   = (f_col(2) == -1 and f_type(2) == 4 ? 1 : 0) + (f_col(1) == -1 and f_type(1) == 4 ? 1 : 0) + (is_bear and is_marubozu ? 1 : 0)
+bear_is_small_gap = (bear_gap > 0) and (bear_gap < (avg_range * 0.25))
+
+bear_imb_type = 0
+if bear_gap > 0 and has_bear_maru
+    if bear_is_small_gap
+        bear_imb_type := 1
+    else if f_col(2) == 1
+        bear_imb_type := 2
+    else if f_col(2) == -1 and f_col(1) == -1 and is_bear and bear_maru_count >= 2
+        bear_imb_type := 3
+    else
+        bear_imb_type := 2
+
+var line bull_imb_line_top = na
+var line bull_imb_line_bot = na
+var line bear_imb_line_top = na
+var line bear_imb_line_bot = na
+
+bool fvgLock = rngBlockFVG and rangeActive
+
+if showImbBox and not fvgLock
+    if bull_imb_type > 0
+        color cb = bull_imb_type == 3 ? colBullStrongest : bull_imb_type == 2 ? colBullStrong : colBullWeak
+        bool is_consecutive = not na(bull_imb_line_top) and (line.get_x2(bull_imb_line_top) == bar_index - 1)
+        if not is_consecutive
+            bull_imb_line_bot := line.new(bar_index[2], high[2], bar_index, high[2], color=cb, style=line.style_dotted, width=1)
+            bull_imb_line_top := line.new(bar_index[2], low, bar_index, low, color=cb, style=line.style_dotted, width=1)
+        else
+            line.set_y1(bull_imb_line_top, low)
+            line.set_y2(bull_imb_line_top, low)
+            line.set_x2(bull_imb_line_top, bar_index)
+            line.set_x2(bull_imb_line_bot, bar_index)
+            line.set_color(bull_imb_line_top, cb)
+            line.set_color(bull_imb_line_bot, cb)
+
+    if bear_imb_type > 0
+        color cs = bear_imb_type == 3 ? colBearStrongest : bear_imb_type == 2 ? colBearStrong : colBearWeak
+        bool is_consecutive2 = not na(bear_imb_line_top) and (line.get_x2(bear_imb_line_top) == bar_index - 1)
+        if not is_consecutive2
+            bear_imb_line_top := line.new(bar_index[2], low[2], bar_index, low[2], color=cs, style=line.style_dotted, width=1)
+            bear_imb_line_bot := line.new(bar_index[2], high, bar_index, high, color=cs, style=line.style_dotted, width=1)
+        else
+            line.set_y1(bear_imb_line_bot, high)
+            line.set_y2(bear_imb_line_bot, high)
+            line.set_x2(bear_imb_line_bot, bar_index)
+            line.set_x2(bear_imb_line_top, bar_index)
+            line.set_color(bear_imb_line_top, cs)
+            line.set_color(bear_imb_line_bot, cs)
+
+// =====================================================================
+// FIB ZONES  -- as in V13.1
+// =====================================================================
+float current_fib_high = msTrendState == 1 ? (na(candidateHigh) ? runningHigh : candidateHigh) : lastSwingHighPrice
+float current_fib_low  = msTrendState == -1 ? (na(candidateLow) ? runningLow : candidateLow) : lastSwingLowPrice
+int   current_fib_high_bar = msTrendState == 1 ? (na(candidateHigh) ? runningHighBar : candidateHighBar) : lastSwingHighBar
+int   current_fib_low_bar  = msTrendState == -1 ? (na(candidateLow) ? runningLowBar : candidateLowBar) : lastSwingLowBar
+
+swing_range = current_fib_high - current_fib_low
+bull_fib_618 = not na(swing_range) ? current_fib_high - (swing_range * 0.618) : na
+bull_fib_800 = not na(swing_range) ? current_fib_high - (swing_range * 0.800) : na
+bear_fib_618 = not na(swing_range) ? current_fib_low + (swing_range * 0.618) : na
+bear_fib_800 = not na(swing_range) ? current_fib_low + (swing_range * 0.800) : na
+
+var line l_bull_618 = na
+var line l_bull_800 = na
+var line l_bear_618 = na
+var line l_bear_800 = na
+
+if msTrendState == 1 and not na(bull_fib_618) and not na(bull_fib_800)
+    if na(l_bull_618)
+        l_bull_618 := line.new(current_fib_low_bar, bull_fib_618, bar_index, bull_fib_618, color=msFibColor, style=line.style_dotted)
+        l_bull_800 := line.new(current_fib_low_bar, bull_fib_800, bar_index, bull_fib_800, color=msFibColor, style=line.style_dotted)
+    else
+        line.set_xy1(l_bull_618, current_fib_low_bar, bull_fib_618)
+        line.set_xy2(l_bull_618, bar_index, bull_fib_618)
+        line.set_xy1(l_bull_800, current_fib_low_bar, bull_fib_800)
+        line.set_xy2(l_bull_800, bar_index, bull_fib_800)
+    if not na(l_bear_618)
+        line.set_xy1(l_bear_618, na, na)
+        line.set_xy1(l_bear_800, na, na)
+
+if msTrendState == -1 and not na(bear_fib_618) and not na(bear_fib_800)
+    if na(l_bear_618)
+        l_bear_618 := line.new(current_fib_high_bar, bear_fib_618, bar_index, bear_fib_618, color=msFibColor, style=line.style_dotted)
+        l_bear_800 := line.new(current_fib_high_bar, bear_fib_800, bar_index, bear_fib_800, color=msFibColor, style=line.style_dotted)
+    else
+        line.set_xy1(l_bear_618, current_fib_high_bar, bear_fib_618)
+        line.set_xy2(l_bear_618, bar_index, bear_fib_618)
+        line.set_xy1(l_bear_800, current_fib_high_bar, bear_fib_800)
+        line.set_xy2(l_bear_800, bar_index, bear_fib_800)
+    if not na(l_bull_618)
+        line.set_xy1(l_bull_618, na, na)
+        line.set_xy1(l_bull_800, na, na)
+
+// =====================================================================
+// DASHBOARD
+// =====================================================================
+dashPos = iDashPos == "Top Left" ? position.top_left : iDashPos == "Top Right" ? position.top_right : iDashPos == "Bottom Left" ? position.bottom_left : position.bottom_right
+var table dash = table.new(dashPos, 2, 6, bgcolor = color.new(#131722, 6), frame_color = color.new(#787B86, 40), frame_width = 1, border_color = color.new(#787B86, 75), border_width = 1)
+
+if barstate.islast and iDash
+    string tTxt = msTrendState == 1 ? "▲ Bullish" : msTrendState == -1 ? "▼ Bearish" : "–"
+    color tCol = msTrendState == 1 ? msBullColor : msTrendState == -1 ? msBearColor : color.gray
+    float pendC = msTrendState == 1 ? candidateHigh : msTrendState == -1 ? candidateLow : na
+    float keyL = msTrendState == 1 ? lastSwingLowPrice : msTrendState == -1 ? lastSwingHighPrice : na
+    string phTxt = na(pendC) ? "Impulse" : "Pullback locked"
+    string rTxt = boxState == 2 ? "R" + str.tostring(boxType) + (boxDir == 1 ? " ▲" : " ▼") : boxState == 1 ? "anchor pending" : boxState == 3 ? "FBO box" : "–"
+    table.cell(dash, 0, 0, "SMC Rohi", text_color = color.white, text_size = size.small, text_halign = text.align_left, bgcolor = color.new(#2962FF, 20), text_font_family = fontFam)
+    table.cell(dash, 1, 0, "Pro", text_color = color.white, text_size = size.small, text_halign = text.align_right, bgcolor = color.new(#2962FF, 20), text_font_family = fontFam)
+    table.cell(dash, 0, 1, "Trend", text_color = color.new(color.white, 35), text_size = size.small, text_halign = text.align_left, text_font_family = fontFam)
+    table.cell(dash, 1, 1, tTxt, text_color = tCol, text_size = size.small, text_halign = text.align_right, text_font_family = fontFam)
+    table.cell(dash, 0, 2, "Phase", text_color = color.new(color.white, 35), text_size = size.small, text_halign = text.align_left, text_font_family = fontFam)
+    table.cell(dash, 1, 2, phTxt, text_color = color.white, text_size = size.small, text_halign = text.align_right, text_font_family = fontFam)
+    table.cell(dash, 0, 3, "Pending CTS", text_color = color.new(color.white, 35), text_size = size.small, text_halign = text.align_left, text_font_family = fontFam)
+    table.cell(dash, 1, 3, na(pendC) ? "–" : str.tostring(pendC, format.mintick), text_color = color.white, text_size = size.small, text_halign = text.align_right, text_font_family = fontFam)
+    table.cell(dash, 0, 4, "Key level", text_color = color.new(color.white, 35), text_size = size.small, text_halign = text.align_left, text_font_family = fontFam)
+    table.cell(dash, 1, 4, na(keyL) ? "–" : str.tostring(keyL, format.mintick), text_color = color.white, text_size = size.small, text_halign = text.align_right, text_font_family = fontFam)
+    table.cell(dash, 0, 5, "Range", text_color = color.new(color.white, 35), text_size = size.small, text_halign = text.align_left, text_font_family = fontFam)
+    table.cell(dash, 1, 5, rTxt, text_color = boxState == 2 ? cRng : color.white, text_size = size.small, text_halign = text.align_right, text_font_family = fontFam)
+
+// =====================================================================
+// ALERTS
+// =====================================================================
+bool valid_pullback_down = strict_pb_down and not inRange and (msTrendState == 1)
+bool valid_pullback_up   = strict_pb_up   and not inRange and (msTrendState == -1)
+
+alertcondition(rangeSeed,            title="New Range Created",        message="SMC [Rohi]: New Price Action Range Created")
+alertcondition(bull_break_confirmed, title="Bullish Real Breakout",    message="SMC [Rohi]: Real Bullish Breakout Confirmed!")
+alertcondition(bear_break_confirmed, title="Bearish Real Breakout",    message="SMC [Rohi]: Real Bearish Breakout Confirmed!")
+alertcondition(valid_pullback_down,  title="Real Pullback Down",       message="SMC [Rohi]: Real Bearish Pullback (outside range)!")
+alertcondition(valid_pullback_up,    title="Real Pullback Up",         message="SMC [Rohi]: Real Bullish Pullback (outside range)!")
+alertcondition(rngRealUp,            title="Real Range Breakout Up",   message="SMC [Rohi]: Range closed by a real breakout UP")
+alertcondition(rngRealDown,          title="Real Range Breakout Down", message="SMC [Rohi]: Range closed by a real breakout DOWN")
+alertcondition(fboEvt,               title="FBO registered",           message="SMC [Rohi]: Fake Breakout registered")
