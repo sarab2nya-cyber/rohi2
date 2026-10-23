@@ -523,7 +523,7 @@ if barstate.isconfirmed
     // pending progress + registration
     if fboPend
         if iDbg
-            f_lbl(bar_index, fboPDir == 1 ? high : low, "S" + str.tostring(f_patId(fboPDir, noLine, false)) + " L" + str.tostring(f_patId(fboPDir, fboPLine, true)), color.purple, fboPDir == -1)
+            f_lbl(bar_index, fboPDir == 1 ? low : high, "S" + str.tostring(f_patId(fboPDir, noLine, false)) + " L" + str.tostring(f_patId(fboPDir, fboPLine, true)), color.purple, fboPDir == 1)
         fboPExt := fboPDir == 1 ? math.max(fboPExt, high) : math.min(fboPExt, low)
         if fboPDir == 1 ? close < fboPLine : close > fboPLine
             fboPConf := true
@@ -765,6 +765,10 @@ plotshape(iMarks and mkBull == 2, title = "bull cond.2/3", style = shape.circle,
 plotshape(iMarks and mkBull == 3, title = "bull A", style = shape.circle, location = location.belowbar, color = color.blue, text = "A", textcolor = color.blue, size = size.tiny)
 plotshape(iMarks and mkBull == 4, title = "bull B", style = shape.circle, location = location.belowbar, color = color.blue, text = "B", textcolor = color.blue, size = size.tiny)
 plotshape(iMarks and mkBull == 5, title = "bull C", style = shape.circle, location = location.belowbar, color = color.blue, text = "C", textcolor = color.blue, size = size.tiny)
+
+plotshape(iMarks and bigMaru and ccol == -1, title = "Big bearish marubozu", style = shape.triangleup, location = location.belowbar, color = color.red, text = "B", textcolor = color.red, size = size.tiny)
+plotshape(iMarks and bigMaru and ccol == 1, title = "Big bullish marubozu", style = shape.triangledown, location = location.abovebar, color = color.green, text = "B", textcolor = color.green, size = size.tiny)
+plotshape(iMarks and bigPin, title = "Big pinbar", style = shape.diamond, location = location.abovebar, color = color.orange, text = "P", textcolor = color.orange, size = size.tiny)
 
 alertcondition(ctsUpEvt, "CTS Up", "Real breakout of locked high (CTS up)")
 alertcondition(ctsDnEvt, "CTS Down", "Real breakout of locked low (CTS down)")
