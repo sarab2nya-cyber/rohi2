@@ -103,6 +103,9 @@ var array<int>   zzX  = array.new_int()
 var array<float> zzY  = array.new_float()
 var array<float> sExt  = array.new_float(2, na)    // snapshot of ext / corr at the end of the previous bar
 var array<float> sCorr = array.new_float(2, na)
+var array<int>   sExtBar  = array.new_int(2, 0)
+var array<int>   sCorrBar = array.new_int(2, 0)
+var array<int>   fakeBar  = array.new_int(2, 0)
 var line zzL1 = na
 var line zzL2 = na
 
@@ -148,6 +151,8 @@ int ctype = f_type(0)
 int ccol = f_col(0)
 float hh3 = ta.highest(high, 3)
 float ll3 = ta.lowest(low, 3)
+int hb3 = bar_index + ta.highestbars(high, 3)
+int lb3 = bar_index + ta.lowestbars(low, 3)
 
 f_isBig(array<float> same, array<float> allArr, float len) =>
     array<float> ref = same.size() >= iBigMin ? same : allArr
@@ -334,7 +339,7 @@ if barstate.isconfirmed
                     lastDir := -s
                     tcEvt := true
                     ext.set(j, s == 1 ? ll3 : hh3)
-                    extBar.set(j, bar_index)
+                    extBar.set(j, s == 1 ? lb3 : hb3)
                     corr.set(j, s == 1 ? high : low)
                     corrBar.set(j, bar_index)
                     phase.set(j, 0)
@@ -415,7 +420,7 @@ if barstate.isconfirmed
                                 closedBar := bar_index
                         // new wave starts on this candle
                         ext.set(i, s == 1 ? hh3 : ll3)
-                        extBar.set(i, bar_index)
+                        extBar.set(i, s == 1 ? hb3 : lb3)
                         corr.set(i, loS)
                         corrBar.set(i, bar_index)
                         phase.set(i, 0)
@@ -424,7 +429,7 @@ if barstate.isconfirmed
                         // new correction (V17.9): fake high then a Low below the old correction floor
                         if not na(fake.get(i)) and loS * s < corr.get(i) * s
                             ext.set(i, fake.get(i))
-                            extBar.set(i, bar_index)
+                            extBar.set(i, fakeBar.get(i))
                             corr.set(i, loS)
                             corrBar.set(i, bar_index)
                             fake.set(i, na)
@@ -433,6 +438,8 @@ if barstate.isconfirmed
                             corrBar.set(i, bar_index)
                         if hiS * s > ext.get(i) * s
                             float fk = fake.get(i)
+                            if na(fk) or (s == 1 ? hiS > fk : hiS < fk)
+                                fakeBar.set(i, bar_index)
                             fake.set(i, na(fk) ? hiS : (s == 1 ? math.max(fk, hiS) : math.min(fk, hiS)))
 
     // ---------------------------------------------------------------
@@ -630,49 +637,48 @@ if barstate.isconfirmed
         box.set_text_size(curBox, size.small)
 
     // ---------------------------------------------------------------
-    // [9] Wave zig-zag : tops (CTS) and correction extremes (BOS), higher lows in
-    //     an uptrend / lower highs in a downtrend, plus the live (unfinished) legs
+    // [9] Wave zig-zag : tops (CTS levels) and correction extremes (BOS), higher lows in an
+    //     uptrend / lower highs in a downtrend, plus the live (unfinished) legs.
+    //     Uses the exact bar indexes tracked by the structure engine (no price search).
     // ---------------------------------------------------------------
     if iZZ
         if ctsEvt
             int zi = ctsUpEvt ? 0 : 1
             float zTop = sExt.get(zi)
             float zLow = sCorr.get(zi)
-            if not na(zTop) and not na(zLow)
-                int bl = f_findBack(zLow, not ctsUpEvt, 0, 400)
-                if not na(bl)
-                    int bt = f_findBack(zTop, ctsUpEvt, bar_index - bl, 400)
-                    if not na(bt) and bt < bl
-                        f_zzAdd(bt, zTop)
-                        f_zzAdd(bl, zLow)
+            int zbt = sExtBar.get(zi)
+            int zbl = sCorrBar.get(zi)
+            if not na(zTop) and not na(zLow) and zbt < zbl
+                f_zzAdd(zbt, zTop)
+                f_zzAdd(zbl, zLow)
         if tcEvt
             int oi = trend == 1 ? 1 : 0
             float oTop = sExt.get(oi)
             if not na(oTop)
-                int ob = f_findBack(oTop, trend == -1, 0, 400)
-                if not na(ob)
-                    f_zzAdd(ob, oTop)
+                f_zzAdd(sExtBar.get(oi), oTop)
         line.delete(zzL1)
         line.delete(zzL2)
         int zn = zzX.size()
         if trend != 0 and zn > 0
             int li = trend == 1 ? 0 : 1
             float le = ext.get(li)
-            if not na(le)
-                int lx = zzX.get(zn - 1)
-                float ly = zzY.get(zn - 1)
-                int eb = f_findBack(le, trend == 1, 0, math.min(bar_index - lx, 400))
-                if not na(eb) and eb > lx
-                    zzL1 := line.new(lx, ly, eb, le, color = iZZCol, width = 1)
-                    if phase.get(li) == 1
-                        float lc = corr.get(li)
-                        int cb = f_findBack(lc, trend == -1, 0, bar_index - eb)
-                        if not na(cb) and cb > eb
-                            zzL2 := line.new(eb, le, cb, lc, color = iZZCol, width = 1)
+            int eb = extBar.get(li)
+            int lx = zzX.get(zn - 1)
+            if not na(le) and eb > lx
+                zzL1 := line.new(lx, zzY.get(zn - 1), eb, le, color = iZZCol, width = 1)
+                if phase.get(li) == 1
+                    float lc = corr.get(li)
+                    int cb = corrBar.get(li)
+                    if cb > eb
+                        zzL2 := line.new(eb, le, cb, lc, color = iZZCol, width = 1)
     sExt.set(0, ext.get(0))
     sExt.set(1, ext.get(1))
     sCorr.set(0, corr.get(0))
     sCorr.set(1, corr.get(1))
+    sExtBar.set(0, extBar.get(0))
+    sExtBar.set(1, extBar.get(1))
+    sCorrBar.set(0, corrBar.get(0))
+    sCorrBar.set(1, corrBar.get(1))
 
 // =====================================================================
 //  VISUALS / ALERTS
